@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling>=1.18.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tkouter"
+version = "0.2.0"
+description = "Flask-style decorator API for tkinter GUI: schema-driven, A11y-first, agent-compatible."
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "MIT" }
+authors = [{ name = "Takuya Nishimoto" }]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/nishimotz/tk-outer"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tkouter"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/tkouter", "README.md", "ROADMAP.md"]
+
+[tool.uv]
+package = true
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.409",
+]
