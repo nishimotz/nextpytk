@@ -1,6 +1,6 @@
-# ROADMAP — tkouter
+# ROADMAP — nextpytk
 
-tkouter の開発ロードマップ。
+nextpytk の開発ロードマップ。
 
 ---
 

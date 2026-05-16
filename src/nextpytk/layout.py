@@ -8,7 +8,7 @@ Two modes:
 
 Both are chainable: ``Layout().section("a").grid().widget("b").end_grid().section("c")``.
 
-Types from ``tkouter.types`` provide IDE autocomplete for options.
+Types from ``nextpytk.types`` provide IDE autocomplete for options.
 """
 
 from __future__ import annotations
@@ -17,10 +17,10 @@ import tkinter as tk
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from tkouter.types import ExpandLike, FillLike, SideLike
+from nextpytk.types import ExpandLike, FillLike, SideLike
 
 if TYPE_CHECKING:
-    from tkouter.app import TkApp
+    from nextpytk.app import TkApp
 
 
 # ── Internal block types (not part of public API) ──

@@ -1,4 +1,4 @@
-"""tkouter disk usage flat viewer — async version.
+"""nextpytk disk usage flat viewer — async version.
 
 ncdu-inspired flat list of disk usage per entry.
 - ``app.run_async()`` with asyncio event loop (Tk + asyncio cooperative scheduling)
@@ -13,9 +13,9 @@ import os
 import tkinter as tk
 from pathlib import Path
 
-from tkouter import TkApp, Layout
+from nextpytk import TkApp, Layout
 
-app = TkApp(title="tkouter 使用量 (async)")
+app = TkApp(title="nextpytk 使用量 (async)")
 
 
 # ─── helpers ───

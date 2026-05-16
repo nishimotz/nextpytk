@@ -1,6 +1,6 @@
-# README.md: tkouter — Flask-style Decorator API for Tkinter
+# README.md: nextpytk — Flask-style Decorator API for Tkinter
 
-tkouter は、Tkinter を Flask のデコレータ記法でラップする GUI フレームワーク。
+nextpytk は、Tkinter を Flask のデコレータ記法でラップする GUI フレームワーク。
 「人間にとってアクセシブルなものは、AI にとってもアクセシブルである」という信念のもと、
 A11y 属性（role / description）を WidgetSpec に組み込み、`schema()` で JSON エクスポート可能。
 
@@ -11,7 +11,7 @@ A11y 属性（role / description）を WidgetSpec に組み込み、`schema()` �
 ### 1.1 Decorator API（Flask ライク）
 
 ```python
-from tkouter import TkApp, Layout
+from nextpytk import TkApp, Layout
 
 app = TkApp(title="Hello")
 
@@ -50,7 +50,7 @@ app.run(layout=b.build())
 `app.run(multiview="name")` で起動する。
 
 ```python
-from tkouter import TkApp, Layout
+from nextpytk import TkApp, Layout
 
 app = TkApp(title="マルチタブアプリ")
 
@@ -96,10 +96,10 @@ app.run(multiview="main")
 
 ### 1.5 型付きオプション（IDE 補完）
 
-`tkouter.types` が Tkinter の文字列定数を Literal 型 + 名前空間クラスで提供。
+`nextpytk.types` が Tkinter の文字列定数を Literal 型 + 名前空間クラスで提供。
 
 ```python
-from tkouter.types import Side, Fill, Sticky
+from nextpytk.types import Side, Fill, Sticky
 
 Layout().section("msg", side=Side.LEFT, fill=Fill.X)
 # または直接文字列でも OK: side="left", fill="x"
@@ -156,7 +156,7 @@ Layout().section("msg").section("phase", "count").section("start", "pause")
 **Grid ビルダー:**
 
 ```python
-from tkouter.types import Sticky
+from nextpytk.types import Sticky
 
 Layout().grid()
   .span(2).widget("title", sticky=Sticky.W)
@@ -187,7 +187,7 @@ Grid builder メソッド:
 ### 3.3 With-block（コンテキストマネージャ）
 
 ```python
-from tkouter import LayoutBuilder
+from nextpytk import LayoutBuilder
 
 # スタンドアロン
 builder = LayoutBuilder()
@@ -217,18 +217,18 @@ app.run(layout=b.build())
 
 | ファイル | 内容 |
 |----------|------|
-| `examples/tkouter_grid_temp.py` | grid レイアウト・温度変換 |
-| `examples/tkouter_task_panel.py` | 複数ラベル＋エントリ＋ボタンの状態管理 |
-| `examples/tkouter_multiscreen.py` | 画面遷移・注文アプリ |
-| `examples/tkouter_widget_gallery.py` | 全ウィジェット種別＋multiview によるタブ切替 |
+| `examples/grid_temp.py` | grid レイアウト・温度変換 |
+| `examples/task_panel.py` | 複数ラベル＋エントリ＋ボタンの状態管理 |
+| `examples/multiscreen.py` | 画面遷移・注文アプリ |
+| `examples/widget_gallery.py` | 全ウィジェット種別＋multiview によるタブ切替 |
 | `examples/disk_usage_flat_viewer.py` | ディスク使用量フラットビューア（同期版、ncdu風） |
 | `examples/disk_usage_flat_async.py` | ディスク使用量フラットビューア（非同期版、ncdu風） |
 
 ```bash
-uv run python examples/tkouter_grid_temp.py
-uv run python examples/tkouter_task_panel.py
-uv run python examples/tkouter_multiscreen.py
-uv run python examples/tkouter_widget_gallery.py
+uv run python examples/grid_temp.py
+uv run python examples/task_panel.py
+uv run python examples/multiscreen.py
+uv run python examples/widget_gallery.py
 uv run python examples/disk_usage_flat_viewer.py
 uv run python examples/disk_usage_flat_async.py
 ```
@@ -294,7 +294,7 @@ app.run_async(layout=Layout().section("status"))
 
 ### Web の三層構造との対応
 
-| Web | tkouter |
+| Web | nextpytk |
 |-----|---------|
 | HTML（マークアップ） | `@app.label(...)` / `@app.button(...)` によるウィジェット登録 |
 | CSS（スタイル） | 将来: Tk option / ttk.Style を `Layout` 経由で注入 |
@@ -302,10 +302,10 @@ app.run_async(layout=Layout().section("status"))
 
 ### 既存ライブラリとの関係
 
-- **`tkinter`（標準）**: ベースとして尊重。tkouter はその上に Decorator / Schema / A11y 層を載せる
+- **`tkinter`（標準）**: ベースとして尊重。nextpytk はその上に Decorator / Schema / A11y 層を載せる
 - **`ttk`**: OS ネイティブな見た目と A11y を継承
-- **`CustomTkinter`**: モダン L&F の先行事例。Canvas 描画が A11y 的に空白になる課題に対し、tkouter は A11y を最初から組み込む
-- **`TkRouter`** (israel-dryer, ttkbootstrap 作者): URL風パス・アニメーション遷移・履歴スタックによる宣言的ルーティング。tkouter の `multiview` と補完関係（画面遷移 vs ウィジェット構築）
+- **`CustomTkinter`**: モダン L&F の先行事例。Canvas 描画が A11y 的に空白になる課題に対し、nextpytk は A11y を最初から組み込む
+- **`TkRouter`** (israel-dryer, ttkbootstrap 作者): URL風パス・アニメーション遷移・履歴スタックによる宣言的ルーティング。nextpytk の `multiview` と補完関係（画面遷移 vs ウィジェット構築）
 
 ---
 

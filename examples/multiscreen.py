@@ -1,4 +1,4 @@
-"""tkouter multi-screen sample: simple order-taking UI.
+"""nextpytk multi-screen sample: simple order-taking UI.
 
 - Several widget kinds (label, button, entry; more can be added)
 - Extra state besides on-screen text (counter, list, selection, screen id)
@@ -15,7 +15,7 @@ State keys:
 
 import tkinter as tk
 from tkinter import ttk
-from tkouter import TkApp, Layout
+from nextpytk import TkApp, Layout
 
 app = TkApp(title="注文管理")
 

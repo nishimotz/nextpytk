@@ -1,4 +1,4 @@
-"""tkouter disk usage flat viewer — synchronous directory scanner.
+"""nextpytk disk usage flat viewer — synchronous directory scanner.
 
 ncdu-inspired flat list of disk usage per entry.
 - Listbox with name + du-style recursive size
@@ -20,9 +20,9 @@ import tkinter as tk
 from collections import OrderedDict
 from pathlib import Path
 
-from tkouter import TkApp, Layout
+from nextpytk import TkApp, Layout
 
-app = TkApp(title="tkouter 使用量 (flat)")
+app = TkApp(title="nextpytk 使用量 (flat)")
 
 
 # ─── helper: human-readable bytes ───

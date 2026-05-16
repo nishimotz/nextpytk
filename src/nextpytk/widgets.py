@@ -1,4 +1,4 @@
-"""Widget metadata for tkouter: pure schema, no tkinter references."""
+"""Widget metadata for nextpytk: pure schema, no tkinter references."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Any
 class WidgetSpec:
     """Schema for one named widget slot. Pure data: no tkinter references.
 
-    This is the key insight of tkouter: the Python-side representation of a
+    This is the key insight of nextpytk: the Python-side representation of a
     widget is nothing but a schema entry + callback. The actual GUI object
     lives in tkinter. Python doesn't need to own it.
     """

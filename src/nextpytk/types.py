@@ -6,7 +6,7 @@ value and the type through the same name.
 
 Usage::
 
-    from tkouter.types import Side, Fill
+    from nextpytk.types import Side, Fill
     Layout().section("msg", side=Side.LEFT, fill=Fill.X)
 """
 

@@ -1,8 +1,8 @@
-"""tkouter widget gallery — all widgets via ``with app.view(name):``."""
+"""nextpytk widget gallery — all widgets via ``with app.view(name):``."""
 
-from tkouter import TkApp, Layout
+from nextpytk import TkApp, Layout
 
-app = TkApp(title="Widget Gallery — tkouter")
+app = TkApp(title="Widget Gallery — nextpytk")
 
 
 INITIAL_STATE: dict[str, str] = {

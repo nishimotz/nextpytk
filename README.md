@@ -1,6 +1,6 @@
-# tkouter — Flask-style Decorator API for Tkinter
+# nextpytk — Flask-style Decorator API for Tkinter
 
-tkouter wraps Tkinter in Python decorators, inspired by Flask.
+nextpytk wraps Tkinter in Python decorators, inspired by Flask.
 Widget registration and layout are decoupled via dependency injection.
 All widgets expose a JSON schema for AI/LLM consumption.
 Uses ttk widgets where available (Button, Entry, Checkbutton, Radiobutton, Scale, Spinbox, Notebook).
@@ -10,7 +10,7 @@ Uses ttk widgets where available (Button, Entry, Checkbutton, Radiobutton, Scale
 ## Quick Start
 
 ```python
-from tkouter import TkApp, Layout
+from nextpytk import TkApp, Layout
 
 app = TkApp(title="Hello")
 
@@ -46,7 +46,7 @@ app.run(layout=b.build())
 ## Multiview (Multi-tab)
 
 ```python
-from tkouter import TkApp, Layout
+from nextpytk import TkApp, Layout
 
 app = TkApp(title="Multi-tab App")
 
@@ -109,7 +109,7 @@ Layout().section("msg").section("phase", "count").section("start", "pause")
 **Grid builder:**
 
 ```python
-from tkouter.types import Sticky
+from nextpytk.types import Sticky
 
 Layout().grid()
   .span(2).widget("title", sticky=Sticky.W)
@@ -142,7 +142,7 @@ Grid builder methods:
 ### With-block (context manager)
 
 ```python
-from tkouter import LayoutBuilder
+from nextpytk import LayoutBuilder
 
 # Standalone builder
 builder = LayoutBuilder()
@@ -199,7 +199,7 @@ Label options:
 ## Typed Constants
 
 ```python
-from tkouter.types import Side, Fill, Sticky, State, Orient
+from nextpytk.types import Side, Fill, Sticky, State, Orient
 
 Layout().section("msg", side=Side.LEFT, fill=Fill.X)
 ```
@@ -253,10 +253,10 @@ app.run_async(layout=Layout().section("status"))
 ## Examples
 
 ```bash
-uv run python examples/tkouter_grid_temp.py          # temperature converter
-uv run python examples/tkouter_task_panel.py          # multi-button panel
-uv run python examples/tkouter_multiscreen.py         # order app with screens
-uv run python examples/tkouter_widget_gallery.py      # all widget types
+uv run python examples/grid_temp.py          # temperature converter
+uv run python examples/task_panel.py          # multi-button panel
+uv run python examples/multiscreen.py         # order app with screens
+uv run python examples/widget_gallery.py      # all widget types
 uv run python examples/disk_usage_flat_viewer.py      # ncdu-style viewer (sync)
 uv run python examples/disk_usage_flat_async.py       # ncdu-style viewer (async)
 ```
@@ -276,10 +276,10 @@ uv run python examples/disk_usage_flat_async.py       # ncdu-style viewer (async
 
 ## Related Projects
 
-- **`tkinter` (stdlib)**: tkouter builds on top — adding Decorator / Schema / A11y layers.
-- **`ttk`**: Native look and accessibility; tkouter prefers ttk widgets where available.
-- **`CustomTkinter`**: Modern look via Canvas rendering. tkouter takes the opposite approach: use native widgets and embed A11y from the start.
-- **`TkRouter`** (israel-dryer, author of ttkbootstrap): Declarative view routing with URL-style paths, animated transitions, and history stack. Complements tkouter's `multiview` — routing vs widget composition.
+- **`tkinter` (stdlib)**: nextpytk builds on top — adding Decorator / Schema / A11y layers.
+- **`ttk`**: Native look and accessibility; nextpytk prefers ttk widgets where available.
+- **`CustomTkinter`**: Modern look via Canvas rendering. nextpytk takes the opposite approach: use native widgets and embed A11y from the start.
+- **`TkRouter`** (israel-dryer, author of ttkbootstrap): Declarative view routing with URL-style paths, animated transitions, and history stack. Complements nextpytk's `multiview` — routing vs widget composition.
 
 ## License
 

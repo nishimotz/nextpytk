@@ -18,11 +18,11 @@ import tkinter.ttk as ttk
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
 
-from tkouter.types import FillLike, OrientLike, SelectModeLike, SideLike, StateLike
-from tkouter.widgets import WidgetSpec
+from nextpytk.types import FillLike, OrientLike, SelectModeLike, SideLike, StateLike
+from nextpytk.widgets import WidgetSpec
 
 if TYPE_CHECKING:
-    from tkouter.layout import Layout, LayoutBuilder
+    from nextpytk.layout import Layout, LayoutBuilder
 
 # ── asyncio helper: wrapper around root.after for async scheduling ──
 TkAppAfterHandle: TypeAlias = str  # root.after returns a string id
@@ -275,7 +275,7 @@ class TkApp:
         if view_layouts:
             for k, v in view_layouts.items():
                 if isinstance(v, list):
-                    from tkouter.layout import Layout
+                    from nextpytk.layout import Layout
                     view_layouts[k] = Layout.from_list(v)
             layouts.update(view_layouts)
         unknown = sorted(set(layouts.keys()) - set(views))
@@ -803,9 +803,9 @@ class TkApp:
             return ""
         spec = self._entry_spec(name)
         if spec is not None and spec.placeholder_as_hint:
-            if getattr(w, "_tkouter_ph_active", False):
+            if getattr(w, "_nextpytk_ph_active", False):
                 return ""
-            ph = getattr(w, "_tkouter_placeholder", "") or ""
+            ph = getattr(w, "_nextpytk_placeholder", "") or ""
             if ph and var.get() == ph:
                 return ""
         return var.get()
@@ -819,14 +819,14 @@ class TkApp:
             spec = self._entry_spec(name)
             if spec is None or not spec.placeholder_as_hint:
                 return
-            ph = getattr(w, "_tkouter_placeholder", "") or ""
+            ph = getattr(w, "_nextpytk_placeholder", "") or ""
             if not ph:
                 return
-            if getattr(w, "_tkouter_ph_active", False) or var.get() == ph:
+            if getattr(w, "_nextpytk_ph_active", False) or var.get() == ph:
                 var.set("")
-                setattr(w, "_tkouter_ph_active", False)
+                setattr(w, "_nextpytk_ph_active", False)
                 try:
-                    w.configure(foreground=getattr(w, "_tkouter_fg_normal",
+                    w.configure(foreground=getattr(w, "_nextpytk_fg_normal",
                                                    w.cget("foreground")))
                 except Exception:
                     pass
@@ -842,12 +842,12 @@ class TkApp:
             spec = self._entry_spec(name)
             if spec is None or not spec.placeholder_as_hint:
                 return
-            ph = getattr(w, "_tkouter_placeholder", "") or ""
+            ph = getattr(w, "_nextpytk_placeholder", "") or ""
             if not ph:
                 return
             if not var.get().strip():
                 var.set(ph)
-                setattr(w, "_tkouter_ph_active", True)
+                setattr(w, "_nextpytk_ph_active", True)
                 try:
                     w.configure(foreground="grey")
                 except Exception:
@@ -859,20 +859,20 @@ class TkApp:
                                         var: tk.Variable, s: str) -> None:
         spec = self._entry_spec(name)
         if spec is None or not spec.placeholder_as_hint:
-            setattr(w, "_tkouter_ph_active", False)
+            setattr(w, "_nextpytk_ph_active", False)
             try:
-                w.configure(foreground=getattr(w, "_tkouter_fg_normal",
+                w.configure(foreground=getattr(w, "_nextpytk_fg_normal",
                                                 w.cget("foreground")))
             except Exception:
                 pass
             return
-        ph = getattr(w, "_tkouter_placeholder", "") or ""
+        ph = getattr(w, "_nextpytk_placeholder", "") or ""
         try:
-            fg0 = getattr(w, "_tkouter_fg_normal", w.cget("foreground"))
+            fg0 = getattr(w, "_nextpytk_fg_normal", w.cget("foreground"))
         except Exception:
-            fg0 = getattr(w, "_tkouter_fg_normal", None)
+            fg0 = getattr(w, "_nextpytk_fg_normal", None)
         if not ph:
-            setattr(w, "_tkouter_ph_active", False)
+            setattr(w, "_nextpytk_ph_active", False)
             try:
                 if fg0 is not None:
                     w.configure(foreground=fg0)
@@ -880,14 +880,14 @@ class TkApp:
                 pass
             return
         if s.strip():
-            setattr(w, "_tkouter_ph_active", False)
+            setattr(w, "_nextpytk_ph_active", False)
             try:
                 if fg0 is not None:
                     w.configure(foreground=fg0)
             except Exception:
                 pass
             return
-        setattr(w, "_tkouter_ph_active", False)
+        setattr(w, "_nextpytk_ph_active", False)
         try:
             if fg0 is not None:
                 w.configure(foreground=fg0)
@@ -897,7 +897,7 @@ class TkApp:
         if focus is not None and str(focus) == str(w):
             return
         var.set(ph)
-        setattr(w, "_tkouter_ph_active", True)
+        setattr(w, "_nextpytk_ph_active", True)
         try:
             w.configure(foreground="grey")
         except Exception:
@@ -984,13 +984,13 @@ class TkApp:
                 if spec.placeholder_as_hint and spec.placeholder:
                     ph = spec.placeholder
                     var.set(ph)
-                    setattr(w, "_tkouter_ph_active", True)
-                    setattr(w, "_tkouter_placeholder", ph)
+                    setattr(w, "_nextpytk_ph_active", True)
+                    setattr(w, "_nextpytk_placeholder", ph)
                     try:
-                        setattr(w, "_tkouter_fg_normal", w.cget("foreground"))
+                        setattr(w, "_nextpytk_fg_normal", w.cget("foreground"))
                         w.configure(foreground="grey")
                     except Exception:
-                        setattr(w, "_tkouter_fg_normal", None)
+                        setattr(w, "_nextpytk_fg_normal", None)
                     w.bind("<FocusIn>", lambda _e, n=spec.name: self._entry_focus_in(n))
                     w.bind("<FocusOut>", lambda _e, n=spec.name: self._entry_focus_out(n))
                 if spec.on_update is not None:
@@ -1195,7 +1195,7 @@ class TkApp:
                     b.widget("fahrenheit", sticky="ew")
             app.run(layout=b.build())
         """
-        from tkouter.layout import LayoutBuilder
+        from nextpytk.layout import LayoutBuilder
         return LayoutBuilder()
 
     def run(
@@ -1249,7 +1249,7 @@ class TkApp:
 
         if layout is not None:
             if isinstance(layout, list):
-                from tkouter.layout import Layout
+                from nextpytk.layout import Layout
                 layout = Layout.from_list(layout)
             layout.mount_frames(self)
 

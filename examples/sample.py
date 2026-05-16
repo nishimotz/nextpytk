@@ -2,10 +2,10 @@
 
 Usage::
 
-    uv run python examples/tkouter_sample.py
+    uv run python examples/sample.py
 """
 
-from tkouter import TkApp, Layout
+from nextpytk import TkApp, Layout
 
 app = TkApp(title="Flask-style decorator サンプル")
 

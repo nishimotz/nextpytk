@@ -1,10 +1,10 @@
-"""tkouter grid layout sample: temperature converter.
+"""nextpytk grid layout sample: temperature converter.
 
 Demonstrates fluent grid builder with widget/next_row/col_weight/end_grid.
 """
 
-from tkouter import TkApp, Layout
-from tkouter.types import Sticky
+from nextpytk import TkApp, Layout
+from nextpytk.types import Sticky
 
 app = TkApp(title="温度変換")
 

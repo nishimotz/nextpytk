@@ -6,16 +6,16 @@ sync:
 	uv sync --python $(PYTHON)
 
 run: sync
-	uv run --python $(PYTHON) python examples/tkouter_grid_temp.py
+	uv run --python $(PYTHON) python examples/grid_temp.py
 
 run-multiscreen: sync
-	uv run --python $(PYTHON) python examples/tkouter_multiscreen.py
+	uv run --python $(PYTHON) python examples/multiscreen.py
 
 run-task-panel: sync
-	uv run --python $(PYTHON) python examples/tkouter_task_panel.py
+	uv run --python $(PYTHON) python examples/task_panel.py
 
 run-gallery: sync
-	uv run --python $(PYTHON) python examples/tkouter_widget_gallery.py
+	uv run --python $(PYTHON) python examples/widget_gallery.py
 
 run-du-flat: sync
 	uv run --python $(PYTHON) python examples/disk_usage_flat_viewer.py

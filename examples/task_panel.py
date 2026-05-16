@@ -1,11 +1,11 @@
-"""tkouter demo: labels, entries, buttons updating a **shared state dict**.
+"""nextpytk demo: labels, entries, buttons updating a **shared state dict**.
 
 Shows the decorator API + section-based layout.
 """
 
-from tkouter import TkApp, Layout
+from nextpytk import TkApp, Layout
 
-app = TkApp(title="tkouter task panel")
+app = TkApp(title="nextpytk task panel")
 
 
 # --- Status row ---

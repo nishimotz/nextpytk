@@ -3,7 +3,7 @@ requires = ["hatchling>=1.18.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "tkouter"
+name = "nextpytk"
 version = "0.2.0"
 description = "Flask-style decorator API for tkinter GUI: schema-driven, A11y-first, agent-compatible."
 readme = "README.md"
@@ -16,10 +16,10 @@ dependencies = []
 Homepage = "https://github.com/nishimotz/tk-outer"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/tkouter"]
+packages = ["src/nextpytk"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/tkouter", "README.md", "ROADMAP.md"]
+include = ["src/nextpytk", "README.md", "ROADMAP.md"]
 
 [tool.uv]
 package = true
