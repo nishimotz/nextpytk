@@ -22,7 +22,7 @@ from tkouter.types import FillLike, OrientLike, SelectModeLike, SideLike, StateL
 from tkouter.widgets import WidgetSpec
 
 if TYPE_CHECKING:
-    from tkouter.layout import Layout
+    from tkouter.layout import Layout, LayoutBuilder
 
 # ── asyncio helper: wrapper around root.after for async scheduling ──
 TkAppAfterHandle: TypeAlias = str  # root.after returns a string id
@@ -135,7 +135,7 @@ class TkApp:
         self._grid_pack_jobs: list[tuple[tk.Frame, Any]] = []
         self._view_widgets: dict[str, list[str]] = {}
         self._view_layouts: dict[str, Layout] = {}
-        self._notebooks: dict[str, dict[str, Any]] = {}
+        self._multiviews: dict[str, dict[str, Any]] = {}
         self._current_view: str | None = None
         self._event_loop: asyncio.AbstractEventLoop | None = None
         self._jobs: dict[str, AsyncJob] = {}
@@ -181,7 +181,7 @@ class TkApp:
     def view_layout(self, view_name: str) -> Layout | None:
         return self._view_layouts.get(view_name)
 
-    def notebook(
+    def multiview(
         self,
         name: str,
         *,
@@ -192,15 +192,15 @@ class TkApp:
         center_kinds: set[str] | None = None,
         on_tab_change: NotebookTabChange | None = None,
     ) -> Callable[[F], F]:
-        """Declare a notebook configuration by name.
+        """Declare a multiview configuration by name.
 
         Example::
 
-            @app.notebook("main", views=["Home", "Settings"])
+            @app.multiview("main", views=["Home", "Settings"])
             def _main_tabs():
                 pass
 
-            app.run(notebook="main")
+            app.run(multiview="main")
         """
         cfg: dict[str, Any] = {
             "views": list(views),
@@ -210,7 +210,7 @@ class TkApp:
             "center_kinds": set(center_kinds) if center_kinds else None,
             "on_tab_change": on_tab_change,
         }
-        self._notebooks[name] = cfg
+        self._multiviews[name] = cfg
 
         def decorator(fn: F) -> F:
             return fn
@@ -246,7 +246,7 @@ class TkApp:
         self._sync_widgets()
         self._sync_widget_states()
 
-    def run_notebook(
+    def run_multiview(
         self,
         *,
         views: list[str],
@@ -267,12 +267,16 @@ class TkApp:
         self.set_root(root)
         self.clear_runtime()
 
-        notebook = ttk.Notebook(root)
+        nb = ttk.Notebook(root)
         frames: dict[str, tk.Frame] = {}
         jobs_by_view: dict[str, tuple[Layout, list[Any], list[Any]]] = {}
 
         layouts = dict(self._view_layouts)
         if view_layouts:
+            for k, v in view_layouts.items():
+                if isinstance(v, list):
+                    from tkouter.layout import Layout
+                    view_layouts[k] = Layout.from_list(v)
             layouts.update(view_layouts)
         unknown = sorted(set(layouts.keys()) - set(views))
         if unknown:
@@ -282,7 +286,7 @@ class TkApp:
             self.set_widget_master(name, root)
 
         for view in views:
-            frame = tk.Frame(notebook, name=f"tabframe_{view}")
+            frame = tk.Frame(nb, name=f"tabframe_{view}")
             frames[view] = frame
             if view in layouts:
                 layout = layouts[view]
@@ -304,9 +308,9 @@ class TkApp:
             if w is not None:
                 w.pack(fill="x", padx=5, pady=1)
 
-        notebook.pack(fill="both", expand=True, padx=5, pady=5)
+        nb.pack(fill="both", expand=True, padx=5, pady=5)
         for view in views:
-            notebook.add(frames[view], text=view)
+            nb.add(frames[view], text=view)
 
         centered = center_kinds or set()
         for view in views:
@@ -317,19 +321,19 @@ class TkApp:
                 self.pack_view_widgets(view, center_kinds=centered, fill="x", pady=2)
 
         def _on_tab_changed(_event: tk.Event[tk.Misc] | None = None) -> None:
-            current = notebook.select()
+            current = nb.select()
             if not current:
                 return
-            view = str(notebook.tab(current, "text"))
+            view = str(nb.tab(current, "text"))
             if on_tab_change is None:
                 return
             update = on_tab_change(view)
             if update:
                 self.apply_state(update)
 
-        notebook.bind("<<NotebookTabChanged>>", _on_tab_changed)
+        nb.bind("<<NotebookTabChanged>>", _on_tab_changed)
         if views:
-            notebook.select(0)
+            nb.select(0)
             _on_tab_changed()
 
         if on_ready is not None:
@@ -1179,12 +1183,27 @@ class TkApp:
         except Exception:
             pass
 
+    def layout(self) -> LayoutBuilder:
+        """Return a LayoutBuilder for declarative ``with``-block layout construction.
+
+        Usage::
+
+            with app.layout() as b:
+                b.section("title")
+                with b.grid(col_weights=(0, 1)):
+                    b.widget("celsius", sticky="ew")
+                    b.widget("fahrenheit", sticky="ew")
+            app.run(layout=b.build())
+        """
+        from tkouter.layout import LayoutBuilder
+        return LayoutBuilder()
+
     def run(
         self,
         *,
         layout: Any = None,
         initial_state: dict[str, Any] | None = None,
-        notebook: str | None = None,
+        multiview: str | None = None,
         on_ready: Callable[[TkApp], None] | None = None,
         geometry: str | None = None,
     ) -> None:
@@ -1195,19 +1214,19 @@ class TkApp:
         key bindings, or other imperative setup that needs widgets to exist.
         geometry: initial window size, e.g. "640x480".
         """
-        if notebook is not None:
+        if multiview is not None:
             if layout is not None:
-                raise ValueError("layout and notebook cannot be used together in run()")
-            cfg = self._notebooks.get(notebook)
+                raise ValueError("layout and multiview cannot be used together in run()")
+            cfg = self._multiviews.get(multiview)
             if cfg is None:
-                raise ValueError(f"Notebook '{notebook}' is not declared")
+                raise ValueError(f"Multiview '{multiview}' is not declared")
             declared_initial = cfg.get("initial_state") or {}
             merged_initial: dict[str, Any] | None
             if initial_state:
                 merged_initial = {**declared_initial, **initial_state}
             else:
                 merged_initial = declared_initial or None
-            self.run_notebook(
+            self.run_multiview(
                 views=cfg["views"],
                 toplevel_widgets=cfg["toplevel_widgets"],
                 initial_state=merged_initial,
@@ -1229,6 +1248,9 @@ class TkApp:
         self._grid_pack_jobs.clear()
 
         if layout is not None:
+            if isinstance(layout, list):
+                from tkouter.layout import Layout
+                layout = Layout.from_list(layout)
             layout.mount_frames(self)
 
         self._build_widgets()
@@ -1251,7 +1273,7 @@ class TkApp:
         *,
         layout: Any = None,
         initial_state: dict[str, Any] | None = None,
-        notebook: str | None = None,
+        multiview: str | None = None,
         on_ready: Callable[[TkApp], None] | None = None,
         geometry: str | None = None,
     ) -> None:
@@ -1260,21 +1282,21 @@ class TkApp:
         Use ``app.spawn(coro)`` inside ``on_ready`` to schedule async tasks.
         geometry: initial window size, e.g. "640x480".
         """
-        if notebook is not None:
+        if multiview is not None:
             if layout is not None:
                 raise ValueError(
-                    "layout and notebook cannot be used together in run_async()"
+                    "layout and multiview cannot be used together in run_async()"
                 )
-            cfg = self._notebooks.get(notebook)
+            cfg = self._multiviews.get(multiview)
             if cfg is None:
-                raise ValueError(f"Notebook '{notebook}' is not declared")
+                raise ValueError(f"Multiview '{multiview}' is not declared")
             declared_initial = cfg.get("initial_state") or {}
             merged_initial: dict[str, Any] | None
             if initial_state:
                 merged_initial = {**declared_initial, **initial_state}
             else:
                 merged_initial = declared_initial or None
-            self.run_notebook(
+            self.run_multiview(
                 views=cfg["views"],
                 toplevel_widgets=cfg["toplevel_widgets"],
                 initial_state=merged_initial,

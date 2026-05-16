@@ -15,7 +15,7 @@ tkouter の開発ロードマップ。
 ### ウィジェット拡張
 
 - [x] ttk widget 対応（ttk.Button, ttk.Entry, ttk.Notebook など）
-- [x] `@app.notebook` デコレータ（マルチタブ）
+- [x] `@app.multiview` デコレータ（マルチタブ）
 - [ ] `bind` イベントの decorator 登録
 
 ### A11y 実適用
@@ -33,7 +33,7 @@ tkouter の開発ロードマップ。
 
 - [x] `build_widgets()`, `widget()`, `widget_kind()`, `widget_specs()`
 - [x] `apply_state()`, `sync()` — カスタムランナーから再利用可能
-- [x] `app.run(notebook="...")` エントリポイント
+- [x] `app.run(multiview="...")` エントリポイント
 
 ### Agent / LLM 連携
 

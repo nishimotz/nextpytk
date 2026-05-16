@@ -5,7 +5,6 @@ Widget registration and layout are decoupled via dependency injection.
 All widgets expose a JSON schema for AI/LLM consumption.
 Uses ttk widgets where available (Button, Entry, Checkbutton, Radiobutton, Scale, Spinbox, Notebook).
 
-
 ---
 
 ## Quick Start
@@ -26,9 +25,25 @@ def on_greet(values):
 app.run(layout=Layout().section("msg").section("greet"))
 ```
 
+**Three layout styles — pick the one that fits:**
+
+```python
+# 1) Simple list (easiest)
+app.run(layout=["msg", "greet"])
+
+# 2) Fluent DSL
+app.run(layout=Layout().section("msg").section("greet"))
+
+# 3) with-block (context manager)
+with app.layout() as b:
+    b.section("msg")
+    b.section("greet")
+app.run(layout=b.build())
+```
+
 ---
 
-## Notebook (Multi-tab)
+## Multiview (Multi-tab)
 
 ```python
 from tkouter import TkApp, Layout
@@ -48,29 +63,50 @@ with app.view("Tab2", layout=Layout().section("t2_label")) as v:
     @v.label("t2_label")
     def t2_label(): return "Tab 2 content"
 
-@app.notebook(
+@app.multiview(
     "main",
     views=["Tab1", "Tab2"],
     toplevel_widgets=("header",),
     initial_state={"tab": "Tab1"},
     on_tab_change=lambda tab: {"tab": tab},
 )
-def main_notebook(): pass
+def main_multiview(): pass
 
-app.run(notebook="main")
+app.run(multiview="main")
 ```
+
+View layouts also accept lists or with-block builders:
+
+```python
+@app.multiview("main", views=["Home", "Settings"],
+    view_layouts={"Home": ["title", "start"], "Settings": ["timer", "status"]})
+```
+
+---
 
 ## Layout DSL
 
-Widget registration and layout are decoupled.
+### Simple list
 
-### Pack sections
+```python
+app.run(layout=["title", "timer", "start", "status"])
+```
+
+Each name gets its own pack-based section. Extra kwargs forwarded to `section()`:
+
+```python
+Layout.from_list(["a", "b"], fill="both", expand=True)
+```
+
+### Fluent DSL
+
+**Pack sections:**
 
 ```python
 Layout().section("msg").section("phase", "count").section("start", "pause")
 ```
 
-### Grid builder
+**Grid builder:**
 
 ```python
 from tkouter.types import Sticky
@@ -84,7 +120,8 @@ Layout().grid()
 .end_grid()
 ```
 
-Methods:
+Grid builder methods:
+
 | Method | Description |
 |--------|-------------|
 | `widget(name, *, sticky, padx, pady, colspan, rowspan)` | Place widget at cursor, advance column |
@@ -101,6 +138,33 @@ Methods:
 | `end_grid()` | Return to Layout chain |
 
 `col_weights(0, 1, 1)` means column 0 → weight 0, column 1 → weight 1, column 2 → weight 1.
+
+### With-block (context manager)
+
+```python
+from tkouter import LayoutBuilder
+
+# Standalone builder
+builder = LayoutBuilder()
+with builder:
+    builder.section("title")
+    with builder.grid(col_weights=(0, 1)):
+        builder.widget("celsius", sticky="ew")
+        builder.widget("fahrenheit", sticky="ew")
+        builder.next_row().span(2).widget("note")
+app.run(layout=builder.build())
+
+# Via app.layout() shortcut
+with app.layout() as b:
+    b.section("title")
+    with b.grid(col_weights=(0, 1)):
+        b.widget("celsius", sticky="ew")
+app.run(layout=b.build())
+```
+
+`with b.grid(...)` auto-closes — no `end_grid()` needed.
+
+`grid()` options available directly: `col_weights=(0,1)`, `row_weights=(...)`, `padx`, `pady`, `fill`, `expand`, `uniform`.
 
 ---
 
@@ -209,6 +273,13 @@ uv run python examples/disk_usage_flat_async.py       # ncdu-style viewer (async
 > You can switch runtimes per command, e.g. `make run PYTHON=3.13`, `make run PYTHON=3.14+freethreaded`, `make run PYTHON=3.15`.
 
 ---
+
+## Related Projects
+
+- **`tkinter` (stdlib)**: tkouter builds on top — adding Decorator / Schema / A11y layers.
+- **`ttk`**: Native look and accessibility; tkouter prefers ttk widgets where available.
+- **`CustomTkinter`**: Modern look via Canvas rendering. tkouter takes the opposite approach: use native widgets and embed A11y from the start.
+- **`TkRouter`** (israel-dryer, author of ttkbootstrap): Declarative view routing with URL-style paths, animated transitions, and history stack. Complements tkouter's `multiview` — routing vs widget composition.
 
 ## License
 

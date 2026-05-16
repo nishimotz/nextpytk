@@ -249,16 +249,16 @@ with app.view(
         return _get_state("lb_msg", "選択: なし")
 
 
-@app.notebook(
+@app.multiview(
     "gallery",
     views=TAB_NAMES,
     toplevel_widgets=("title", "msg"),
     initial_state=INITIAL_STATE,
     on_tab_change=lambda tab: {"tab": tab, "msg": ""},
 )
-def gallery_notebook() -> None:
+def gallery_multiview() -> None:
     """Notebook declaration for the widget gallery."""
 
 
 if __name__ == "__main__":
-    app.run(notebook="gallery")
+    app.run(multiview="gallery")

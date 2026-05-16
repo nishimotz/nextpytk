@@ -91,6 +91,24 @@ class Layout:
         ))
         return self
 
+    # ── factory ──
+
+    @classmethod
+    def from_list(cls, widgets: list[str], **kw: Any) -> Layout:
+        """Build a layout from a simple list of widget names.
+
+        Each name gets its own pack-based section (one Frame per widget).
+        Extra keyword args are forwarded to each ``section()`` call.
+
+        Example::
+
+            layout = Layout.from_list(["title", "timer", "start", "status"])
+        """
+        layout = cls()
+        for name in widgets:
+            layout.section(name, **kw)
+        return layout
+
     # ── grid ──
 
     def grid(
@@ -344,4 +362,151 @@ class _GridBuilder:
 
     def end_grid(self) -> Layout:
         """Finish grid block, return to Layout DSL."""
+        return self._layout
+
+
+# ── Context-manager LayoutBuilder ──
+
+class LayoutBuilder:
+    """Context-manager API for declarative layout construction.
+
+    Build layouts with ``with`` blocks instead of chaining::
+
+        builder = LayoutBuilder()
+        with builder:
+            builder.section("title")
+            with builder.grid(col_weights=(0, 1)):
+                builder.widget("celsius", sticky="ew")
+                builder.widget("fahrenheit", sticky="ew")
+                builder.next_row().span(2).widget("note")
+        layout = builder.build()
+
+    ``LayoutBuilder`` produces a ``Layout`` that can be passed to
+    ``app.run(layout=...)`` or ``view_layouts``.
+    """
+
+    def __init__(self) -> None:
+        self._layout = Layout()
+        self._stack: list[_GridBuilder | Layout] = [self._layout]
+
+    # ── with-block entry/exit ──
+
+    def __enter__(self) -> LayoutBuilder:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        # Balance any unclosed grid blocks.
+        while len(self._stack) > 1:
+            self._pop_grid()
+
+    # ── section ──
+
+    def section(
+        self,
+        *widgets: str,
+        side: SideLike = "top",
+        fill: FillLike = "x",
+        expand: ExpandLike = False,
+        padx: int = 4,
+        pady: int = 2,
+    ) -> None:
+        """Add a pack-based section to the layout."""
+        self._layout.section(
+            *widgets, side=side, fill=fill,
+            expand=expand, padx=padx, pady=pady,
+        )
+
+    # ── grid block (context manager) ──
+
+    def grid(
+        self,
+        *,
+        padx: int = 4,
+        pady: int = 2,
+        fill: FillLike = "x",
+        expand: ExpandLike = False,
+        uniform: str = "",
+        col_weights: tuple[int, ...] = (),
+        row_weights: tuple[int, ...] = (),
+    ) -> LayoutBuilder:
+        """Enter a grid block. Returns self for ``with ... as ...`` use.
+
+        Example::
+
+            with builder.grid(col_weights=(1, 2)):
+                builder.widget("a")
+                builder.widget("b")
+        """
+        block = _Grid(
+            cells={}, padx=padx, pady=pady,
+            fill=fill, expand=expand, uniform=uniform,
+        )
+        for i, w in enumerate(col_weights):
+            block.col_weights[i] = w
+        for i, w in enumerate(row_weights):
+            block.row_weights[i] = w
+        self._layout._blocks.append(block)
+        gb = _GridBuilder(self._layout, block)
+        self._stack.append(gb)
+        return self
+
+    # ── grid-builder methods (delegated when inside grid) ──
+
+    def _current_grid(self) -> _GridBuilder:
+        """Return the innermost _GridBuilder on the stack."""
+        for item in reversed(self._stack):
+            if isinstance(item, _GridBuilder):
+                return item
+        raise RuntimeError("widget() / next_row() only valid inside grid block")
+
+    def _pop_grid(self) -> None:
+        if len(self._stack) > 1:
+            self._stack.pop()
+
+    def __exit__grid(self) -> None:
+        """Called by with-block __exit__ when a grid block ends."""
+        self._pop_grid()
+
+    def widget(
+        self,
+        name: str,
+        *,
+        sticky: str = "",
+        padx: int = 2,
+        pady: int = 1,
+        colspan: int | None = None,
+        rowspan: int = 1,
+    ) -> None:
+        """Place a widget at the current grid cursor."""
+        self._current_grid().widget(
+            name, sticky=sticky, padx=padx, pady=pady,
+            colspan=colspan, rowspan=rowspan,
+        )
+
+    def next_row(self) -> LayoutBuilder:
+        """Advance grid cursor to next row."""
+        self._current_grid().next_row()
+        return self
+
+    def next_col(self, n: int = 1) -> LayoutBuilder:
+        """Skip grid cursor forward n columns."""
+        self._current_grid().next_col(n)
+        return self
+
+    def at(self, row: int, col: int) -> LayoutBuilder:
+        """Jump grid cursor to absolute (row, col)."""
+        self._current_grid().at(row, col)
+        return self
+
+    def span(self, cols: int) -> LayoutBuilder:
+        """Set column span for the next widget() call."""
+        self._current_grid().span(cols)
+        return self
+
+    # ── build ──
+
+    def build(self) -> Layout:
+        """Finalize and return the Layout."""
+        while len(self._stack) > 1:
+            self._pop_grid()
         return self._layout
