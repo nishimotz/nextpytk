@@ -122,7 +122,7 @@ print(app.schema())
 ## 2. セットアップ
 
 ```bash
-cd tk-outer
+cd nextpytk
 uv sync --python 3.14
 ```
 

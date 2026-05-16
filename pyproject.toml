@@ -13,7 +13,7 @@ authors = [{ name = "Takuya Nishimoto" }]
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/nishimotz/tk-outer"
+Homepage = "https://github.com/nishimotz/nextpytk"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nextpytk"]
