@@ -1,68 +1,87 @@
 # ROADMAP — nextpytk
 
-nextpytk の開発ロードマップ。
+## Snapshot (v0.3.0)
+
+### Implemented widgets (`@app.*`)
+
+| kind | Notes |
+|------|-------|
+| `label` / `status` / `message` | Display / word-wrap |
+| `button` / `entry` | ttk, `state=` support |
+| `checkbutton` / `radiobutton` / `scale` / `spinbox` | ttk |
+| `text` / `listbox` / `canvas` | tk (Text: tags, paired sync pending) |
+| `treeview` | Multi-column (`show="headings"`) |
+| `paned` | `ttk.Panedwindow` + `with app.pane(...)` |
+| `progressbar` | `state[key]` / `{name}_running` for determinate/indeterminate |
+| `bind` | Global shortcuts (annotates matching button) |
+
+Infrastructure: `Layout` (pack/grid), `@app.multiview`, `run` / `run_async` / `spawn` / `@app.job`, `schema()`, builder registry, a11y choke point `_apply_a11y`.
 
 ---
 
-## 直近（v0.2.x）
+## Near term (v0.3.x)
 
-### 型ヒント強化
+### Type hints
 
-- [ ] デコレータ引数の TypedDict / Protocol 化（Pyright/mypy 補完）
-- [ ] tkinter 定数を活かした Literal 型（`tk.LEFT`, `tk.RIGHT`, `tk.NSEW` など）
-- [ ] `_GridBuilder.columnconfigure` 相当の fluent API
+- [ ] TypedDict / Protocol for decorator arguments (Pyright/mypy completion)
+- [ ] Literal types for tkinter constants (`tk.LEFT`, `tk.RIGHT`, `tk.NSEW`, etc.)
+- [ ] Fluent API equivalent to `_GridBuilder.columnconfigure`
 
-### ウィジェット拡張
+### Widget expansion
 
-- [x] ttk widget 対応（ttk.Button, ttk.Entry, ttk.Notebook など）
-- [x] `@app.multiview` デコレータ（マルチタブ）
-- [ ] `bind` イベントの decorator 登録
+- [ ] `@app.combobox` / `@app.menubar`
+- [ ] Per-widget `bind` (`<<ListboxSelect>>`, `<Double-1>`, etc. — separate from global `bind`)
+- [ ] listbox callback value design: pass selection index instead of display string (unify with `treeview`)
+- [ ] `@app.text` enhancements — `tag_config`, read-only, paired sync scroll
 
-### A11y 実適用
+### A11y
 
-- [ ] Tk 9.1 `::tk::accessible::*` への role/name 結線
-- [ ] `WidgetSpec.role` → 実際の accessibility 属性反映
+- [ ] Tk 9.1 `tk accessible set_acc_*` real-device verification (9.1b0 + NVDA)
+- [ ] Role vocabulary mapping to Tk side
+- [ ] Automatic `emit_selection_change` (leverage `apply_state` knowing which widgets changed)
 
-### Layout DSL 充実
+### Layout DSL
 
-- [x] `grid` の `rowconfigure` / `columnconfigure` 相当（`col_weights`/`row_weights`/`rowspan`）
-- [ ] ネストフレーム（`Layout` 内で `Layout` を入れ子に）
-- [ ] `padx`/`pady` のデフォルト値一元設定
+- [ ] Nested frames (`Layout` inside `Layout`)
+- [ ] Global default for `padx`/`pady`
+- [ ] `Layout.paired(..., sync_yscroll=True)` — left/right text sync
 
-### 公開ランタイム API
+### Public runtime API
 
 - [x] `build_widgets()`, `widget()`, `widget_kind()`, `widget_specs()`
-- [x] `apply_state()`, `sync()` — カスタムランナーから再利用可能
-- [x] `app.run(multiview="...")` エントリポイント
+- [x] `apply_state()`, `sync()` — reusable from custom runners
+- [x] `app.run(multiview="...")` entry point
+- [x] `register_widget_builder()` — public API for custom kinds
 
-### Agent / LLM 連携
+### Agent / LLM integration
 
-- [ ] `schema()` を Function Calling 定義としての露出改善
-- [ ] `@agent_tool` 統合（GUI 操作をエージェント語彙として扱う）
+- [ ] Expose `schema()` as Function Calling definition (bind `sequence`, treeview column defs, etc.)
+- [ ] `@agent_tool` integration (GUI operations as agent vocabulary)
+- [ ] `@app.filepicker` — `filedialog` wrapper (tool name in schema)
 
 ---
 
-## 中長期
+## Longer term
 
-### ttk Style レイヤー
+### ttk Style layer
 
-- [ ] `Layout.style("my_button", background=..., font=...)` 的なスタイル定義
-- [ ] テーマ切替（`ttk.Style().theme_use(...)`）
+- [ ] `Layout.style("my_button", background=..., font=...)` style definitions
+- [ ] Theme switching (`ttk.Style().theme_use(...)`)
 
-### 非同期ジョブ統合
+### Async job integration
 
-- [x] `app.run_async()` + `app.spawn()` — async event loop と Tk の共存
-- [x] `app.spawn(asyncio.to_thread(...))` で非ブロッキングバックグラウンドジョブ
-- [x] 実例同期版: `disk_usage_flat_viewer.py`
-- [x] 実例非同期版: `disk_usage_flat_async.py`（`app.run_async()` + `app.spawn()`）
-- [x] `@app.job(name)` 連携 — async コールバックの @app デコレータ登録
+- [x] `app.run_async()` + `app.spawn()` — async event loop coexisting with Tk
+- [x] `app.spawn(asyncio.to_thread(...))` for non-blocking background jobs
+- [x] Sync example: `disk_usage_flat_viewer.py`
+- [x] Async example: `disk_usage_flat_async.py` (`app.run_async()` + `app.spawn()`)
+- [x] `@app.job(name)` — register async callbacks as @app decorators
 
-### 宣言的コンポーネント
+### Declarative components
 
-- [ ] `Layout` に代わる `@app.component` デコレータ（React ライクな再利用）
-- [ ] state の型定義とバリデーション（ただし Pydantic は使わない）
+- [ ] `@app.component` decorator (React-like reuse, replacing `Layout`)
+- [ ] State type definitions and validation (no Pydantic)
 
-### テスト
+### Testing
 
-- [ ] ヘッドレス実行テスト（`TKOUTER_HEADLESS=1`）
-- [ ] WidgetSpec 単位のユニットテスト
+- [x] Headless execution tests (`tests/` — withdrawn root, build/apply_state/callback drive)
+- [ ] WidgetSpec unit tests

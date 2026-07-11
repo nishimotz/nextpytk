@@ -158,3 +158,19 @@ class SelectMode:
     EXTENDED: Literal["extended"] = "extended"
 
 SelectModeLike = Literal["single", "browse", "multiple", "extended"]
+
+
+# ── takefocus (Tab key focus traversal) ──
+
+class TakeFocus:
+    """Widget ``takefocus`` option for Tab-order control.
+
+    Use ``TakeFocus.YES`` / ``TakeFocus.NO`` / ``TakeFocus.DEFAULT``.
+    ``DEFAULT`` (``\"\"``) lets Tk decide per widget class.
+    """
+
+    DEFAULT: Literal[""] = ""
+    YES: Literal[1] = 1
+    NO: Literal[0] = 0
+
+TakeFocusLike = bool | Literal["", 0, 1]

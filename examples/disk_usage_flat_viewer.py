@@ -131,8 +131,10 @@ def detail_lbl():
 def on_file_list_select(value):
     if not value:
         return {"detail_lbl": "（行を選択）"}
+    # value は表示文字列 "サイズ\t名前[/]" — 名前部分だけ取り出す
+    name = value.split("\t", 1)[-1].rstrip("/")
     for p, is_dir, sz in _lines:
-        if p.name == value:
+        if p.name == name:
             kind = "ディレクトリ" if is_dir else "ファイル"
             szs = human_bytes(sz) if sz >= 0 else "?"
             return {"detail_lbl": f"{kind}: {p} · {szs}"}
@@ -189,10 +191,10 @@ def _populate_file_list() -> None:
         "status_lbl": "待機中 — 親へ / BackSpace、ディレクトリで Return",
     })
 
-    # Trigger detail update for first item
+    # Trigger detail update for first item (programmatic selection does not
+    # fire <<ListboxSelect>>, and the returned state dict must be applied)
     first = w.get(0) if w.size() > 0 else ""
-    if first:
-        on_file_list_select(first.split("\t", 1)[-1].rstrip("/"))
+    app.apply_state(on_file_list_select(first))
 
 
 def _go_parent() -> None:

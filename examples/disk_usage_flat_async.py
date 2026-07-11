@@ -130,9 +130,11 @@ def detail_lbl():
 @app.listbox("file_list", height=18, selectmode="browse", enabled_if=lambda vals: not _busy)
 def on_file_list_select(value: str) -> dict[str, str]:
     if not value:
-        return {}
+        return {"detail_lbl": "（行を選択）"}
+    # value は表示文字列 "サイズ\t名前[/]" — 名前部分だけ取り出す
+    name = value.split("\t", 1)[-1].rstrip("/")
     for p, is_dir, sz in _lines:
-        if p.name == value:
+        if p.name == name:
             kind = "ディレクトリ" if is_dir else "ファイル"
             szs = human_bytes(sz) if sz >= 0 else "?"
             return {"detail_lbl": f"{kind}: {p} · {szs}"}
@@ -158,13 +160,13 @@ def _apply_scan_result(
         _busy = False
         return
 
+    _busy = False  # before touching the list: enabled_if gates updates
     w.delete(0, "end")
     _lines.clear()
 
     cur = cwd()
     lines, total_bytes, n, err = outcome
     if err:
-        _busy = False
         _error = err
         the_app.apply_state({
             "path_lbl": str(cur),
@@ -180,17 +182,20 @@ def _apply_scan_result(
         mark = "/" if is_dir else ""
         w.insert("end", f"{human_bytes(sz) if sz >= 0 else '?'}\t{p.name}{mark}")
 
+    detail = "（行を選択）"
     if w.size() > 0:
         w.selection_clear(0)
         w.selection_set(0)
         w.activate(0)
         w.see(0)
+        # programmatic selection は <<ListboxSelect>> を発火しないので手動で
+        detail = on_file_list_select(w.get(0)).get("detail_lbl", detail)
 
-    _busy = False
     the_app.apply_state({
         "path_lbl": str(cur),
         "summary_lbl": f"エントリ {n} 件 · 表示の合計 {human_bytes(total_bytes)}",
         "status_lbl": "待機中 — 親へ / BackSpace、ディレクトリで Return",
+        "detail_lbl": detail,
     })
     the_app.sync()
 

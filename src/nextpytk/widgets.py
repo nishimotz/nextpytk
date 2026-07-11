@@ -19,7 +19,8 @@ class WidgetSpec:
     name: str
 
     # Widget kind: label | status | message | button | entry | checkbutton
-    #              | radiobutton | text | scale | spinbox | listbox | canvas
+    #              | radiobutton | text | scale | spinbox | listbox | treeview
+    #              | paned | progressbar | canvas | bind
     kind: str
 
     # Common label / display text
@@ -40,6 +41,10 @@ class WidgetSpec:
     # Buttons: conditional disable
     enabled_if: Callable[[dict[str, Any]], bool] | None = None
 
+    # Key bindings: list of (sequence, label) tuples
+    # e.g. [("<Control-s>", "Ctrl+S"), ("<Alt-Down>", "Alt+Down")]
+    bindings: list[tuple[str, str]] = field(default_factory=list)
+
     # Extra widget-type-specific parameters (checkbutton values, listbox items,
-    # spinbox range, scale range, text dimensions, etc.)
+    # spinbox range, scale range, text dimensions, takefocus for Tab order, etc.)
     extras: dict[str, Any] = field(default_factory=dict)
