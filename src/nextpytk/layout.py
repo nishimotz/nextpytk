@@ -17,7 +17,7 @@ import tkinter as tk
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from nextpytk.types import ExpandLike, FillLike, SideLike
+from nextpytk.types import ExpandLike, FillLike, OrientLike, SideLike
 
 if TYPE_CHECKING:
     from nextpytk.app import TkApp
@@ -34,8 +34,23 @@ class _Row:
     expand: ExpandLike = False
     padx: int = 4
     pady: int = 2
+    minsize: int | None = None
     # Per-widget pack opts (for future: individual widget packing hints)
     widget_opts: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+
+@dataclass
+class _Paned:
+    """Internal: pack a registered ``app.paned`` widget with pane minsizes."""
+    name: str
+    minsizes: tuple[int, ...] = ()
+    weights: tuple[int, ...] = ()
+    orient: OrientLike | None = None
+    side: SideLike = "top"
+    fill: FillLike = "both"
+    expand: ExpandLike = True
+    padx: int = 4
+    pady: int = 2
 
 
 @dataclass
@@ -54,7 +69,33 @@ class _Grid:
     row_minsize: dict[int, int] = field(default_factory=dict)
 
 
-_Block = _Row | _Grid
+_Block = _Row | _Grid | _Paned
+
+
+def _pack_section_frame(parent: tk.Misc, block: _Row) -> tk.Frame:
+    """Pack a section frame, optionally enforcing ``block.minsize``."""
+    if block.minsize is None or block.minsize <= 0:
+        frame = tk.Frame(parent)
+        frame.pack(
+            side="top", fill=block.fill, expand=block.expand,
+            padx=block.padx, pady=block.pady,
+        )
+        return frame
+
+    container = tk.Frame(parent)
+    container.pack(
+        side="top", fill=block.fill, expand=block.expand,
+        padx=block.padx, pady=block.pady,
+    )
+    if block.fill in ("both", "y"):
+        container.grid_rowconfigure(0, weight=1, minsize=block.minsize)
+        container.columnconfigure(0, weight=1)
+    else:
+        container.grid_columnconfigure(0, weight=1, minsize=block.minsize)
+        container.rowconfigure(0, weight=1)
+    frame = tk.Frame(container)
+    frame.grid(row=0, column=0, sticky="nsew")
+    return frame
 
 
 # ── Public API ──
@@ -75,11 +116,15 @@ class Layout:
         expand: ExpandLike = False,
         padx: int = 4,
         pady: int = 2,
+        minsize: int | None = None,
     ) -> Layout:
         """Add a pack-based section.
 
         One Frame is created; widgets are pack'ed inside it side-by-side.
         When a single widget is passed, fill/expand also apply to the child.
+
+        ``minsize``: minimum pixels along the grow axis — height for
+        ``fill=\"both\"`` / ``fill=\"y\"``, width for ``fill=\"x\"``.
         """
         ws = list(widgets)
         actual_side: SideLike = side
@@ -87,7 +132,43 @@ class Layout:
             actual_side = "left"
         self._blocks.append(_Row(
             widgets=ws, side=actual_side, fill=fill,
-            expand=expand, padx=padx, pady=pady,
+            expand=expand, padx=padx, pady=pady, minsize=minsize,
+        ))
+        return self
+
+    def paned(
+        self,
+        name: str,
+        *,
+        minsizes: tuple[int, ...] | list[int] = (),
+        weights: tuple[int, ...] | list[int] = (),
+        orient: OrientLike | None = None,
+        side: SideLike = "top",
+        fill: FillLike = "both",
+        expand: ExpandLike = True,
+        padx: int = 4,
+        pady: int = 2,
+    ) -> Layout:
+        """Place a registered ``app.paned(name, ...)`` with per-pane minimum sizes.
+
+        ``minsize`` per pane uses ``tk.PanedWindow`` when any value is ``> 0``
+        (``ttk.Panedwindow`` does not support pane ``minsize`` on macOS).
+
+        Example::
+
+            app.paned("workspace", panes=("left", "right"))
+            Layout().paned("workspace", minsizes=(160, 240), weights=(1, 2))
+        """
+        self._blocks.append(_Paned(
+            name=name,
+            minsizes=tuple(minsizes),
+            weights=tuple(weights),
+            orient=orient,
+            side=side,
+            fill=fill,
+            expand=expand,
+            padx=padx,
+            pady=pady,
         ))
         return self
 
@@ -146,6 +227,8 @@ class Layout:
         for block in self._blocks:
             if isinstance(block, _Row):
                 out.update(block.widgets)
+            elif isinstance(block, _Paned):
+                out.add(block.name)
             elif isinstance(block, _Grid):
                 out.update(block.cells.keys())
         return out
@@ -164,6 +247,7 @@ class Layout:
         """
         row_jobs: list[tuple[tk.Frame, _Row]] = []
         grid_jobs: list[tuple[tk.Frame, _Grid]] = []
+        app._layout_paned_opts = {}
 
         def _ensure_allowed(name: str) -> None:
             if allowed_widgets is not None and name not in allowed_widgets:
@@ -171,15 +255,32 @@ class Layout:
 
         for block in self._blocks:
             if isinstance(block, _Row):
-                frame = tk.Frame(parent)
-                frame.pack(
-                    side="top", fill=block.fill, expand=block.expand,
-                    padx=block.padx, pady=block.pady,
-                )
+                frame = _pack_section_frame(parent, block)
                 for name in block.widgets:
                     _ensure_allowed(name)
                     app._widget_masters[name] = frame
                 row_jobs.append((frame, block))
+            elif isinstance(block, _Paned):
+                _ensure_allowed(block.name)
+                frame = tk.Frame(parent)
+                frame.pack(
+                    side=block.side, fill=block.fill, expand=block.expand,
+                    padx=block.padx, pady=block.pady,
+                )
+                app._widget_masters[block.name] = frame
+                opts: dict[str, Any] = {
+                    "minsizes": block.minsizes,
+                    "weights": block.weights,
+                }
+                if block.orient is not None:
+                    opts["orient"] = block.orient
+                app._layout_paned_opts[block.name] = opts
+                row_jobs.append((frame, _Row(
+                    widgets=[block.name],
+                    side="top",
+                    fill=block.fill,
+                    expand=block.expand,
+                )))
             elif isinstance(block, _Grid):
                 frame = tk.Frame(parent)
                 frame.pack(
@@ -234,6 +335,7 @@ class Layout:
         app._row_pack_jobs = []
         app._grid_pack_jobs = []
         app._widget_masters = {}
+        app._layout_paned_opts = {}
         root = app._root
         if root is None:
             raise RuntimeError("Tk root is not initialized. Set app._root before mounting.")
@@ -409,11 +511,38 @@ class LayoutBuilder:
         expand: ExpandLike = False,
         padx: int = 4,
         pady: int = 2,
+        minsize: int | None = None,
     ) -> None:
         """Add a pack-based section to the layout."""
         self._layout.section(
             *widgets, side=side, fill=fill,
-            expand=expand, padx=padx, pady=pady,
+            expand=expand, padx=padx, pady=pady, minsize=minsize,
+        )
+
+    def paned(
+        self,
+        name: str,
+        *,
+        minsizes: tuple[int, ...] | list[int] = (),
+        weights: tuple[int, ...] | list[int] = (),
+        orient: OrientLike | None = None,
+        side: SideLike = "top",
+        fill: FillLike = "both",
+        expand: ExpandLike = True,
+        padx: int = 4,
+        pady: int = 2,
+    ) -> None:
+        """Place ``app.paned(name)`` with per-pane ``minsizes`` (see ``Layout.paned``)."""
+        self._layout.paned(
+            name,
+            minsizes=minsizes,
+            weights=weights,
+            orient=orient,
+            side=side,
+            fill=fill,
+            expand=expand,
+            padx=padx,
+            pady=pady,
         )
 
     # ── grid block (context manager) ──
