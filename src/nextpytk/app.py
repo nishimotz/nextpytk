@@ -49,6 +49,23 @@ AsyncJob = Callable[..., Awaitable[dict[str, Any] | None]]
 F = TypeVar("F", bound=Callable[..., Any])
 NotebookTabChange = Callable[[str], dict[str, Any] | None]
 
+
+def _levenshtein(a: str, b: str) -> int:
+    """Return the Levenshtein edit distance between two strings."""
+    if len(a) < len(b):
+        return _levenshtein(b, a)
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, start=1):
+        curr = [i]
+        for j, cb in enumerate(b, start=1):
+            cost = 0 if ca == cb else 1
+            curr.append(min(curr[-1] + 1, prev[j] + 1, prev[j - 1] + cost))
+        prev = curr
+    return prev[-1]
+
+
 # ── callback type aliases ──
 
 # label/status: no arg, returns str or state dict
@@ -1158,6 +1175,7 @@ class TkApp:
     def _apply_state_dict(self, update: dict[str, Any], *, full: bool) -> None:
         """Merge *update* into state and refresh affected widgets."""
         self._state.update(update)
+        self._warn_unknown_state_keys(update)
         for key, val in update.items():
             var = self._tk_vars.get(key)
             if var is None:
@@ -1178,6 +1196,48 @@ class TkApp:
         if full:
             self._sync_progressbars()
             self._sync_widget_states()
+
+    def _known_state_keys(self) -> set[str]:
+        """Return the set of state keys that have meaning in the app."""
+        keys: set[str] = set()
+        for spec in self._widgets:
+            if spec.kind == "checkbutton":
+                keys.add(str(spec.extras.get("state_key", spec.name)))
+            elif spec.kind == "radiobutton":
+                keys.add(str(spec.extras.get("group_key", "radio")))
+            elif spec.kind == "scale":
+                keys.add(str(spec.extras.get("state_key", spec.name)))
+            elif spec.kind == "spinbox":
+                keys.add(str(spec.extras.get("state_key", spec.name)))
+            elif spec.kind == "treeview":
+                keys.add(str(spec.extras.get("rows_key", f"{spec.name}_rows")))
+                keys.add(spec.name)
+            elif spec.kind == "progressbar":
+                keys.add(str(spec.extras.get("state_key", spec.name)))
+                keys.add(f"{spec.name}_running")
+            elif spec.kind in ("label", "status", "message", "entry", "text",
+                               "listbox", "button", "bind"):
+                keys.add(spec.name)
+        return keys
+
+    def _warn_unknown_state_keys(self, update: dict[str, Any]) -> None:
+        """Warn when a callback returns a state key no widget recognizes.
+
+        Helps catch typos like ``{"mgs": ...}`` instead of ``{"msg": ...}``.
+        """
+        if not self._widgets:
+            return
+        known = self._known_state_keys()
+        unknown = [k for k in update.keys() if k not in known]
+        if not unknown:
+            return
+        for key in unknown:
+            suggestion = min(known, key=lambda k: _levenshtein(k, key)) if known else None
+            hint = f" Did you mean {suggestion!r}?" if suggestion else ""
+            msg = f"nextpytk: callback returned unknown state key {key!r}.{hint}"
+            print(msg, file=sys.stderr)
+        if self._debug:
+            raise KeyError(f"unknown state key(s): {unknown}")
 
     def _entry_values_dict(self) -> dict[str, Any]:
         values: dict[str, Any] = {}

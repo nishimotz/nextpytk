@@ -1,16 +1,19 @@
-# nextpytk — Flask-style Decorator API for Tkinter
+# nextpytk — Accessible, declarative Tkinter applications from ordinary Python functions
 
-nextpytk wraps Tkinter in Python decorators, inspired by Flask.
-Widget registration and layout are decoupled via dependency injection.
-All widgets expose a JSON schema for AI/LLM consumption.
-Uses ttk widgets where available (Button, Entry, Checkbutton, Radiobutton, Scale, Spinbox, Notebook).
+nextpytk lets you describe GUI structure, state, and accessibility intent with Python decorators and plain functions.
+
+- **Real widgets** are built from your declarations.
+- **ttk widgets** are preferred for native look and accessibility.
+- **`schema()`** exports a machine-readable application description — a foundation for agent integration.
+
+The API is small and dependency-free.
 
 ---
 
 ## Quick Start
 
 ```python
-from nextpytk import TkApp, Layout
+from nextpytk import TkApp
 
 app = TkApp(title="Hello")
 
@@ -22,23 +25,7 @@ def msg():
 def on_greet(values):
     return {"msg": "Button clicked!"}
 
-app.run(layout=Layout().section("msg").section("greet"))
-```
-
-**Three layout styles — pick the one that fits:**
-
-```python
-# 1) Simple list (easiest)
 app.run(layout=["msg", "greet"])
-
-# 2) Fluent DSL
-app.run(layout=Layout().section("msg").section("greet"))
-
-# 3) with-block (context manager)
-with app.layout() as b:
-    b.section("msg")
-    b.section("greet")
-app.run(layout=b.build())
 ```
 
 ---
@@ -111,13 +98,15 @@ Layout().section("msg").section("phase", "count").section("start", "pause")
 ```python
 from nextpytk.types import Sticky
 
-Layout().grid()
-  .span(2).widget("title", sticky=Sticky.W)
-  .next_row()
-  .widget("label", sticky=Sticky.RIGHT).widget("input", sticky=Sticky.LEFT_RIGHT)
-  .next_row()
-  .span(2).widget("ok")
-.end_grid()
+layout = (
+    Layout().grid()
+    .span(2).widget("title", sticky=Sticky.W)
+    .next_row()
+    .widget("label", sticky=Sticky.RIGHT).widget("input", sticky=Sticky.LEFT_RIGHT)
+    .next_row()
+    .span(2).widget("ok")
+    .end_grid()
+)
 ```
 
 Grid builder methods:
@@ -223,14 +212,14 @@ accept raw strings too.
 ## Schema Export (Agent/LLM)
 
 ```python
-@label("temperature")
+@app.label("temperature")
 def t(): return "25°C"
 
 app.schema()
 # → {"title": "...", "widgets": [{"name": "temperature", "kind": "label", ...}]}
 ```
 
-Output is JSON-compatible and can serve as LLM Function Calling definitions.
+The schema output is JSON-compatible. It is a **foundation** for generating agent tool definitions, not a complete Function Calling definition itself. See the roadmap for planned `@agent_tool` integration.
 
 ---
 
@@ -265,9 +254,11 @@ uv run python examples/disk_usage_flat_async.py       # ncdu-style viewer (async
 
 ## Requirements
 
-- Python 3.14 by default (`PYTHON=...` override supported)
+- Python 3.13+
 - Tkinter support in your Python build
 - No other dependencies
+
+The default development Python is 3.14 (`PYTHON=...` overrides it).
 
 > Note: On some macOS environments, `uv` + `3.14+freethreaded` can fail at Tk startup with `Can't find a usable init.tcl`.
 > You can switch runtimes per command, e.g. `make run PYTHON=3.13`, `make run PYTHON=3.14+freethreaded`, `make run PYTHON=3.15`.

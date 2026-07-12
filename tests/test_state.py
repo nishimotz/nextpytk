@@ -82,3 +82,30 @@ def test_apply_state_rejects_non_dict(build):
     build(app, layout=["msg"])
     with pytest.raises(TypeError):
         app.apply_state("just a string")  # type: ignore[arg-type]
+
+
+def test_unknown_state_key_warns_and_suggests(build, capsys):
+    """Unknown state keys print a warning with a Levenshtein suggestion."""
+    app = TkApp(title="t")
+
+    @app.label("msg")
+    def msg():
+        return ""
+
+    build(app, layout=["msg"])
+    app.apply_state({"mgs": "typo"})
+    err = capsys.readouterr().err
+    assert "unknown state key 'mgs'" in err
+    assert "Did you mean 'msg'?" in err
+
+
+def test_unknown_state_key_raises_in_debug_mode(build):
+    app = TkApp(title="t", debug=True)
+
+    @app.label("msg")
+    def msg():
+        return ""
+
+    build(app, layout=["msg"])
+    with pytest.raises(KeyError, match="mgs"):
+        app.apply_state({"mgs": "typo"})
