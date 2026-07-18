@@ -19,8 +19,8 @@ class WidgetSpec:
     name: str
 
     # Widget kind: label | status | message | button | entry | checkbutton
-    #              | radiobutton | text | scale | spinbox | listbox | treeview
-    #              | paned | progressbar | canvas | bind
+    #              | radiobutton | text | scale | spinbox | combobox | listbox
+    #              | treeview | paned | progressbar | canvas | bind | menubar
     kind: str
 
     # Common label / display text

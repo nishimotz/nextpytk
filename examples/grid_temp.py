@@ -4,19 +4,19 @@ Demonstrates fluent grid builder with widget/next_row/col_weight/end_grid.
 """
 
 from nextpytk import TkApp, Layout
-from nextpytk.types import Sticky
+from nextpytk.types import Anchor, Fill, Sticky
 
-app = TkApp(title="温度変換")
+app = TkApp(title="Temperature conversion")
 
 
-@app.label("title", role="heading", description="タイトル")
+@app.label("title", role="heading", description="Title")
 def title():
-    return "摂氏 ↔ 華氏 変換"
+    return "Celsius ↔ Fahrenheit conversion"
 
 
-@app.label("celsius_lbl")
+@app.label("celsius_lbl", width=17, anchor=Anchor.E)
 def celsius_lbl():
-    return "摂氏 (°C):"
+    return "Celsius (°C):"
 
 
 @app.entry("celsius", placeholder="0", placeholder_as_hint=False)
@@ -29,9 +29,9 @@ def on_celsius(value):
     return result
 
 
-@app.label("fahrenheit_lbl")
+@app.label("fahrenheit_lbl", width=17, anchor=Anchor.E)
 def fahrenheit_lbl():
-    return "華氏 (°F):"
+    return "Fahrenheit (°F):"
 
 
 @app.entry("fahrenheit", placeholder="32", placeholder_as_hint=False)
@@ -44,21 +44,23 @@ def on_fahrenheit(value):
     return result
 
 
-@app.status("note", description="ヘルプ")
+@app.status("note", description="Help")
 def note():
-    return "どちらかの値を入力すると自動変換されます"
+    return "Enter a value in either field to convert automatically"
 
 
 layout = (
     Layout()
     .section("title")
-    .grid()
+    .grid(fill=Fill.BOTH, expand=True)
     .col_weights(0, 1)
-    .span(2).widget("note", sticky=Sticky.LEFT)
+    .col_minsizes(140, 120)
+    .row_weights(1, 1, 1)
+    .span(2).widget("note", sticky=Sticky.NSEW)
     .next_row()
-    .widget("celsius_lbl", sticky=Sticky.RIGHT).widget("celsius", sticky=Sticky.LEFT_RIGHT, padx=4)
+    .widget("celsius_lbl").widget("celsius", sticky=Sticky.EW, padx=4)
     .next_row()
-    .widget("fahrenheit_lbl", sticky=Sticky.RIGHT).widget("fahrenheit", sticky=Sticky.LEFT_RIGHT, padx=4)
+    .widget("fahrenheit_lbl").widget("fahrenheit", sticky=Sticky.EW, padx=4)
     .end_grid()
 )
 

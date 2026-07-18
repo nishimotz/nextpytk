@@ -1,4 +1,4 @@
-.PHONY: sync test run run-multiscreen run-task-panel run-gallery run-treeview run-paned run-progress run-tab-focus run-du-flat run-du-flat-async
+.PHONY: sync test run run-multiscreen run-task-panel run-gallery run-treeview run-paned run-progress run-tab-focus run-du-flat-async
 
 PYTHON ?= 3.14
 
@@ -28,9 +28,6 @@ run-progress: sync
 
 run-tab-focus: sync
 	uv run --python $(PYTHON) python examples/tab_focus_demo.py
-
-run-du-flat: sync
-	uv run --python $(PYTHON) python examples/disk_usage_flat_viewer.py
 
 run-du-flat-async: sync
 	uv run --python $(PYTHON) python examples/disk_usage_flat_async.py

@@ -1,0 +1,149 @@
+"""Test debug_layout collects per-widget geometry/state."""
+from __future__ import annotations
+
+import pytest
+
+from nextpytk import TkApp
+
+from .conftest import requires_display
+
+pytestmark = requires_display
+
+
+def test_debug_layout_reports_widget_geometry(build):
+    app = TkApp(title="debug")
+
+    @app.label("msg")
+    def msg():
+        return "hello"
+
+    @app.button("go", label="Go")
+    def go(vals):
+        return {}
+
+    build(app, layout=["msg", "go"])
+
+    debug = app.debug_layout()
+    assert debug["title"] == "debug"
+    assert len(debug["sections"]) >= 1
+
+    all_widgets = []
+    for sec in debug["sections"]:
+        all_widgets.extend(sec["widgets"])
+
+    names = {w["name"] for w in all_widgets}
+    assert "msg" in names
+    assert "go" in names
+
+    for w in all_widgets:
+        assert "geometry" in w
+        assert "reqwidth" in w
+        assert "reqheight" in w
+        assert "manager" in w
+        assert "ismapped" in w
+
+
+def test_debug_layout_button_meets_min_target(build):
+    from nextpytk import tokens as t
+
+    app = TkApp(title="debug")
+
+    @app.button("go", label="Go")
+    def go(vals):
+        return {}
+
+    build(app, layout=["go"])
+
+    debug = app.debug_layout()
+    btn = next(
+        w for sec in debug["sections"] for w in sec["widgets"] if w["name"] == "go"
+    )
+    assert btn["reqheight"] >= t.MIN_TARGET, f"{btn['reqheight']}px < {t.MIN_TARGET}px"
+    assert btn["manager"] == "pack"
+    assert btn["pack_info"]["side"] == "top"
+
+
+def test_debug_layout_handles_grid_widgets(build):
+    from nextpytk import Layout
+    from nextpytk.types import Sticky
+
+    app = TkApp(title="debug")
+
+    @app.label("a")
+    def a():
+        return "A"
+
+    @app.label("b")
+    def b():
+        return "B"
+
+    build(
+        app,
+        layout=Layout()
+        .grid()
+        .widget("a", sticky=Sticky.NSEW)
+        .widget("b", sticky=Sticky.NSEW)
+        .end_grid(),
+    )
+
+    debug = app.debug_layout()
+    widgets = [w for sec in debug["sections"] for w in sec["widgets"]]
+    a_info = next(w for w in widgets if w["name"] == "a")
+    b_info = next(w for w in widgets if w["name"] == "b")
+
+    assert a_info["manager"] == "grid"
+    assert a_info["grid_info"]["row"] == 0
+    assert b_info["grid_info"]["row"] == 0
+    assert a_info["grid_info"]["column"] == 0
+    assert b_info["grid_info"]["column"] == 1
+
+
+def test_debug_layout_regression_listbox_section_preserved(build):
+    """Listbox callback changes must not alter the section geometry/manager.
+
+    Regression guard for the index-based listbox callback refactor: if the
+    listbox widget is accidentally rebuilt with a different master or manager,
+    debug_layout catches it before the UI breaks.
+    """
+    app = TkApp(title="du-flat-regression")
+
+    @app.label("path_lbl")
+    def path_lbl():
+        return "/"
+
+    @app.listbox("file_list", items=["a", "b", "c"])
+    def on_select(idx: int):
+        return {}
+
+    @app.button("up_btn", label="Up")
+    def up_btn(vals: dict):
+        return {}
+
+    from nextpytk import Layout
+    from nextpytk.types import Fill
+
+    build(
+        app,
+        layout=Layout()
+        .section("path_lbl")
+        .section("file_list", fill=Fill.BOTH, expand=True)
+        .section("up_btn"),
+    )
+
+    debug = app.debug_layout()
+    widgets = [w for sec in debug["sections"] for w in sec["widgets"]]
+    names = {w["name"]: w for w in widgets}
+
+    file_list = names["file_list"]
+    up_btn = names["up_btn"]
+
+    assert file_list["manager"] == "pack"
+    assert file_list["pack_info"]["fill"] == "both"
+    assert bool(file_list["pack_info"]["expand"]) is True
+    assert file_list["reqwidth"] > 0
+    assert file_list["reqheight"] > 0
+
+    assert up_btn["manager"] == "pack"
+    assert up_btn["pack_info"]["fill"] in (None, "x", "both")
+    assert bool(up_btn["pack_info"]["expand"]) is False
+    assert up_btn["reqheight"] >= 44

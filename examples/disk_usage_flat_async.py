@@ -12,10 +12,12 @@ import asyncio
 import os
 import tkinter as tk
 from pathlib import Path
+from typing import Any
 
 from nextpytk import TkApp, Layout
+from nextpytk.types import Fill, ListboxEvent, SelectMode
 
-app = TkApp(title="nextpytk 使用量 (async)")
+app = TkApp(title="nextpytk Disk Usage (async)")
 
 
 # ─── helpers ───
@@ -40,7 +42,7 @@ def scan_directory(cur: Path) -> tuple[list[tuple[Path, bool, int]], int, int, s
         with os.scandir(cur) as it:
             entries = sorted(it, key=lambda e: (not e.is_dir(), e.name.lower()))
     except OSError as exc:
-        return [], 0, 0, f"読み取り失敗: {exc}"
+        return [], 0, 0, f"Read failed: {exc}"
 
     rows: list[tuple[str, Path, bool]] = []
     for e in entries:
@@ -70,7 +72,7 @@ def scan_directory(cur: Path) -> tuple[list[tuple[Path, bool, int]], int, int, s
                 if head in bucket:
                     bucket[head] += sz
     except OSError as exc:
-        return [], 0, 0, f"走査失敗: {exc}"
+        return [], 0, 0, f"Scan failed: {exc}"
 
     lines: list[tuple[Path, bool, int]] = []
     total_bytes = 0
@@ -111,10 +113,10 @@ def path_lbl():
 @app.status("status_lbl", description="status message")
 def status_lbl():
     if _busy:
-        return "スキャン中…"
+        return "Scanning…"
     if _error:
         return _error
-    return "待機中 — 親へ / BackSpace、ディレクトリで Return"
+    return "Idle — Up / BackSpace, Return on a directory"
 
 
 @app.status("summary_lbl", description="entry count and total bytes")
@@ -124,24 +126,29 @@ def summary_lbl():
 
 @app.status("detail_lbl", description="selected entry details")
 def detail_lbl():
-    return "（行を選択）"
+    return "(select a row)"
 
 
-@app.listbox("file_list", height=18, selectmode="browse", enabled_if=lambda vals: not _busy)
-def on_file_list_select(value: str) -> dict[str, str]:
-    if not value:
-        return {"detail_lbl": "（行を選択）"}
-    # value は表示文字列 "サイズ\t名前[/]" — 名前部分だけ取り出す
-    name = value.split("\t", 1)[-1].rstrip("/")
-    for p, is_dir, sz in _lines:
-        if p.name == name:
-            kind = "ディレクトリ" if is_dir else "ファイル"
-            szs = human_bytes(sz) if sz >= 0 else "?"
-            return {"detail_lbl": f"{kind}: {p} · {szs}"}
-    return {}
+@app.listbox(
+    "file_list",
+    selectmode=SelectMode.BROWSE,
+    enabled_if=lambda vals: not _busy,
+    events={
+        ListboxEvent.RETURN: lambda _s: _navigate_child(),
+        ListboxEvent.DOUBLE_CLICK: lambda _s: _navigate_child(),
+        ListboxEvent.KEY_BACKSPACE: lambda _s: _navigate_parent(),
+    },
+)
+def on_file_list_select(idx: int) -> dict[str, str]:
+    if idx < 0 or idx >= len(_lines):
+        return {"detail_lbl": "(select a row)"}
+    p, is_dir, sz = _lines[idx]
+    kind = "Directory" if is_dir else "File"
+    szs = human_bytes(sz) if sz >= 0 else "?"
+    return {"detail_lbl": f"{kind}: {p} · {szs}"}
 
 
-@app.button("up_btn", label="親へ (BackSpace)", enabled_if=lambda vals: not _busy)
+@app.button("up_btn", label="Up (BackSpace)", primary=True)
 def on_up(vals: dict) -> dict[str, str]:
     _navigate_parent()
     return {}
@@ -158,6 +165,7 @@ def _apply_scan_result(
     w = the_app.widget("file_list")
     if w is None or not isinstance(w, tk.Listbox):
         _busy = False
+        the_app.sync()
         return
 
     _busy = False  # before touching the list: enabled_if gates updates
@@ -174,6 +182,7 @@ def _apply_scan_result(
             "detail_lbl": err,
             "status_lbl": err,
         })
+        the_app.sync()
         return
 
     _error = ""
@@ -182,19 +191,19 @@ def _apply_scan_result(
         mark = "/" if is_dir else ""
         w.insert("end", f"{human_bytes(sz) if sz >= 0 else '?'}\t{p.name}{mark}")
 
-    detail = "（行を選択）"
+    detail = "(select a row)"
     if w.size() > 0:
         w.selection_clear(0)
         w.selection_set(0)
         w.activate(0)
         w.see(0)
-        # programmatic selection は <<ListboxSelect>> を発火しないので手動で
-        detail = on_file_list_select(w.get(0)).get("detail_lbl", detail)
+        # Programmatic selection doesn't fire <<ListboxSelect>>, so update manually.
+        detail = on_file_list_select(0).get("detail_lbl", detail)
 
     the_app.apply_state({
         "path_lbl": str(cur),
-        "summary_lbl": f"エントリ {n} 件 · 表示の合計 {human_bytes(total_bytes)}",
-        "status_lbl": "待機中 — 親へ / BackSpace、ディレクトリで Return",
+        "summary_lbl": f"{n} entries · displayed total {human_bytes(total_bytes)}",
+        "status_lbl": "Idle — Up / BackSpace, Return on a directory",
         "detail_lbl": detail,
     })
     the_app.sync()
@@ -206,53 +215,70 @@ async def _refresh_async(the_app: TkApp, target: Path) -> None:
     _busy = True
     the_app.apply_state({
         "path_lbl": str(target),
-        "status_lbl": "スキャン中…",
-        "detail_lbl": "バックグラウンドで走査中…",
+        "status_lbl": "Scanning…",
+        "detail_lbl": "Scanning in the background…",
     })
     the_app.sync()
     try:
         outcome = await asyncio.to_thread(scan_directory, target)
     except Exception as exc:
-        outcome = ([], 0, 0, f"エラー: {exc}")
-    _apply_scan_result(the_app, outcome)
+        outcome = ([], 0, 0, f"Error: {exc}")
+    try:
+        _apply_scan_result(the_app, outcome)
+    except Exception as exc:
+        _busy = False
+        the_app.apply_state({
+            "status_lbl": f"Error: {exc}",
+            "detail_lbl": str(exc),
+        })
+        the_app.sync()
 
 
 def _refresh(the_app: TkApp, target: Path) -> None:
     """Sync refresh for initial load. Blocks GUI."""
     global _busy
     _busy = True
-    outcome = scan_directory(target)
-    _apply_scan_result(the_app, outcome)
+    try:
+        outcome = scan_directory(target)
+        _apply_scan_result(the_app, outcome)
+    except Exception as exc:
+        _busy = False
+        the_app.apply_state({
+            "status_lbl": f"Error: {exc}",
+            "detail_lbl": str(exc),
+        })
+        the_app.sync()
 
 
-def _navigate_parent() -> None:
+def _navigate_parent() -> dict[str, Any]:
     global _error
     if _busy:
-        return
+        return {}
     cur = cwd()
     parent = cur.parent
     if parent == cur:
-        app.apply_state({"status_lbl": "ルートディレクトリです"})
-        return
+        app.apply_state({"status_lbl": "Root directory"})
+        return {}
     if len(_stack) > 1:
         _stack.pop()
     else:
         _stack[0] = parent.resolve()
     _error = ""
     app.spawn(_refresh_async(app, _stack[-1]))
+    return {}
 
 
-def _navigate_child() -> None:
+def _navigate_child() -> dict[str, Any]:
     global _error
     if _busy:
-        return
+        return {}
     w = app.widget("file_list")
     if w is None or not isinstance(w, tk.Listbox):
-        return
+        return {}
     try:
         sel = w.curselection()
         if not sel:
-            return
+            return {}
         i = int(sel[0])
         p, is_dir, _ = _lines[i]
         if is_dir and p.is_dir():
@@ -260,15 +286,12 @@ def _navigate_child() -> None:
             _error = ""
             app.spawn(_refresh_async(app, _stack[-1]))
     except (ValueError, IndexError):
-        return
+        pass
+    return {}
 
 
 def _on_ready(the_app: TkApp) -> None:
-    """Wire key bindings and do initial sync scan."""
-    lb = the_app.widget("file_list")
-    if lb is not None and isinstance(lb, tk.Listbox):
-        lb.bind("<Return>", lambda _e: _navigate_child())
-        lb.bind("<BackSpace>", lambda _e: _navigate_parent())
+    """Do initial sync scan."""
     _refresh(the_app, _stack[-1])
 
 
@@ -280,9 +303,9 @@ if __name__ == "__main__":
             .section("status_lbl")
             .section("summary_lbl")
             .section("detail_lbl")
-            .section("file_list", fill="both", expand=True)
+            .section("file_list", fill=Fill.BOTH, expand=True)
             .section("up_btn")
         ),
         on_ready=_on_ready,
-        geometry="620x520",
+        geometry="620x800",
     )

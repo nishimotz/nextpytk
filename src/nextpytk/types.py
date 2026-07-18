@@ -12,7 +12,8 @@ Usage::
 
 from __future__ import annotations
 
-from typing import Literal
+from collections.abc import Callable, Sequence
+from typing import Any, Literal, Required, TypedDict, Unpack
 
 
 # ── pack side ──
@@ -167,6 +168,9 @@ class TakeFocus:
 
     Use ``TakeFocus.YES`` / ``TakeFocus.NO`` / ``TakeFocus.DEFAULT``.
     ``DEFAULT`` (``\"\"``) lets Tk decide per widget class.
+
+    Tab traversal is how keyboard-only users reach controls
+    (WCAG 2.1.1 Keyboard, 2.4.3 Focus Order).
     """
 
     DEFAULT: Literal[""] = ""
@@ -174,3 +178,251 @@ class TakeFocus:
     NO: Literal[0] = 0
 
 TakeFocusLike = bool | Literal["", 0, 1]
+
+# ── widget callbacks (re-exported from app.py to avoid circular imports) ──
+
+ButtonCallback = Callable[[dict[str, Any]], dict[str, Any]]
+ValueCallback = Callable[[str], dict[str, Any]]
+ListboxSelectCallback = Callable[[int], dict[str, Any]]
+BoolCallback = Callable[[bool], dict[str, Any]]
+LabelCallback = Callable[[], str | dict[str, Any]]
+BindCallback = Callable[[dict[str, Any]], dict[str, Any]]
+TreeviewSelectCallback = Callable[[int, list[Any]], dict[str, Any]]
+TreeviewActivateCallback = Callable[[int, list[Any]], dict[str, Any]]
+
+# ── listbox event sequences (widget-level bind) ──
+
+class ListboxEvent:
+    """Common event sequences for ``@app.listbox(..., events=...)``.
+
+    Use these constants for IDE completion and typo protection; arbitrary
+    tkinter event strings are still accepted at runtime.
+    """
+
+    SELECT: Literal["<<ListboxSelect>>"] = "<<ListboxSelect>>"
+    RETURN: Literal["<Return>"] = "<Return>"
+    DOUBLE_CLICK: Literal["<Double-Button-1>"] = "<Double-Button-1>"
+    KEY_BACKSPACE: Literal["<BackSpace>"] = "<BackSpace>"
+    KEY_DELETE: Literal["<Delete>"] = "<Delete>"
+
+ListboxEventLike = Literal[
+    "<<ListboxSelect>>",
+    "<Return>",
+    "<Double-Button-1>",
+    "<BackSpace>",
+    "<Delete>",
+]
+
+# Handler signature: receives current state dict, returns state update dict.
+ListboxEventHandler = Callable[[dict[str, Any]], dict[str, Any] | None]
+
+# Menubar callback: returns a list of top-level item dicts and separator strings.
+MenubarCallback = Callable[[], Sequence[dict[str, Any] | str]]
+
+
+# ── common widget options ──
+
+class CommonWidgetOptions(TypedDict, total=False):
+    description: str | None
+    takefocus: TakeFocusLike | None
+    enabled_if: Callable[[dict[str, Any]], bool] | None
+
+
+class MenubarItem(TypedDict, total=False):
+    label: Required[str]
+    command: str
+    enabled_if: Callable[[dict[str, Any]], bool] | None
+    items: Sequence[dict[str, Any] | str]
+
+
+class MenubarOptions(TypedDict, total=False):
+    items: Sequence[MenubarItem | str]
+    description: str | None
+
+
+class ButtonOptions(CommonWidgetOptions, total=False):
+    label: str
+    role: str
+    state: StateLike
+    primary: bool
+
+
+class EntryOptions(CommonWidgetOptions, total=False):
+    placeholder: str
+    placeholder_as_hint: bool
+    role: str
+    state: StateLike
+    show: str | None
+    width: int
+
+
+class LabelOptions(CommonWidgetOptions, total=False):
+    role: str
+    font: tuple[str, int] | tuple[str, int, str]
+    anchor: str
+    justify: str
+    padding: int | tuple[int, int]
+    width: int
+
+
+class MessageOptions(CommonWidgetOptions, total=False):
+    role: str
+    width: int
+    auto_width: bool
+
+
+# ── bind options ──
+
+class BindOptions(CommonWidgetOptions, total=False):
+    sequence: Required[str]
+    label: str
+
+
+# ── remaining widget options ──
+
+class CheckbuttonOptions(CommonWidgetOptions, total=False):
+    text: str
+    key: str
+
+
+class RadiobuttonOptions(CommonWidgetOptions, total=False):
+    text: str
+    value: str
+    group: str
+
+
+class TextOptions(CommonWidgetOptions, total=False):
+    width: int
+    height: int
+    state: StateLike
+    tab_inserts: bool
+    readonly: bool
+    tags: dict[str, dict[str, Any]]
+    sync_yscroll_with: str
+
+
+class ScaleOptions(CommonWidgetOptions, total=False):
+    key: str
+    from_: int
+    to: int
+    orient: OrientLike
+
+
+class SpinboxOptions(CommonWidgetOptions, total=False):
+    key: str
+    from_: float | None
+    to: float | None
+    values: list[str]
+    width: int
+
+
+class ListboxOptions(CommonWidgetOptions, total=False):
+    items: list[str]
+    selectmode: SelectModeLike
+    height: int | None
+    events: dict[str, ListboxEventHandler]
+    on_update: ListboxSelectCallback
+
+
+class ComboboxOptions(CommonWidgetOptions, total=False):
+    values: list[str]
+    key: str
+    width: int
+    readonly: bool
+    font: tuple[str, int] | tuple[str, int, str]
+
+
+class TreeviewColumn(TypedDict, total=False):
+    id: str
+    heading: str
+    width: int
+    anchor: str
+    stretch: bool
+
+
+class TreeviewOptions(CommonWidgetOptions, total=False):
+    columns: Required[list[Any]]
+    rows_key: str
+    selectmode: SelectModeLike
+    height: int
+    activate: Callable[[int, list[Any]], dict[str, Any]]
+
+
+class PanedOptions(CommonWidgetOptions, total=False):
+    panes: Required[tuple[str, ...] | list[str]]
+    orient: OrientLike
+    weights: tuple[int, ...] | list[int]
+    sashwidth: int
+
+
+ProgressModeLike = Literal["determinate", "indeterminate"]
+
+
+class ProgressbarOptions(CommonWidgetOptions, total=False):
+    key: str
+    maximum: float
+    mode: ProgressModeLike
+    length: int
+    orient: OrientLike
+
+
+class CanvasOptions(CommonWidgetOptions, total=False):
+    width: int
+    height: int
+    bg: str
+    items: list[Any]
+
+
+
+
+__all__ = [
+    "Anchor",
+    "AnchorLike",
+    "BindOptions",
+    "ButtonCallback",
+    "ButtonOptions",
+    "CanvasOptions",
+    "CheckbuttonOptions",
+    "CommonWidgetOptions",
+    "EntryOptions",
+    "ExpandLike",
+    "Fill",
+    "FillLike",
+    "Justify",
+    "JustifyLike",
+    "LabelCallback",
+    "LabelOptions",
+    "ListboxEvent",
+    "ListboxEventHandler",
+    "ListboxEventLike",
+    "ListboxOptions",
+    "MenubarCallback",
+    "MenubarItem",
+    "MenubarOptions",
+    "MessageOptions",
+    "Orient",
+    "OrientLike",
+    "PanedOptions",
+    "ProgressModeLike",
+    "ProgressbarOptions",
+    "RadiobuttonOptions",
+    "Relief",
+    "ReliefLike",
+    "ScaleOptions",
+    "SelectMode",
+    "SelectModeLike",
+    "Side",
+    "SideLike",
+    "SpinboxOptions",
+    "State",
+    "StateLike",
+    "Sticky",
+    "StickyLike",
+    "TakeFocus",
+    "TakeFocusLike",
+    "TextOptions",
+    "TreeviewActivateCallback",
+    "TreeviewColumn",
+    "TreeviewOptions",
+    "TreeviewSelectCallback",
+]

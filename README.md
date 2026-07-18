@@ -1,9 +1,11 @@
-# nextpytk — Flask-style Decorator API for Tkinter
+# nextpytk
 
-nextpytk wraps Tkinter in Python decorators, inspired by Flask.
-Widget registration and layout are decoupled via dependency injection.
-All widgets expose a JSON schema for AI/LLM consumption.
-Uses ttk widgets where available (Button, Entry, Checkbutton, Radiobutton, Scale, Spinbox, Notebook).
+Accessible, declarative Tkinter applications from ordinary Python functions.
+
+Register widgets as plain Python functions, declare layout separately, and
+keep roles/descriptions in one place. The decorator style is Flask-inspired;
+`schema()` exports the same structure for agents and tools.
+Uses ttk widgets where available.
 
 ---
 
@@ -173,18 +175,24 @@ app.run(layout=b.build())
 | Decorator | Widget | Callback receives | Returns |
 |-----------|--------|-------------------|---------|
 | `@app.label(name, font=..., anchor=..., justify=..., padding=...)` | tk.Label | — | `str` or `dict` |
-| `@app.status(name)` | tk.Label (role=status) | — | `str` or `dict` |
+| `@app.status(name)` | tk.Label (`role=status` metadata) | — | `str` or `dict` |
 | `@app.message(name, width=..., auto_width=...)` | tk.Label (auto-wrap) | — | `str` or `dict` |
 | `@app.button(name, label=..., enabled_if=...)` | ttk.Button | entry values `dict` | `dict` |
 | `@app.job(name)` | async callable | entry values `dict` | `dict` |
 | `@app.entry(name, placeholder=..., show=...)` | ttk.Entry | `str` | `dict` |
 | `@app.checkbutton(name, text=...)` | ttk.Checkbutton | `bool` | `dict` |
 | `@app.radiobutton(name, text=..., value=..., group=...)` | ttk.Radiobutton | selected value `str` | `dict` |
+| `@app.combobox(name, values=..., readonly=...)` | ttk.Combobox | selected value `str` | `dict` |
+| `@app.menubar(name)` | tk.Menu (window menubar) | — | menu item list |
 | `@app.text(name, width=..., height=...)` | tk.Text | full content `str` | `dict` |
 | `@app.scale(name, from_=..., to=..., orient=...)` | ttk.Scale | value `str` | `dict` |
 | `@app.spinbox(name, from_=..., to=..., values=...)` | ttk.Spinbox | value `str` | `dict` |
 | `@app.listbox(name, items=..., selectmode=...)` | tk.Listbox | selected item `str` | `dict` |
 | `@app.canvas(name, width=..., height=...)` | tk.Canvas | — | — |
+
+`@app.status` sets schema / accessible `role="status"` metadata. It is **not** an ARIA live region yet (planned for a later release). Prefer it for operation feedback labels; use `@app.label` for static or high-frequency mirror text.
+
+`app.run(stages=..., tabposition=...)` and `@app.stages` provide state-driven screen switching (one visible stage at a time). Theme helpers (`apply_theme`, `tokens`, layout chrome) ship in the package root — see `examples/header_demo.py`.
 
 Label options:
 - `font`: e.g. `font=("TkDefaultFont", 18, "bold")`
@@ -234,6 +242,20 @@ Output is JSON-compatible and can serve as LLM Function Calling definitions.
 
 ---
 
+## Layout debug
+
+After widgets are built, `app.debug_layout()` returns JSON-compatible geometry
+and pack/grid info for every registered widget (useful for clipping, minsize,
+and layout regressions; also handy to hand to an agent).
+
+```python
+app.run(layout=["msg", "go"])  # or build via tests / custom runner
+print(app.debug_layout())
+# → {"title": "...", "sections": [{"widgets": [{"name": "msg", "geometry": ..., ...}, ...]}]}
+```
+
+---
+
 ## Async-Native (asyncio + Tkinter)
 
 `app.run_async()` runs the app on an asyncio event loop, cooperatively scheduled
@@ -257,7 +279,9 @@ uv run python examples/grid_temp.py          # temperature converter
 uv run python examples/task_panel.py          # multi-button panel
 uv run python examples/multiscreen.py         # order app with screens
 uv run python examples/widget_gallery.py      # all widget types
-uv run python examples/disk_usage_flat_viewer.py      # ncdu-style viewer (sync)
+uv run python examples/header_demo.py         # Layout.header / .status chrome
+uv run python examples/combobox_demo.py       # ttk.Combobox
+uv run python examples/menubar_demo.py        # menubar
 uv run python examples/disk_usage_flat_async.py       # ncdu-style viewer (async)
 ```
 
@@ -265,7 +289,7 @@ uv run python examples/disk_usage_flat_async.py       # ncdu-style viewer (async
 
 ## Requirements
 
-- Python 3.14 by default (`PYTHON=...` override supported)
+- Python 3.13+ (`requires-python`; examples default to 3.14 via `Makefile` `PYTHON=...`)
 - Tkinter support in your Python build
 - No other dependencies
 

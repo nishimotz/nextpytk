@@ -4,72 +4,73 @@ Shows the decorator API + section-based layout.
 """
 
 from nextpytk import TkApp, Layout
+from nextpytk.types import Fill
 
 app = TkApp(title="nextpytk task panel")
 
 
 # --- Status row ---
 
-@app.status("msg", description="操作結果のフィードバック")
+@app.status("msg", description="Operation feedback")
 def msg():
-    return "準備完了"
+    return "Ready"
 
 
-@app.status("phase", description="現在のフェーズ")
+@app.status("phase", description="Current phase")
 def phase():
-    return "待機中"
+    return "Idle"
 
 
-@app.status("count", description="処理件数")
+@app.status("count", description="Processed count")
 def count():
-    return "0 件"
+    return "0 items"
 
 
 # --- Inputs ---
 
-@app.entry("name", placeholder="タスク名（必須）")
+@app.entry("name", placeholder="Task name (required)")
 def on_name_change(value):
-    return {"msg": f"タスク名: {value}"}
+    return {"msg": f"Task name: {value}"}
 
 
-@app.entry("max_sec", placeholder="最大秒数（例: 5）")
+@app.entry("max_sec", placeholder="Max seconds (e.g. 5)")
 def on_sec_change(value):
-    return {"msg": f"タイムアウト: {value}秒"}
+    return {"msg": f"Timeout: {value} sec"}
 
 
 # --- Actions ---
 
-PHASE = {"idle": "待機中", "running": "実行中", "done": "完了", "paused": "一時停止"}
+PHASE = {"idle": "Idle", "running": "Running", "done": "Done", "paused": "Paused"}
 
 
-@app.button("start", label="▶ 開始")
+@app.button("start", label="▶ Start")
 def on_start(values):
     name = values.get("name", "").strip()
     if not name:
-        return {"msg": "タスク名を入力してください"}
-    return {"msg": f"「{name}」を開始", "phase": PHASE["running"]}
+        return {"msg": "Please enter a task name"}
+    return {"msg": f"Starting \"{name}\"", "phase": PHASE["running"]}
 
 
-@app.button("pause", label="⏸ 一時停止")
+@app.button("pause", label="⏸ Pause")
 def on_pause(values):
-    return {"msg": "一時停止", "phase": PHASE["paused"]}
+    return {"msg": "Paused", "phase": PHASE["paused"]}
 
 
-@app.button("reset", label="⏹ リセット")
+@app.button("reset", label="⏹ Reset")
 def on_reset(values):
-    return {"msg": "リセットしました", "phase": PHASE["idle"], "count": "0 件"}
+    return {"msg": "Reset", "phase": PHASE["idle"], "count": "0 items"}
 
 
 @app.button("countup", label="+1")
 def on_countup(values):
-    c = app.state.get("count", "0 件")
+    c = app.state.get("count", "0 items")
     n = 1
-    if c.endswith(" 件"):
+    if c.endswith(" items"):
         try:
             n = int(c.split()[0]) + 1
         except ValueError:
             pass
-    return {"count": f"{n} 件", "msg": f"カウント: {n}"}
+    return {"count": f"{n} items", "msg": f"Count: {n}"}
 
 
 # --- Layout ---
@@ -78,8 +79,8 @@ layout = (
     Layout()
     .section("msg")
     .section("phase", "count")
-    .section("name", fill="x")
-    .section("max_sec", fill="x")
+    .section("name", fill=Fill.X)
+    .section("max_sec", fill=Fill.X)
     .section("start", "pause")
     .section("reset", "countup")
 )
