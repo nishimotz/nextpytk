@@ -1,14 +1,16 @@
-# README.md: nextpytk — Flask-style Decorator API for Tkinter
+# nextpytk
 
-nextpytk は、Tkinter を Flask のデコレータ記法でラップする GUI フレームワーク。
-「人間にとってアクセシブルなものは、AI にとってもアクセシブルである」という信念のもと、
-A11y 属性（role / description）を WidgetSpec に組み込み、`schema()` で JSON エクスポート可能。
+Python関数から、アクセシブルなTkinter GUIを宣言的に構築するライブラリ。
+
+ウィジェット登録とレイアウトを分け、role / description などの意味構造を
+一箇所で持てます。書き方は Flask 風のデコレータ。`schema()` で同じ構造を
+エージェント向けにエクスポートできます。
 
 ---
 
 ## 1. コンセプト
 
-### 1.1 Decorator API（Flask ライク）
+### 1.1 デコレータ API
 
 ```python
 from nextpytk import TkApp, Layout
@@ -108,13 +110,26 @@ Layout().section("msg", side=Side.LEFT, fill=Fill.X)
 ### 1.6 A11y First & Agent Ready
 
 ```python
-@app.status("msg", role="status", description="操作結果")
+@app.status("msg", description="操作結果")
 def msg():
     return "待機中"
 
 # schema() で Agent/LLM 向け JSON を出力
 print(app.schema())
 # → {"title": "...", "widgets": [{"name": "msg", "kind": "status", "role": "status", ...}]}
+```
+
+`role="status"` は schema / Tk accessible メタデータです。ARIA live region 相当の自動読み上げは未対応です。
+
+### 1.7 レイアウトデバッグ
+
+ウィジェット構築後に `app.debug_layout()` を呼ぶと、登録ウィジェットごとの
+geometry / pack・grid 情報を JSON 互換で返せます（クリップや minsize、
+レイアウト回帰の調査向け。エージェントへの引き渡しにも使えます）。
+
+```python
+print(app.debug_layout())
+# → {"title": "...", "sections": [{"widgets": [{"name": "msg", "geometry": ..., ...}, ...]}]}
 ```
 
 ---
@@ -221,7 +236,9 @@ app.run(layout=b.build())
 | `examples/task_panel.py` | 複数ラベル＋エントリ＋ボタンの状態管理 |
 | `examples/multiscreen.py` | 画面遷移・注文アプリ |
 | `examples/widget_gallery.py` | 全ウィジェット種別＋multiview によるタブ切替 |
-| `examples/disk_usage_flat_viewer.py` | ディスク使用量フラットビューア（同期版、ncdu風） |
+| `examples/header_demo.py` | `Layout.header` / `.status` の chrome |
+| `examples/combobox_demo.py` | ttk.Combobox |
+| `examples/menubar_demo.py` | メニューバー |
 | `examples/disk_usage_flat_async.py` | ディスク使用量フラットビューア（非同期版、ncdu風） |
 
 ```bash
@@ -229,7 +246,9 @@ uv run python examples/grid_temp.py
 uv run python examples/task_panel.py
 uv run python examples/multiscreen.py
 uv run python examples/widget_gallery.py
-uv run python examples/disk_usage_flat_viewer.py
+uv run python examples/header_demo.py
+uv run python examples/combobox_demo.py
+uv run python examples/menubar_demo.py
 uv run python examples/disk_usage_flat_async.py
 ```
 
@@ -240,18 +259,24 @@ uv run python examples/disk_usage_flat_async.py
 | デコレータ | ウィジェット種別 | コールバック引数 | 返り値 |
 |------------|------------------|------------------|--------|
 | `@app.label(name, font=..., anchor=..., justify=..., padding=...)` | tk.Label | なし | `str` または `dict` |
-| `@app.status(name)` | tk.Label (role=status) | なし | `str` または `dict` |
+| `@app.status(name)` | tk.Label（`role=status` メタデータ） | なし | `str` または `dict` |
 | `@app.message(name, width=..., auto_width=...)` | tk.Label (wrap) | なし | `str` または `dict` |
 | `@app.button(name, label=..., state=..., enabled_if=...)` | ttk.Button | `dict` (entry values) | `dict` (state update) |
 | `@app.job(name)` | async callable | `dict` (entry values) | `dict` (state update) |
 | `@app.entry(name, placeholder=..., show=..., width=...)` | ttk.Entry | `str` (値) | `dict` (state update) |
 | `@app.checkbutton(name, text=...)` | ttk.Checkbutton | `bool` | `dict` |
 | `@app.radiobutton(name, text=..., value=..., group=...)` | ttk.Radiobutton | `str` (値) | `dict` |
+| `@app.combobox(name, values=..., readonly=...)` | ttk.Combobox | `str` (値) | `dict` |
+| `@app.menubar(name)` | tk.Menu（ウィンドウメニューバー） | なし | メニュー項目リスト |
 | `@app.text(name, width=..., height=...)` | tk.Text | `str` (全内容) | `dict` |
 | `@app.scale(name, from_=..., to=..., orient=...)` | ttk.Scale | `str` (値) | `dict` |
 | `@app.spinbox(name, from_=..., to=..., values=...)` | ttk.Spinbox | `str` (値) | `dict` |
 | `@app.listbox(name, items=..., selectmode=...)` | tk.Listbox | `str` (選択項目) | `dict` |
 | `@app.canvas(name, width=..., height=...)` | tk.Canvas | なし | — |
+
+`@app.status` は schema / accessible の `role="status"` メタデータを付けます。ARIA live region 相当の読み上げはまだ未対応です（次バージョン以降の課題）。操作結果のフィードバック向きで、高頻度のミラー表示には `@app.label` を使ってください。
+
+`app.run(stages=..., tabposition=...)` と `@app.stages` で状態駆動の画面切替ができます。テーマヘルパー（`apply_theme` / `tokens` / layout chrome）はパッケージから import できます（`examples/header_demo.py` 参照）。
 
 ### label の拡張オプション
 

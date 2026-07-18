@@ -1,4 +1,4 @@
-"""TkApp: Flask-inspired decorator API for tkinter.
+"""TkApp: accessible, declarative Tkinter apps from ordinary Python functions.
 
 Core idea:
 - ``@app.label`` / ``@app.status`` / ``@app.button`` / ``@app.entry`` /
@@ -7,8 +7,9 @@ Core idea:
   ``app.paned`` / ``app.progressbar`` register slots.
 - Python owns nothing but schema + callbacks. Widget objects live in tkinter.
 - Each decorated function returns a dict that merges into app's state.
-- Layout is injected separately via Layout (DI / IoC).
-- All widgets surface as JSON schema via ``app.schema()`` for agent consumption.
+- Layout is injected separately via Layout.
+- ``app.schema()`` exports the same structure for agents and tools.
+  The decorator style is Flask-inspired.
 """
 
 from __future__ import annotations
@@ -18,22 +19,42 @@ import sys
 import tkinter as tk
 import tkinter.ttk as ttk
 import traceback
+import unicodedata
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
 ProgressModeLike = Literal["determinate", "indeterminate"]
 
-# Placeholder foreground: >= 4.5:1 contrast on both white and black
-# backgrounds (DESIGN.md 付録 B A7 / WCAG 1.4.3).
-PLACEHOLDER_FG = "#767676"
-
+from nextpytk import tokens as t
+from nextpytk.tokens import PLACEHOLDER_FG
 from nextpytk.types import (
+    BindOptions,
+    ButtonOptions,
+    CanvasOptions,
+    CheckbuttonOptions,
+    ComboboxOptions,
+    EntryOptions,
     FillLike,
+    LabelOptions,
+    ListboxEventHandler,
+    ListboxOptions,
+    ListboxSelectCallback,
+    MenubarCallback,
+    MenubarOptions,
+    MessageOptions,
     OrientLike,
+    PanedOptions,
+    ProgressbarOptions,
+    RadiobuttonOptions,
+    ScaleOptions,
     SelectModeLike,
     SideLike,
+    SpinboxOptions,
     StateLike,
     TakeFocusLike,
+    TextOptions,
+    TreeviewOptions,
+    Unpack,
 )
 from nextpytk.widgets import WidgetSpec
 
@@ -49,6 +70,23 @@ AsyncJob = Callable[..., Awaitable[dict[str, Any] | None]]
 F = TypeVar("F", bound=Callable[..., Any])
 NotebookTabChange = Callable[[str], dict[str, Any] | None]
 
+
+def _levenshtein(a: str, b: str) -> int:
+    """Return the Levenshtein edit distance between two strings."""
+    if len(a) < len(b):
+        return _levenshtein(b, a)
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, start=1):
+        curr = [i]
+        for j, cb in enumerate(b, start=1):
+            cost = 0 if ca == cb else 1
+            curr.append(min(curr[-1] + 1, prev[j] + 1, prev[j - 1] + cost))
+        prev = curr
+    return prev[-1]
+
+
 # ── callback type aliases ──
 
 # label/status: no arg, returns str or state dict
@@ -58,7 +96,7 @@ LabelCallback = Callable[[], str | dict[str, Any]]
 ButtonCallback = Callable[[dict[str, Any]], dict[str, Any]]
 BindCallback = ButtonCallback  # bind: same signature: state dict → state dict
 
-# entry / text / listbox / scale / spinbox: receives value str, returns state dict
+# entry / text / scale / spinbox: receives value str, returns state dict
 ValueCallback = Callable[[str], dict[str, Any]]
 
 # treeview: receives selected row index (-1 if none), returns state dict
@@ -140,7 +178,8 @@ class ViewContext:
     _PROXIED = frozenset({
         "label", "status", "message", "button", "bind", "entry",
         "checkbutton", "radiobutton", "text", "scale", "spinbox",
-        "listbox", "treeview", "paned", "progressbar", "canvas",
+        "listbox", "combobox", "treeview", "paned", "progressbar", "canvas",
+        "menubar",
     })
 
     def pane(self, pane_id: str) -> _PaneContext:
@@ -162,15 +201,22 @@ class ViewContext:
 
 
 class TkApp:
-    """Flask-inspired Tk application with decorator API and DI layout.
+    """Tk application: register widgets as functions, declare layout separately.
 
-    Inversion of Control (IoC): decorators register intent,
-    Layout provides structure. Decoupled — classic IoC.
+    Decorators register intent; Layout provides structure. The writing style
+    is Flask-inspired.
     """
 
-    def __init__(self, title: str = "Flask-style decorator", *, debug: bool = False):
+    def __init__(
+        self,
+        title: str = "nextpytk",
+        *,
+        debug: bool = False,
+        theme: bool = True,
+    ):
         self._title = title
         self._debug = debug
+        self._theme = theme
         self._acc_supported: bool | None = None
         self._widgets: list[WidgetSpec] = []
         self._state: dict[str, Any] = {}
@@ -184,15 +230,24 @@ class TkApp:
         self._view_layouts: dict[str, Layout] = {}
         self._multiviews: dict[str, dict[str, Any]] = {}
         self._current_view: str | None = None
+        self._stages: dict[str, dict[str, Any]] = {}
+        self._current_stage: str | None = None
+        self._stage_container: tk.Frame | None = None
         self._event_loop: asyncio.AbstractEventLoop | None = None
         self._jobs: dict[str, AsyncJob] = {}
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._treeview_inner: dict[str, ttk.Treeview] = {}
         self._treeview_row_cache: dict[str, tuple[Any, ...]] = {}
+        self._text_inner: dict[str, tk.Text] = {}
+        self._text_scroll_sync: dict[str, str] = {}
         self._paned_inner: dict[str, ttk.Panedwindow] = {}
         self._pane_frames: dict[str, tk.Widget] = {}
         self._layout_paned_opts: dict[str, dict[str, Any]] = {}
         self._current_pane: str | None = None
+        self._menubar_submenus: dict[str | int, list[tk.Menu | None]] = {}
+        self._declared_state_keys: set[str] = set()
+        self._warned_state_keys: set[str] = set()
+        self._first_focusable: tk.Widget | None = None
         self._register_default_builders()
 
     def pane(self, pane_id: str) -> _PaneContext:
@@ -216,7 +271,7 @@ class TkApp:
 
     def _dispatch(self, spec_name: str, fn: Callable[..., Any],
                   *args: Any) -> Any:
-        """Run a user callback under the framework error policy (原則 6).
+        """Run a user callback under the framework error policy.
 
         Exceptions are never swallowed silently: the traceback always goes
         to stderr, and ``TkApp(debug=True)`` re-raises.
@@ -263,6 +318,8 @@ class TkApp:
             return None
         if spec.kind == "treeview":
             return self._treeview_inner.get(spec.name)
+        if spec.kind == "text":
+            return self._text_inner.get(spec.name)
         return self._tk_widgets.get(spec.name)
 
     def _apply_all_takefocus(self) -> None:
@@ -301,6 +358,10 @@ class TkApp:
 
     def set_root(self, root: tk.Tk) -> None:
         self._root = root
+        if self._theme:
+            from nextpytk.theme import apply_theme, configure_window
+            apply_theme(root)
+            configure_window(root, title=self._title)
 
     def clear_runtime(self) -> None:
         self._tk_widgets.clear()
@@ -314,6 +375,11 @@ class TkApp:
         self._widget_masters.clear()
         self._row_pack_jobs.clear()
         self._grid_pack_jobs.clear()
+        self._menubar_submenus.clear()
+        self._text_inner.clear()
+        self._text_scroll_sync.clear()
+        self._current_view = None
+        self._current_stage = None
 
     def set_widget_master(self, widget_name: str, master: tk.Misc) -> None:
         self._widget_masters[widget_name] = master
@@ -334,12 +400,18 @@ class TkApp:
         view_layouts: dict[str, Layout] | None = None,
         center_kinds: set[str] | None = None,
         on_tab_change: NotebookTabChange | None = None,
+        tabposition: str = "nw",
     ) -> Callable[[F], F]:
         """Declare a multiview configuration by name.
 
+        ``tabposition`` controls where the Notebook tabs are rendered.
+        One of ``nw`` (top-left, default), ``n``, ``ne``, ``w`` (left),
+        ``e`` (right), ``sw``, ``s``, ``se``.
+
         Example::
 
-            @app.multiview("main", views=["Home", "Settings"])
+            @app.multiview("main", views=["Home", "Settings"],
+                            tabposition="w")
             def _main_tabs():
                 pass
 
@@ -352,8 +424,52 @@ class TkApp:
             "view_layouts": dict(view_layouts) if view_layouts else None,
             "center_kinds": set(center_kinds) if center_kinds else None,
             "on_tab_change": on_tab_change,
+            "tabposition": tabposition,
         }
         self._multiviews[name] = cfg
+
+        def decorator(fn: F) -> F:
+            return fn
+
+        return decorator
+
+    def stages(
+        self,
+        name: str,
+        *,
+        stages: list[str],
+        key: str,
+        toplevel_widgets: tuple[str, ...] = (),
+        initial_state: dict[str, Any] | None = None,
+        view_layouts: dict[str, Layout] | None = None,
+        center_kinds: set[str] | None = None,
+    ) -> Callable[[F], F]:
+        """Declare a state-driven stage configuration by name.
+
+        Only one stage is visible at a time.  The active stage is selected
+        by ``state[key]`` and changes via ``apply_state`` rerender the body
+        without creating a new root window.
+
+        Example::
+
+            @app.stages("main", stages=["home", "settings"], key="screen")
+            def _main_stages():
+                pass
+
+            app.run(stages="main")
+
+        Widgets that belong to every stage can be declared outside any view
+        and listed in ``toplevel_widgets``; they stay put while the body swaps.
+        """
+        cfg: dict[str, Any] = {
+            "stages": list(stages),
+            "key": key,
+            "toplevel_widgets": tuple(toplevel_widgets),
+            "initial_state": dict(initial_state) if initial_state else None,
+            "view_layouts": dict(view_layouts) if view_layouts else None,
+            "center_kinds": set(center_kinds) if center_kinds else None,
+        }
+        self._stages[name] = cfg
 
         def decorator(fn: F) -> F:
             return fn
@@ -365,6 +481,21 @@ class TkApp:
 
     def widget(self, name: str) -> tk.Widget | None:
         return self._tk_widgets.get(name)
+
+    def text_set(self, name: str, content: str) -> None:
+        """Replace the full contents of a text widget, even when read-only."""
+        inner = self._text_inner.get(name)
+        if inner is None:
+            return
+        inner.delete("1.0", "end")
+        inner.insert("1.0", content)
+
+    def text_tag_add(self, name: str, tag: str, start: str, end: str) -> None:
+        """Apply a tag to a text range, even when read-only."""
+        inner = self._text_inner.get(name)
+        if inner is None:
+            return
+        inner.tag_add(tag, start, end)
 
     @property
     def root(self) -> tk.Tk | None:
@@ -382,12 +513,122 @@ class TkApp:
             return list(self._widgets)
         return [w for w in self._widgets if w.kind == kind]
 
+    def debug_layout(self) -> dict[str, Any]:
+        """Collect runtime geometry/state for every registered widget.
+
+        Useful for diagnosing clipping, minsize, and geometry-manager issues
+        without needing to sprinkle ``winfo_*`` calls in user code.  Output is
+        JSON-compatible so it can be logged or handed to an agent.
+        """
+        out: dict[str, Any] = {"title": self._title, "sections": []}
+        seen_sections: dict[int, dict[str, Any]] = {}
+        for spec in self._widgets:
+            name = spec.name
+            w = self._tk_widgets.get(name)
+            if w is None:
+                continue
+            master = w.master
+            sec_id = id(master)
+            if sec_id not in seen_sections:
+                seen_sections[sec_id] = {
+                    "master_class": master.winfo_class(),
+                    "master_geometry": master.winfo_geometry(),
+                    "widgets": [],
+                }
+            info: dict[str, Any] = {
+                "name": name,
+                "kind": spec.kind,
+                "class": w.winfo_class(),
+                "geometry": w.winfo_geometry(),
+                "reqwidth": w.winfo_reqwidth(),
+                "reqheight": w.winfo_reqheight(),
+                "manager": w.winfo_manager(),
+                "ismapped": bool(w.winfo_ismapped()),
+                "viewable": bool(w.winfo_viewable()),
+            }
+            try:
+                mgr = w.winfo_manager()
+                if mgr == "pack":
+                    pi = w.pack_info()
+                    info["pack_info"] = {
+                        "side": pi.get("side"),
+                        "fill": pi.get("fill"),
+                        "expand": pi.get("expand"),
+                    }
+                elif mgr == "grid":
+                    gi = w.grid_info()
+                    info["grid_info"] = {
+                        "row": gi.get("row"),
+                        "column": gi.get("column"),
+                        "sticky": gi.get("sticky"),
+                    }
+            except tk.TclError:
+                pass
+            seen_sections[sec_id]["widgets"].append(info)
+        out["sections"] = list(seen_sections.values())
+        return out
+
+    def _spec(self, name: str) -> WidgetSpec | None:
+        for w in self._widgets:
+            if w.name == name:
+                return w
+        return None
+
     def apply_state(self, update: dict[str, Any]) -> None:
         self._apply_state(update)
 
+    def _apply_initial_state(self, initial_state: dict[str, Any]) -> None:
+        """Apply initial state, registering its keys as app-declared.
+
+        ``initial_state`` is the app declaring its state schema, so its keys
+        are never typo-warning candidates.
+        """
+        self._declared_state_keys.update(initial_state)
+        self.apply_state(initial_state)
+
     def sync(self) -> None:
         self._sync_widgets()
+        self._sync_menubar()
         self._sync_widget_states()
+
+    def pump(self) -> None:
+        """Process pending Tk events without entering mainloop."""
+        if self._root is None:
+            return
+        try:
+            while self._root.tk.dooneevent(0):
+                pass
+        except tk.TclError:
+            return
+
+    def run_stages(
+        self,
+        *,
+        stages: list[str],
+        key: str,
+        toplevel_widgets: tuple[str, ...] = (),
+        initial_state: dict[str, Any] | None = None,
+        view_layouts: dict[str, Layout] | None = None,
+        center_kinds: set[str] | None = None,
+        on_ready: Callable[[TkApp], None] | None = None,
+    ) -> None:
+        """Build and run the app with state-driven stage switching.
+
+        Unlike ``run_multiview`` this does not use a Notebook: only the
+        stage named by ``state[key]`` is packed into the body at a time.
+        Calling ``apply_state({key: "other_stage"})`` swaps the body.
+        """
+        root = self._setup_stages(
+            name="__run_stages__",
+            stages=stages,
+            key=key,
+            toplevel_widgets=toplevel_widgets,
+            initial_state=initial_state,
+            view_layouts=view_layouts,
+            center_kinds=center_kinds,
+            on_ready=on_ready,
+        )
+        root.mainloop()
 
     def run_multiview(
         self,
@@ -399,11 +640,15 @@ class TkApp:
         center_kinds: set[str] | None = None,
         on_tab_change: NotebookTabChange | None = None,
         on_ready: Callable[[TkApp], None] | None = None,
+        tabposition: str = "nw",
     ) -> None:
         """Build and run the app in a ttk.Notebook container.
 
         This keeps examples close to ``app.run(layout=...)`` style while supporting
         multi-view/tab UIs.
+
+        ``tabposition`` is forwarded to ``ttk.Notebook`` (e.g. ``"nw"`` for
+        top, ``"w"`` for left, ``"e"`` for right, ``"s"`` for bottom).
         """
         root = self._setup_multiview(
             views=views,
@@ -413,6 +658,7 @@ class TkApp:
             center_kinds=center_kinds,
             on_tab_change=on_tab_change,
             on_ready=on_ready,
+            tabposition=tabposition,
         )
         root.mainloop()
 
@@ -426,6 +672,7 @@ class TkApp:
         center_kinds: set[str] | None = None,
         on_tab_change: NotebookTabChange | None = None,
         on_ready: Callable[[TkApp], None] | None = None,
+        tabposition: str = "nw",
     ) -> None:
         """Async variant: multiview setup + cooperative asyncio mainloop.
 
@@ -441,6 +688,7 @@ class TkApp:
             center_kinds=center_kinds,
             on_tab_change=on_tab_change,
             on_ready=on_ready,
+            tabposition=tabposition,
         )
         await self._async_mainloop()
 
@@ -454,14 +702,56 @@ class TkApp:
         center_kinds: set[str] | None = None,
         on_tab_change: NotebookTabChange | None = None,
         on_ready: Callable[[TkApp], None] | None = None,
+        tabposition: str = "nw",
     ) -> tk.Tk:
         """Build the Notebook UI; everything except entering a mainloop."""
+        if self._theme:
+            from nextpytk.theme import _set_windows_dpi_aware
+            _set_windows_dpi_aware()
+
         root = tk.Tk()
         root.title(self._title)
+        if self._theme:
+            from nextpytk.theme import apply_theme, configure_window
+            apply_theme(root)
+            configure_window(root, title=self._title)
         self.set_root(root)
         self.clear_runtime()
 
-        nb = ttk.Notebook(root)
+        from nextpytk.theme import content_frame
+        from nextpytk import tokens as t
+
+        # Wrap the whole multiview in a Kizashi content frame so the page
+        # margin and ground color apply consistently across tabs.
+        body = content_frame(root, padding=t.SPACE[6])
+
+        # Apply per-multiview tab position via the ttk style (Tcl
+        # ``tabposition`` is not exposed on the widget in Tk 9.0/Py 3.14,
+        # but the TNotebook style does accept it).
+        try:
+            ttk.Style(root).configure("TNotebook", tabposition=tabposition)
+        except tk.TclError:
+            pass
+
+        # Fit the TNotebook.Tab width to the longest view label so app
+        # developers do not need to hand-tune width per app. Without this
+        # every tab collapses to the natural width of its text, which
+        # makes a Notebook look ragged.
+        try:
+            from tkinter import font as tkfont
+            style = ttk.Style(root)
+            font_spec = style.lookup("TNotebook.Tab", "font")
+            if font_spec and views:
+                f = tkfont.Font(font=font_spec)
+                max_px = max(f.measure(v) for v in views)
+                avg_px = f.measure("0") or 1
+                # 2-char safety margin so the label never touches the border.
+                char_w = max(4, -(-max_px // avg_px) + 2)
+                style.configure("TNotebook.Tab", width=char_w)
+        except Exception:
+            pass
+
+        nb = ttk.Notebook(body)
         frames: dict[str, tk.Frame] = {}
         jobs_by_view: dict[str, tuple[Layout, list[Any], list[Any]]] = {}
 
@@ -476,11 +766,45 @@ class TkApp:
         if unknown:
             raise ValueError(f"view_layouts includes unknown views: {', '.join(unknown)}")
 
+        # Separate chrome frames for header widgets (above the notebook) and
+        # status widgets (below the notebook).  The status bar is rendered by
+        # ``theme.status_bar`` so it looks like a bottom bar, not a centered box.
+        header_widgets: list[str] = []
+        status_widgets: list[str] = []
         for name in toplevel_widgets:
-            self.set_widget_master(name, root)
+            spec = self._spec(name)
+            if spec is not None and getattr(spec, "role", None) == "status":
+                status_widgets.append(name)
+            else:
+                header_widgets.append(name)
+
+        if header_widgets or status_widgets:
+            chrome = tk.Frame(body, bg=t.BG, bd=0, highlightthickness=0)
+            chrome.pack(fill="x", pady=(0, t.SPACE[3]))
+            self._multiview_header_container = chrome
+            from nextpytk.theme import window_header
+            self._multiview_header_fn = window_header
+        else:
+            chrome = None
+            self._multiview_header_container = None
+            self._multiview_header_fn = None
+
+        if status_widgets:
+            status_bar_frame = tk.Frame(body, bg=t.BG, bd=0, highlightthickness=0)
+            status_bar_frame.pack(side="bottom", fill="x", pady=(t.SPACE[3], 0), padx=t.SPACE[6])
+            self._multiview_status_container = status_bar_frame
+        else:
+            status_bar_frame = None
+            self._multiview_status_container = None
+
+        for name in header_widgets:
+            self.set_widget_master(name, chrome if chrome is not None else body)
+        for name in status_widgets:
+            self.set_widget_master(name, status_bar_frame if status_bar_frame is not None else body)
 
         for view in views:
             frame = tk.Frame(nb, name=f"tabframe_{view}")
+            frame.configure(bg=t.BG, bd=0, highlightthickness=0)
             frames[view] = frame
             if view in layouts:
                 layout = layouts[view]
@@ -489,20 +813,38 @@ class TkApp:
                     self, frame, allowed_widgets=allowed)
                 jobs_by_view[view] = (layout, row_jobs, grid_jobs)
             else:
+                # Same inner content margin as layout-managed views.
+                inner = tk.Frame(frame, bg=t.BG, bd=0, highlightthickness=0)
+                inner.pack(fill="both", expand=True,
+                           padx=t.SPACE[6], pady=t.SPACE[4])
                 for wname in self.view_widget_names(view):
-                    self.set_widget_master(wname, frame)
+                    self.set_widget_master(wname, inner)
 
         self.build_widgets()
 
         if initial_state:
-            self.apply_state(initial_state)
+            self._apply_initial_state(initial_state)
 
-        for name in toplevel_widgets:
-            w = self.widget(name)
-            if w is not None:
-                w.pack(fill="x", padx=5, pady=1)
+        if chrome is not None:
+            for name in header_widgets:
+                w = self.widget(name)
+                if w is not None:
+                    w.pack(fill="x", pady=(0, t.SPACE[1]))
 
-        nb.pack(fill="both", expand=True, padx=5, pady=5)
+        nb.pack(fill="both", expand=True, pady=(t.SPACE[2], 0))
+
+        if status_bar_frame is not None:
+            for name in status_widgets:
+                w = self.widget(name)
+                if w is not None:
+                    w_any: Any = w
+                    try:
+                        w_any.configure(anchor="w", font=t.font("small"),
+                                        foreground=t.NEUTRAL[700])
+                    except tk.TclError:
+                        pass
+                    w.pack(fill="x", pady=(t.SPACE[1], 0))
+
         for view in views:
             nb.add(frames[view], text=view)
 
@@ -535,6 +877,7 @@ class TkApp:
 
         self.draw_canvas_items()
         self.sync()
+        self._set_initial_focus()
         return root
 
     # ── async job registration ──
@@ -558,6 +901,165 @@ class TkApp:
             self._jobs[name] = fn
             return fn
         return decorator
+
+    def _setup_stages(
+        self,
+        *,
+        name: str,
+        stages: list[str],
+        key: str,
+        toplevel_widgets: tuple[str, ...] = (),
+        initial_state: dict[str, Any] | None = None,
+        view_layouts: dict[str, Layout] | None = None,
+        center_kinds: set[str] | None = None,
+        on_ready: Callable[[TkApp], None] | None = None,
+    ) -> tk.Tk:
+        """Build the state-driven stage UI; everything except entering mainloop."""
+        self._stages[name] = {
+            "stages": list(stages),
+            "key": key,
+            "toplevel_widgets": tuple(toplevel_widgets),
+            "initial_state": dict(initial_state) if initial_state else None,
+            "view_layouts": dict(view_layouts) if view_layouts else None,
+            "center_kinds": set(center_kinds) if center_kinds else None,
+        }
+        if self._theme:
+            from nextpytk.theme import _set_windows_dpi_aware
+            _set_windows_dpi_aware()
+
+        root = tk.Tk()
+        root.title(self._title)
+        if self._theme:
+            from nextpytk.theme import apply_theme, configure_window
+            apply_theme(root)
+            configure_window(root, title=self._title)
+        self.set_root(root)
+        self.clear_runtime()
+
+        from nextpytk.theme import content_frame
+        from nextpytk import tokens as t
+
+        body = content_frame(root, padding=t.SPACE[6])
+
+        header_widgets: list[str] = []
+        status_widgets: list[str] = []
+        for name in toplevel_widgets:
+            spec = self._spec(name)
+            if spec is not None and getattr(spec, "role", None) == "status":
+                status_widgets.append(name)
+            else:
+                header_widgets.append(name)
+
+        if header_widgets or status_widgets:
+            chrome = tk.Frame(body, bg=t.BG, bd=0, highlightthickness=0)
+            chrome.pack(fill="x", pady=(0, t.SPACE[3]))
+            self._multiview_header_container = chrome
+        else:
+            chrome = None
+            self._multiview_header_container = None
+        self._multiview_header_fn = None
+
+        if status_widgets:
+            status_bar_frame = tk.Frame(body, bg=t.BG, bd=0, highlightthickness=0)
+            status_bar_frame.pack(side="bottom", fill="x", pady=(t.SPACE[3], 0), padx=t.SPACE[6])
+            self._multiview_status_container = status_bar_frame
+        else:
+            status_bar_frame = None
+            self._multiview_status_container = None
+
+        for name in header_widgets:
+            self.set_widget_master(name, chrome if chrome is not None else body)
+        for name in status_widgets:
+            self.set_widget_master(name, status_bar_frame if status_bar_frame is not None else body)
+
+        stage_container = tk.Frame(body, bg=t.BG, bd=0, highlightthickness=0)
+        stage_container.pack(fill="both", expand=True, pady=(t.SPACE[2], 0))
+        self._stage_container = stage_container
+
+        layouts = dict(self._view_layouts)
+        if view_layouts:
+            for k, v in view_layouts.items():
+                if isinstance(v, list):
+                    from nextpytk.layout import Layout
+                    view_layouts[k] = Layout.from_list(v)
+            layouts.update(view_layouts)
+        unknown = sorted(set(layouts.keys()) - set(stages))
+        if unknown:
+            raise ValueError(f"view_layouts includes unknown stages: {', '.join(unknown)}")
+
+        jobs_by_stage: dict[str, tuple[Layout, list[Any], list[Any]]] = {}
+        self._stage_frames: dict[str, tk.Frame] = {}
+
+        for stage in stages:
+            frame = tk.Frame(stage_container, name=f"stageframe_{stage}", bg=t.BG, bd=0, highlightthickness=0)
+            self._stage_frames[stage] = frame
+            if stage in layouts:
+                layout = layouts[stage]
+                allowed = set(self.view_widget_names(stage))
+                row_jobs, grid_jobs = layout.mount_frames_into(self, frame, allowed_widgets=allowed)
+                jobs_by_stage[stage] = (layout, row_jobs, grid_jobs)
+            else:
+                inner = tk.Frame(frame, bg=t.BG, bd=0, highlightthickness=0)
+                inner.pack(fill="both", expand=True, padx=t.SPACE[6], pady=t.SPACE[4])
+                for wname in self.view_widget_names(stage):
+                    self.set_widget_master(wname, inner)
+
+        if initial_state:
+            self._apply_initial_state(initial_state)
+
+        self.build_widgets()
+
+        if chrome is not None:
+            for name in header_widgets:
+                w = self.widget(name)
+                if w is not None:
+                    w.pack(fill="x", pady=(0, t.SPACE[1]))
+
+        if status_bar_frame is not None:
+            for name in status_widgets:
+                w = self.widget(name)
+                if w is not None:
+                    w_any: Any = w
+                    try:
+                        w_any.configure(anchor="w", font=t.font("small"),
+                                        foreground=t.NEUTRAL[700])
+                    except tk.TclError:
+                        pass
+                    w.pack(fill="x", pady=(t.SPACE[1], 0))
+
+        centered = center_kinds or set()
+        for stage in stages:
+            if stage in jobs_by_stage:
+                layout, row_jobs, grid_jobs = jobs_by_stage[stage]
+                layout.pack_children_for(self, row_jobs, grid_jobs)
+            else:
+                self.pack_view_widgets(stage, center_kinds=centered, fill="x", pady=2)
+
+        active = str(self._state.get(key, stages[0] if stages else ""))
+        if active not in stages:
+            active = stages[0] if stages else ""
+        self._render_stage(active, key=key, centered=centered)
+
+        if on_ready is not None:
+            on_ready(self)
+
+        self.draw_canvas_items()
+        self.sync()
+        self._set_initial_focus()
+        return root
+
+    def _render_stage(self, stage: str, *, key: str, centered: set[str]) -> None:
+        """Pack the requested stage frame and unpack the others."""
+        container = self._stage_container
+        if container is None:
+            return
+        for name, frame in self._stage_frames.items():
+            if name == stage:
+                frame.pack(fill="both", expand=True)
+            else:
+                frame.pack_forget()
+        self._current_stage = stage
+        self._state[key] = stage
 
     def spawn(self, coro):
         """Schedule an async task on the running event loop.
@@ -639,9 +1141,11 @@ class TkApp:
         *,
         center_kinds: set[str] | None = None,
         fill: FillLike = "x",
-        pady: int = 2,
+        pady: int | None = None,
     ) -> None:
         """Pack all widgets registered in a named view."""
+        if pady is None:
+            pady = t.SPACE[1]
         centered = center_kinds or set()
         for wname in self.view_widget_names(view_name):
             w = self.widget(wname)
@@ -658,21 +1162,21 @@ class TkApp:
     def label(
         self,
         name: str,
-        *,
-        role: str | None = None,
-        description: str | None = None,
-        font: tuple[str, int] | tuple[str, int, str] | None = None,
-        anchor: str | None = None,
-        justify: str | None = None,
-        padding: int | tuple[int, int] | None = None,
-        takefocus: TakeFocusLike | None = None,
+        **options: Unpack[LabelOptions],
     ) -> Callable[[LabelCallback], LabelCallback]:
         """Register a label. Decorated function returns text or state dict.
 
-        ``takefocus``: Tab key traversal (``0`` / ``1`` / ``\"\"`` or bool).
+        ``width``: fixed character width (ttk.Label) so long text does not
+        expand the window. ``takefocus``: Tab key traversal (``0`` / ``1`` /
+        ``""`` or bool).
         """
         def decorator(fn: LabelCallback) -> LabelCallback:
             extras: dict[str, Any] = {}
+            font = options.get("font")
+            anchor = options.get("anchor")
+            justify = options.get("justify")
+            padding = options.get("padding")
+            width = options.get("width")
             if font is not None:
                 extras["font"] = font
             if anchor is not None:
@@ -681,10 +1185,14 @@ class TkApp:
                 extras["justify"] = justify
             if padding is not None:
                 extras["padding"] = padding
+            if width is not None:
+                extras["width"] = width
             self._add_spec(WidgetSpec(
-                name=name, kind="label", role=role, description=description,
+                name=name, kind="label",
+                role=options.get("role"),
+                description=options.get("description"),
                 on_update=fn,
-                extras=self._widget_extras(extras, takefocus=takefocus),
+                extras=self._widget_extras(extras, takefocus=options.get("takefocus")),
             ))
             return fn
         return decorator
@@ -692,34 +1200,16 @@ class TkApp:
     def status(
         self,
         name: str,
-        *,
-        role: str | None = "status",
-        description: str | None = None,
-        font: tuple[str, int] | tuple[str, int, str] | None = None,
-        anchor: str | None = None,
-        justify: str | None = None,
-        padding: int | tuple[int, int] | None = None,
-        takefocus: TakeFocusLike | None = None,
+        **options: Unpack[LabelOptions],
     ) -> Callable[[LabelCallback], LabelCallback]:
-        """Register a label with ``role=\"status\"``."""
-        return self.label(
-            name,
-            role=role,
-            description=description,
-            font=font,
-            anchor=anchor,
-            justify=justify,
-            padding=padding,
-            takefocus=takefocus,
-        )
+        """Register a label with ``role="status"``."""
+        options["role"] = options.get("role", "status")
+        return self.label(name, **options)
 
     def bind(
         self,
         name: str,
-        *,
-        sequence: str,
-        label: str = "",
-        description: str | None = None,
+        **options: Unpack[BindOptions],
     ) -> Callable[[BindCallback], BindCallback]:
         """Register a global key binding.
 
@@ -742,6 +1232,9 @@ class TkApp:
         (same ``name``), the shortcut label is appended to the button text
         automatically.
         """
+        sequence = options["sequence"]
+        label = options.get("label", "")
+        description = options.get("description")
         def decorator(fn: BindCallback) -> BindCallback:
             self._add_spec(WidgetSpec(
                 name=name, kind="bind", label_text=label,
@@ -755,12 +1248,7 @@ class TkApp:
     def message(
         self,
         name: str,
-        *,
-        role: str | None = None,
-        description: str | None = None,
-        width: int | None = None,
-        auto_width: bool = True,
-        takefocus: TakeFocusLike | None = None,
+        **options: Unpack[MessageOptions],
     ) -> Callable[[LabelCallback], LabelCallback]:
         """Register a message widget with wrap support.
 
@@ -768,13 +1256,288 @@ class TkApp:
         width follows parent container resize.
         """
         def decorator(fn: LabelCallback) -> LabelCallback:
-            extras: dict[str, Any] = {"auto_width": auto_width}
+            width = options.get("width")
+            extras: dict[str, Any] = {"auto_width": options.get("auto_width", True)}
             if width is not None:
                 extras["width"] = width
             self._add_spec(WidgetSpec(
-                name=name, kind="message", role=role, description=description,
+                name=name, kind="message",
+                role=options.get("role"),
+                description=options.get("description"),
                 on_update=fn,
-                extras=self._widget_extras(extras, takefocus=takefocus),
+                extras=self._widget_extras(extras, takefocus=options.get("takefocus")),
+            ))
+            return fn
+        return decorator
+
+    @staticmethod
+    def _menubar_item_is_separator(item: Any) -> bool:
+        """Return True if the item represents a menu separator."""
+        return isinstance(item, str) and item == "---"
+
+    @staticmethod
+    def _menubar_item_enabled(
+        item: dict[str, Any], values: dict[str, Any]
+    ) -> bool:
+        """Evaluate an item's enabled_if callable, if present."""
+        enabled_if = item.get("enabled_if")
+        if enabled_if is None:
+            return True
+        try:
+            return bool(enabled_if(values))
+        except Exception:
+            return True
+
+    @staticmethod
+    def _menubar_items(
+        spec: WidgetSpec,
+    ) -> list[dict[str, Any]]:
+        """Return the resolved list of menubar item dicts from the spec."""
+        items = spec.extras.get("items", [])
+        return [dict(i) if isinstance(i, dict) else {"separator": True} for i in items]
+
+    def _build_menubar_submenu(
+        self,
+        parent: tk.Menu,
+        items: list[dict[str, Any]],
+        parent_key: str | int = "",
+    ) -> list[tk.Menu | None]:
+        """Populate a tk.Menu with commands, separators and nested cascades.
+
+        Returns a flat list parallel to ``items`` with a Menu reference for
+        cascade entries and None for commands/separators, so callers can
+        recurse without relying on platform-specific Tk options.
+        """
+        submenus: list[tk.Menu | None] = []
+        for item in items:
+            if item.get("separator"):
+                parent.add_separator()
+                submenus.append(None)
+                continue
+            label = str(item.get("label", ""))
+            sub_items = item.get("items")
+            if isinstance(sub_items, (list, tuple)) and sub_items:
+                submenu = tk.Menu(parent, tearoff=0)
+                parent.add_cascade(label=label, menu=submenu)
+                key = id(submenu)
+                submenus.append(submenu)
+                child_submenus = self._build_menubar_submenu(
+                    submenu,
+                    [
+                        dict(si) if isinstance(si, dict) else {"separator": True}
+                        for si in sub_items
+                    ],
+                    parent_key=key,
+                )
+                self._menubar_submenus[key] = child_submenus
+                continue
+            command_name = str(item.get("command", ""))
+            parent.add_command(
+                label=label,
+                command=lambda n=command_name, l=label: self._on_menubar_command(n, l),
+            )
+            submenus.append(None)
+        if parent_key:
+            self._menubar_submenus[parent_key] = submenus
+        return submenus
+
+    def _build_menubar(self, spec: WidgetSpec, _master: tk.Misc) -> None:
+        """Create a top-level menubar and attach it to the root window."""
+        root = self._root
+        if root is None:
+            return
+        menubar = tk.Menu(root, tearoff=0)
+        self._tk_widgets[spec.name] = menubar
+        root.config(menu=menubar)
+        # Resolve the initial item list so subsequent sync() calls can detect
+        # dynamic structural changes without rebuilding on every state update.
+        initial_items: list[Any] = []
+        if spec.on_update is not None:
+            result = self._dispatch(spec.name, spec.on_update)
+            if isinstance(result, list):
+                initial_items = result
+            elif isinstance(result, dict):
+                initial_items = result.get(spec.name, [])
+        extras_items: list[Any] = []
+        for item in initial_items:
+            if isinstance(item, dict):
+                extras_items.append(dict(item))
+            else:
+                extras_items.append({"separator": True})
+        spec.extras["items"] = extras_items
+        self._menubar_submenus[spec.name] = self._build_menubar_submenu(
+            menubar, extras_items, parent_key=spec.name
+        )
+
+    def _on_menubar_command(self, command_name: str, label: str) -> None:
+        """Invoke the registered handler for a menubar item."""
+        spec = self._spec(command_name)
+        if spec is None or spec.on_click is None:
+            return
+        values = self._entry_values_dict()
+        self._state[command_name] = label
+        result = self._dispatch(command_name, spec.on_click, values)
+        if isinstance(result, dict) and result:
+            self._apply_state(result)
+
+    def _sync_menubar_states(self) -> None:
+        """Update menubar item enabled/disabled state from enabled_if."""
+        values = {**self._state, **self._entry_values_dict()}
+        for spec in self.widget_specs(kind="menubar"):
+            menubar = self._tk_widgets.get(spec.name)
+            if not isinstance(menubar, tk.Menu):
+                continue
+            submenus = self._menubar_submenus.get(spec.name, [])
+            self._sync_menubar_menu_states(
+                menubar, self._menubar_items(spec), values, submenus
+            )
+
+    def _sync_menubar_menu_states(
+        self,
+        menu: tk.Menu,
+        items: list[dict[str, Any]],
+        values: dict[str, Any],
+        submenus: list[tk.Menu | None],
+    ) -> None:
+        """Recursively update enabled_if states for a tk.Menu and its submenus."""
+        idx = 0
+        for item in items:
+            if item.get("separator"):
+                idx += 1
+                continue
+            sub_items = item.get("items")
+            if isinstance(sub_items, (list, tuple)) and sub_items:
+                sub = submenus[idx] if idx < len(submenus) else None
+                if isinstance(sub, tk.Menu):
+                    child_submenus = self._menubar_submenus.get(id(sub), [])
+                    self._sync_menubar_menu_states(
+                        sub,
+                        [
+                            dict(si) if isinstance(si, dict) else {"separator": True}
+                            for si in sub_items
+                        ],
+                        values,
+                        child_submenus,
+                    )
+                idx += 1
+                continue
+            ok = self._menubar_item_enabled(item, values)
+            try:
+                menu.entryconfig(idx, state="normal" if ok else "disabled")
+            except tk.TclError:
+                pass
+            idx += 1
+
+    def _sync_menubar(self) -> None:
+        """Refresh menubar item labels and commands from the decorator.
+
+        The menu is only rebuilt when the decorator returns a different item
+        list; otherwise existing Tk widgets are preserved so submenu references
+        and platform-specific menu bindings remain valid.
+        """
+        for spec in self.widget_specs(kind="menubar"):
+            menubar = self._tk_widgets.get(spec.name)
+            if not isinstance(menubar, tk.Menu):
+                continue
+            if spec.on_update is None:
+                continue
+            result = self._dispatch(spec.name, spec.on_update)
+            items: list[Any] = []
+            if isinstance(result, list):
+                items = result
+            elif isinstance(result, dict):
+                items = result.get(spec.name, [])
+            if not isinstance(items, list):
+                continue
+            extras_items: list[Any] = []
+            for item in items:
+                if isinstance(item, dict):
+                    extras_items.append(dict(item))
+                else:
+                    extras_items.append({"separator": True})
+            existing = spec.extras.get("items", [])
+            if not self._menubar_items_equal(existing, extras_items):
+                # Clear and rebuild the menubar to reflect dynamic item changes.
+                menubar.delete(0, "end")
+                spec.extras["items"] = extras_items
+                self._menubar_submenus[spec.name] = self._build_menubar_submenu(
+                    menubar, extras_items, parent_key=spec.name
+                )
+            else:
+                spec.extras["items"] = extras_items
+        self._sync_menubar_states()
+
+    @staticmethod
+    def _menubar_items_equal(a: list[Any], b: list[Any]) -> bool:
+        """Return True when two menubar item lists describe the same structure.
+
+        Only label, command and nested structure are compared; ``enabled_if``
+        callables are intentionally ignored so that state-driven enablement
+        does not force a full menu rebuild.
+        """
+        if len(a) != len(b):
+            return False
+        for ai, bi in zip(a, b):
+            if isinstance(ai, dict) != isinstance(bi, dict):
+                return False
+            if isinstance(ai, dict):
+                if not isinstance(bi, dict):
+                    return False
+                if ai.get("label") != bi.get("label"):
+                    return False
+                if ai.get("command") != bi.get("command"):
+                    return False
+                sub_a = ai.get("items")
+                sub_b = bi.get("items")
+                if isinstance(sub_a, (list, tuple)) != isinstance(sub_b, (list, tuple)):
+                    return False
+                if isinstance(sub_a, (list, tuple)) and isinstance(sub_b, (list, tuple)):
+                    if not TkApp._menubar_items_equal(list(sub_a), list(sub_b)):
+                        return False
+            elif ai != bi:
+                return False
+        return True
+
+    def menubar(
+        self,
+        name: str,
+        **options: Unpack[MenubarOptions],
+    ) -> Callable[[MenubarCallback], MenubarCallback]:
+        """Register a top-level menubar.
+
+        The decorated function returns a list of item dicts and separator
+        strings. Top-level items with ``items`` become cascades (submenus);
+        items with ``command`` invoke the registered handler name.
+        Each command item may contain ``enabled_if`` with the same Callable
+        signature used by buttons.
+
+        Example::
+
+            @app.menubar("menu")
+            def menu_bar():
+                return [
+                    {"label": "File", "items": [
+                        {"label": "New", "command": "m_new"},
+                        {"label": "Save", "command": "m_save",
+                         "enabled_if": lambda vals: bool(vals.get("dirty"))},
+                        "---",
+                        {"label": "Exit", "command": "m_exit"},
+                    ]},
+                ]
+
+            @app.button("m_new")
+            def m_new(vals): return {"msg": "New"}
+        """
+        def decorator(fn: MenubarCallback) -> MenubarCallback:
+            items = options.get("items")
+            extras: dict[str, Any] = {}
+            if items is not None:
+                extras["items"] = list(items)
+            self._add_spec(WidgetSpec(
+                name=name, kind="menubar",
+                description=options.get("description"),
+                on_update=fn,
+                extras=extras,
             ))
             return fn
         return decorator
@@ -782,21 +1545,25 @@ class TkApp:
     def button(
         self,
         name: str,
-        *,
-        label: str = "",
-        role: str | None = "button",
-        description: str | None = None,
-        state: StateLike = "normal",
-        enabled_if: Callable[[dict[str, Any]], bool] | None = None,
-        takefocus: TakeFocusLike | None = None,
+        **options: Unpack[ButtonOptions],
     ) -> Callable[[ButtonCallback], ButtonCallback]:
         """Register a button. Callback receives entry values dict → returns state dict.
 
+        ``label``: button text.
         ``state``: initial widget state (``"normal"`` / ``"disabled"``).
+        ``primary``: use the filled accent style (``Primary.TButton``); otherwise
+        the outlined neutral style (``Secondary.TButton``).
         When ``enabled_if`` is set, it takes over after the first sync.
         """
         def decorator(fn: ButtonCallback) -> ButtonCallback:
-            extras: dict[str, Any] = {}
+            label = options.get("label", "")
+            role = options.get("role", "button")
+            description = options.get("description")
+            state = options.get("state", "normal")
+            enabled_if = options.get("enabled_if")
+            takefocus = options.get("takefocus")
+            primary = options.get("primary", False)
+            extras: dict[str, Any] = {"style": "Primary.TButton" if primary else "Secondary.TButton"}
             if state != "normal":
                 extras["state"] = state
             self._add_spec(WidgetSpec(
@@ -810,23 +1577,24 @@ class TkApp:
     def entry(
         self,
         name: str,
-        *,
-        placeholder: str = "",
-        placeholder_as_hint: bool = True,
-        role: str | None = None,
-        description: str | None = None,
-        state: StateLike = "normal",
-        show: str | None = None,
-        width: int | None = None,
-        takefocus: TakeFocusLike | None = None,
+        **options: Unpack[EntryOptions],
     ) -> Callable[[ValueCallback], ValueCallback]:
         """Register an entry. Callback receives value string → returns state dict.
 
-        ``show``: set ``\"*\"`` for password entry.
+        ``placeholder``: hint text shown when empty.
+        ``show``: set ``"*"`` for password entry.
         ``width``: character width.
         ``state``: initial widget state (``"normal"`` / ``"disabled"``).
         """
         def decorator(fn: ValueCallback) -> ValueCallback:
+            placeholder = options.get("placeholder", "")
+            placeholder_as_hint = options.get("placeholder_as_hint", True)
+            role = options.get("role")
+            description = options.get("description")
+            state = options.get("state", "normal")
+            show = options.get("show")
+            width = options.get("width")
+            takefocus = options.get("takefocus")
             extras: dict[str, Any] = {}
             if show is not None:
                 extras["show"] = show
@@ -846,17 +1614,16 @@ class TkApp:
     def checkbutton(
         self,
         name: str,
-        *,
-        text: str = "",
-        key: str | None = None,
-        description: str | None = None,
-        takefocus: TakeFocusLike | None = None,
+        **options: Unpack[CheckbuttonOptions],
     ) -> Callable[[BoolCallback], BoolCallback]:
         """Register a checkbutton. Callback receives bool → returns state dict.
 
-        ``state[key]`` is ``\"1\"`` or ``\"0\"``. Key defaults to name.
+        ``state[key]`` is ``"1"`` or ``"0"``. Key defaults to name.
         """
-        actual_key = key or name
+        actual_key = options.get("key") or name
+        text = options.get("text", "")
+        description = options.get("description")
+        takefocus = options.get("takefocus")
         def decorator(fn: BoolCallback) -> BoolCallback:
             self._add_spec(WidgetSpec(
                 name=name, kind="checkbutton", label_text=text,
@@ -871,17 +1638,17 @@ class TkApp:
     def radiobutton(
         self,
         name: str,
-        *,
-        text: str = "",
-        value: str = "",
-        group: str = "radio",
-        description: str | None = None,
-        takefocus: TakeFocusLike | None = None,
+        **options: Unpack[RadiobuttonOptions],
     ) -> Callable[[ValueCallback], ValueCallback]:
         """Register a radiobutton. Callback receives selected value → returns state dict.
 
         All radiobuttons sharing the same *group* write to ``state[group]``.
         """
+        text = options.get("text", "")
+        value = options.get("value", "")
+        group = options.get("group", "radio")
+        description = options.get("description")
+        takefocus = options.get("takefocus")
         def decorator(fn: ValueCallback) -> ValueCallback:
             self._add_spec(WidgetSpec(
                 name=name, kind="radiobutton", label_text=text,
@@ -897,22 +1664,38 @@ class TkApp:
     def text(
         self,
         name: str,
-        *,
-        width: int = 50,
-        height: int = 8,
-        description: str | None = None,
-        state: StateLike = "normal",
-        takefocus: TakeFocusLike | None = None,
+        **options: Unpack[TextOptions],
     ) -> Callable[[ValueCallback], ValueCallback]:
-        """Register a multiline text widget. Callback receives full content → returns state dict."""
+        """Register a multiline text widget. Callback receives full content → returns state dict.
+
+        ``tab_inserts``: when True, Tab inserts a tab character (default tk
+        behavior). When False (default), Tab moves focus to the next widget
+        and the user can use Ctrl+Tab / Ctrl+I to insert a literal tab
+        (WCAG 2.1.1 Keyboard, 2.4.3 Focus Order).
+        """
+        width = options.get("width", 50)
+        height = options.get("height", 8)
+        description = options.get("description")
+        state = options.get("state", "normal")
+        tab_inserts = options.get("tab_inserts", False)
+        readonly = options.get("readonly", False)
+        tags = options.get("tags")
+        sync_yscroll_with = options.get("sync_yscroll_with")
+        takefocus = options.get("takefocus", True)
         def decorator(fn: ValueCallback) -> ValueCallback:
+            extras: dict[str, Any] = {"width": width, "height": height, "tab_inserts": tab_inserts}
+            if state != "normal":
+                extras["state"] = state
+            if readonly:
+                extras["readonly"] = True
+            if tags is not None:
+                extras["tags"] = tags
+            if sync_yscroll_with is not None:
+                extras["sync_yscroll_with"] = sync_yscroll_with
             self._add_spec(WidgetSpec(
                 name=name, kind="text", description=description,
                 on_update=fn,
-                extras=self._widget_extras(
-                    {"width": width, "height": height},
-                    takefocus=takefocus,
-                ),
+                extras=self._widget_extras(extras, takefocus=takefocus),
             ))
             return fn
         return decorator
@@ -920,19 +1703,18 @@ class TkApp:
     def scale(
         self,
         name: str,
-        *,
-        key: str | None = None,
-        from_: int = 0,
-        to: int = 100,
-        orient: OrientLike = "horizontal",
-        description: str | None = None,
-        takefocus: TakeFocusLike | None = None,
+        **options: Unpack[ScaleOptions],
     ) -> Callable[[ValueCallback], ValueCallback]:
         """Register a scale slider. Callback receives current value → returns state dict.
 
         ``state[key]`` holds the int value. Key defaults to name.
         """
-        actual_key = key or name
+        actual_key = options.get("key") or name
+        from_ = options.get("from_", 0)
+        to = options.get("to", 100)
+        orient = options.get("orient", "horizontal")
+        description = options.get("description")
+        takefocus = options.get("takefocus")
         def decorator(fn: ValueCallback) -> ValueCallback:
             self._add_spec(WidgetSpec(
                 name=name, kind="scale", description=description,
@@ -948,27 +1730,70 @@ class TkApp:
     def spinbox(
         self,
         name: str,
-        *,
-        key: str | None = None,
-        from_: float | None = None,
-        to: float | None = None,
-        values: list[str] | None = None,
-        description: str | None = None,
-        takefocus: TakeFocusLike | None = None,
+        **options: Unpack[SpinboxOptions],
     ) -> Callable[[ValueCallback], ValueCallback]:
         """Register a spinbox. Callback receives current value → returns state dict.
 
         ``state[key]`` holds the string value. Key defaults to name.
+        ``width``: character width of the entry field.
         """
-        actual_key = key or name
+        actual_key = options.get("key") or name
+        from_ = options.get("from_")
+        to = options.get("to")
+        values = options.get("values")
+        width = options.get("width")
+        description = options.get("description")
+        takefocus = options.get("takefocus")
         def decorator(fn: ValueCallback) -> ValueCallback:
+            extras: dict[str, Any] = {
+                "state_key": actual_key, "from": from_,
+                "to": to, "values": values,
+            }
+            if width is not None:
+                extras["width"] = width
             self._add_spec(WidgetSpec(
                 name=name, kind="spinbox", description=description,
                 on_update=fn,
-                extras=self._widget_extras({
-                    "state_key": actual_key, "from": from_,
-                    "to": to, "values": values,
-                }, takefocus=takefocus),
+                extras=self._widget_extras(extras, takefocus=takefocus),
+            ))
+            return fn
+        return decorator
+
+    def combobox(
+        self,
+        name: str,
+        **options: Unpack[ComboboxOptions],
+    ) -> Callable[[ValueCallback], ValueCallback]:
+        """Register a ``ttk.Combobox``. Callback receives selected value → returns state dict.
+
+        ``values``: list of selectable strings.
+        ``state[key]`` holds the current string value. Key defaults to name.
+        ``readonly``: when True, the user can only pick from ``values``.
+        ``font``: optional ``(family, size[, weight])`` tuple.
+        ``padding``: internal padding override; integer or tuple.
+        """
+        actual_key = options.get("key") or name
+        values = options.get("values")
+        width = options.get("width")
+        readonly = options.get("readonly", False)
+        font = options.get("font")
+        description = options.get("description")
+        takefocus = options.get("takefocus")
+
+        def decorator(fn: ValueCallback) -> ValueCallback:
+            extras: dict[str, Any] = {
+                "state_key": actual_key,
+                "values": values or [],
+                "readonly": readonly,
+            }
+            if width is not None:
+                extras["width"] = width
+            if font is not None:
+                extras["font"] = font
+            self._add_spec(WidgetSpec(
+                name=name, kind="combobox", description=description,
+                on_update=fn,
+                extras=self._widget_extras(extras, takefocus=takefocus),
             ))
             return fn
         return decorator
@@ -976,23 +1801,47 @@ class TkApp:
     def listbox(
         self,
         name: str,
-        *,
-        items: list[str] | None = None,
-        selectmode: SelectModeLike = "browse",
-        height: int | None = None,
-        description: str | None = None,
-        enabled_if: Callable[[dict[str, Any]], bool] | None = None,
-        takefocus: TakeFocusLike | None = None,
-    ) -> Callable[[ValueCallback], ValueCallback]:
-        """Register a listbox. Callback receives selected item → returns state dict.
+        **options: Unpack[ListboxOptions],
+    ) -> Callable[[ListboxSelectCallback], ListboxSelectCallback]:
+        """Register a listbox. Callback receives selected index → returns state dict.
 
-        ``state[name]`` holds the selected item string.
+        ``state[name]`` holds the selected item index, or ``-1`` when nothing
+        is selected. This matches the behavior of ``treeview`` callbacks and
+        avoids ambiguity caused by duplicate display strings.
         ``enabled_if``: disables selection when False (sets selectmode="none").
+        ``events``: widget-level event bindings. Each handler receives the
+        current state dict and returns a state update dict (same signature as
+        button callbacks). Use ``nextpytk.types.ListboxEvent`` constants for
+        common sequences such as ``ListboxEvent.RETURN`` or
+        ``ListboxEvent.DOUBLE_CLICK``.
+
+        Example::
+
+            @app.listbox(
+                "file_list",
+                selectmode=SelectMode.BROWSE,
+                events={
+                    ListboxEvent.RETURN: lambda state: open_child(),
+                    ListboxEvent.DOUBLE_CLICK: lambda state: open_child(),
+                    ListboxEvent.KEY_BACKSPACE: lambda state: go_parent(),
+                },
+            )
+            def on_file_list_select(idx: int) -> dict[str, Any]:
+                ...
         """
-        def decorator(fn: ValueCallback) -> ValueCallback:
+        items = options.get("items")
+        selectmode = options.get("selectmode", "browse")
+        height = options.get("height")
+        description = options.get("description")
+        enabled_if = options.get("enabled_if")
+        takefocus = options.get("takefocus")
+        events = options.get("events")
+        def decorator(fn: ListboxSelectCallback) -> ListboxSelectCallback:
             extras: dict[str, Any] = {"items": items or [], "selectmode": selectmode}
             if height is not None:
                 extras["height"] = height
+            if events is not None:
+                extras["events"] = events
             self._add_spec(WidgetSpec(
                 name=name, kind="listbox", description=description,
                 on_update=fn,
@@ -1005,28 +1854,28 @@ class TkApp:
     def treeview(
         self,
         name: str,
-        *,
-        columns: list[Any],
-        rows_key: str | None = None,
-        selectmode: SelectModeLike = "browse",
-        height: int = 8,
-        description: str | None = None,
-        activate: TreeviewActivateCallback | None = None,
-        takefocus: TakeFocusLike | None = None,
+        **options: Unpack[TreeviewOptions],
     ) -> Callable[[TreeviewSelectCallback], TreeviewSelectCallback]:
-        """Register a flat ``ttk.Treeview`` table (``show=\"headings\"``).
+        """Register a flat ``ttk.Treeview`` table (``show="headings"``).
 
         ``columns``: list of ``(id, heading)`` / ``(id, heading, width)``
         or ``(id, heading, width, anchor)`` tuples, or dicts with
         ``id``, ``heading``, ``width``, ``anchor``, ``stretch``.
 
         ``state[rows_key]``: list of row value tuples (column order).
-        ``rows_key`` defaults to ``\"{name}_rows\"``.
+        ``rows_key`` defaults to ``"{name}_rows"``.
 
         ``state[name]``: selected row index (``int``, ``-1`` if none).
 
         ``activate``: optional double-click handler (same signature as select).
         """
+        columns = options["columns"]
+        rows_key = options.get("rows_key")
+        selectmode = options.get("selectmode", "browse")
+        height = options.get("height", 8)
+        description = options.get("description")
+        activate = options.get("activate")
+        takefocus = options.get("takefocus")
         col_ids, col_configs = _normalize_treeview_columns(columns)
         actual_rows_key = rows_key or f"{name}_rows"
 
@@ -1049,12 +1898,7 @@ class TkApp:
     def paned(
         self,
         name: str,
-        *,
-        panes: tuple[str, ...] | list[str],
-        orient: OrientLike = "horizontal",
-        weights: tuple[int, ...] | list[int] | None = None,
-        sashwidth: int | None = 4,
-        description: str | None = None,
+        **options: Unpack[PanedOptions],
     ) -> None:
         """Register a ``ttk.Panedwindow`` with named pane frames.
 
@@ -1076,6 +1920,11 @@ class TkApp:
         Only the paned widget belongs in ``Layout``; pane children are packed
         inside their pane frame (``with app.pane(...)``).
         """
+        panes = options["panes"]
+        orient = options.get("orient", "horizontal")
+        weights = options.get("weights")
+        sashwidth = options.get("sashwidth", 4)
+        description = options.get("description")
         pane_list = tuple(panes)
         weight_list = list(weights) if weights is not None else [1] * len(pane_list)
         self._add_spec(WidgetSpec(
@@ -1091,24 +1940,23 @@ class TkApp:
     def progressbar(
         self,
         name: str,
-        *,
-        key: str | None = None,
-        maximum: float = 100.0,
-        mode: ProgressModeLike = "determinate",
-        length: int = 200,
-        orient: OrientLike = "horizontal",
-        description: str | None = None,
+        **options: Unpack[ProgressbarOptions],
     ) -> None:
         """Register a ``ttk.Progressbar`` driven by app state.
 
         ``state[key]``: numeric value ``0 .. maximum`` (determinate).
-        ``state[\"{name}_running\"]``: when ``True``, runs indeterminate
+        ``state["{name}_running"]``: when ``True``, runs indeterminate
         animation (``start()``); when ``False``, ``stop()`` and restore mode.
 
         ``key`` defaults to ``name``. Update via ``apply_state`` from buttons
         or ``app.spawn`` / ``@app.job`` async tasks.
         """
-        actual_key = key or name
+        actual_key = options.get("key") or name
+        maximum = options.get("maximum", 100.0)
+        mode = options.get("mode", "determinate")
+        length = options.get("length", 200)
+        orient = options.get("orient", "horizontal")
+        description = options.get("description")
         self._add_spec(WidgetSpec(
             name=name, kind="progressbar", description=description,
             extras={
@@ -1123,18 +1971,18 @@ class TkApp:
     def canvas(
         self,
         name: str,
-        *,
-        width: int = 300,
-        height: int = 200,
-        bg: str = "#f0f0f0",
-        description: str | None = None,
-        items: list | None = None,
-        takefocus: TakeFocusLike | None = None,
+        **options: Unpack[CanvasOptions],
     ) -> Callable[[Callable[[], None]], Callable[[], None]]:
         """Register a canvas (display only).
 
         ``items``: list of ``(kind, *args, kwargs)`` to draw via ``create_{kind}``.
         """
+        width = options.get("width", 300)
+        height = options.get("height", 200)
+        bg = options.get("bg", "#f0f0f0")
+        description = options.get("description")
+        items = options.get("items")
+        takefocus = options.get("takefocus")
         def decorator(fn: Callable[[], None] | None = None) -> Callable[[], None]:
             extras: dict[str, Any] = {"width": width, "height": height, "bg": bg}
             if items:
@@ -1145,7 +1993,6 @@ class TkApp:
             ))
             return fn  # type: ignore[return-value]
         return decorator
-
     # ── state management ──
 
     def _apply_state(self, update: dict[str, Any]) -> None:
@@ -1157,8 +2004,27 @@ class TkApp:
 
     def _apply_state_dict(self, update: dict[str, Any], *, full: bool) -> None:
         """Merge *update* into state and refresh affected widgets."""
-        self._state.update(update)
-        for key, val in update.items():
+        self._warn_unknown_state_keys(update)  # before merge: existing keys are treated as known
+
+        # Detect stage-key changes before merging so we can rerender the body.
+        # Reject unknown stage values; they are silently ignored.
+        stage_change: tuple[str, str, set[str]] | None = None
+        update_to_apply = dict(update)
+        if self._current_stage is not None and self._stage_container is not None:
+            for cfg in self._stages.values():
+                stage_key = cfg["key"]
+                if stage_key not in update_to_apply:
+                    continue
+                new_stage = str(update_to_apply[stage_key])
+                valid_stages = set(self._stage_frames.keys())
+                if new_stage in valid_stages:
+                    if new_stage != self._state.get(stage_key):
+                        stage_change = (stage_key, new_stage, cfg.get("center_kinds") or set())
+                else:
+                    update_to_apply.pop(stage_key, None)
+
+        self._state.update(update_to_apply)
+        for key, val in update_to_apply.items():
             var = self._tk_vars.get(key)
             if var is None:
                 continue
@@ -1170,14 +2036,83 @@ class TkApp:
         if full:
             self._sync_widgets()
         else:
-            self._sync_widgets_for_keys(update)
-        if self._treeview_update_touches_rows(update):
+            self._sync_widgets_for_keys(update_to_apply)
+        if self._treeview_update_touches_rows(update_to_apply):
             self._sync_treeviews(force=True)
-        elif full and self._treeview_update_touches_selection(update):
+        elif full and self._treeview_update_touches_selection(update_to_apply):
             self._sync_treeview_selections()
-        if full:
-            self._sync_progressbars()
-            self._sync_widget_states()
+        # Update menubar regardless of full/partial so enabled_if reacts to
+        # any state change (e.g. dirty flag toggled by entry or button).
+        self._sync_menubar()
+        self._sync_menubar_states()
+        self._sync_widget_states()
+
+        if stage_change is not None:
+            key, new_stage, centered = stage_change
+            self._render_stage(new_stage, key=key, centered=centered)
+            # Keep state in sync with the rendered stage.
+            self._state[key] = new_stage
+
+    def _known_state_keys(self) -> set[str]:
+        """Return the set of state keys that have meaning in the app."""
+        keys: set[str] = set()
+        for spec in self._widgets:
+            if spec.kind == "checkbutton":
+                keys.add(str(spec.extras.get("state_key", spec.name)))
+            elif spec.kind == "radiobutton":
+                keys.add(str(spec.extras.get("group_key", "radio")))
+            elif spec.kind == "scale":
+                keys.add(str(spec.extras.get("state_key", spec.name)))
+            elif spec.kind == "spinbox":
+                keys.add(str(spec.extras.get("state_key", spec.name)))
+            elif spec.kind == "treeview":
+                keys.add(str(spec.extras.get("rows_key", f"{spec.name}_rows")))
+                keys.add(spec.name)
+            elif spec.kind == "progressbar":
+                keys.add(str(spec.extras.get("state_key", spec.name)))
+                keys.add(f"{spec.name}_running")
+                keys.add(f"{spec.name}_mode")
+            elif spec.kind in ("label", "status", "message", "entry", "text",
+                               "listbox", "button", "bind"):
+                keys.add(spec.name)
+        return keys
+
+    # Only near-misses of a known key are reported as typos. The state dict
+    # is open by design: app-defined keys such as "tab" are legitimate and
+    # must not warn.
+    _TYPO_DISTANCE = 2
+
+    def _warn_unknown_state_keys(self, update: dict[str, Any]) -> None:
+        """Warn when a state key looks like a typo of a known key.
+
+        Helps catch ``{"mgs": ...}`` instead of ``{"msg": ...}``. Keys that
+        are declared via ``initial_state``, already present in the state
+        dict, or not close to any known key are treated as intentional
+        app-defined state. Each suspicious key is reported once.
+        """
+        if not self._widgets:
+            return
+        known = self._known_state_keys()
+        if not known:
+            return
+        suspects: list[str] = []
+        for key in update.keys():
+            if (key in known or key in self._declared_state_keys
+                    or key in self._state or key in self._warned_state_keys):
+                continue
+            best = min(known, key=lambda k: _levenshtein(k, key))
+            d = _levenshtein(best, key)
+            if not (0 < d <= self._TYPO_DISTANCE and d < len(key)):
+                continue
+            self._warned_state_keys.add(key)
+            suspects.append(key)
+            print(
+                f"nextpytk: callback returned unknown state key {key!r}."
+                f" Did you mean {best!r}?",
+                file=sys.stderr,
+            )
+        if suspects and self._debug:
+            raise KeyError(f"unknown state key(s): {suspects}")
 
     def _entry_values_dict(self) -> dict[str, Any]:
         values: dict[str, Any] = {}
@@ -1214,6 +2149,9 @@ class TkApp:
                 else:
                     tk_w.selection_clear(0, "end")
                     tk_w.configure(selectmode="none")
+
+        # Update menubar item states after per-widget states.
+        self._sync_menubar_states()
 
     def _entry_spec(self, name: str) -> WidgetSpec | None:
         for w in self._widgets:
@@ -1564,15 +2502,15 @@ class TkApp:
         if w is None:
             return
         if spec.kind in ("message", "text", "listbox", "treeview", "canvas"):
-            w.pack(fill="both", expand=True, padx=4, pady=4)
+            w.pack(fill="both", expand=True, padx=t.SPACE[1], pady=t.SPACE[1])
         else:
-            w.pack(fill="x", padx=4, pady=2)
+            w.pack(fill="x", padx=t.SPACE[1], pady=t.SPACE[1])
 
     # ── widget builders: kind → builder registry ──
     #
     # Adding a widget kind means adding one builder (plus schema output).
     # Every built widget passes through the single a11y choke point
-    # ``_apply_a11y`` (DESIGN.md 原則 2 / 付録 B).
+    # ``_apply_a11y`` so accessible name/role and focus behavior stay consistent.
 
     def _register_default_builders(self) -> None:
         self._widget_builders: dict[
@@ -1587,11 +2525,13 @@ class TkApp:
             "text": self._build_text,
             "scale": self._build_scale,
             "spinbox": self._build_spinbox,
+            "combobox": self._build_combobox,
             "listbox": self._build_listbox,
             "treeview": self._build_treeview,
             "canvas": self._build_canvas,
             "progressbar": self._build_progressbar,
             "bind": self._build_bind,
+            "menubar": self._build_menubar,
         }
 
     def register_widget_builder(
@@ -1615,6 +2555,8 @@ class TkApp:
         if self._root is None:
             return
 
+        self._first_focusable: tk.Widget | None = None
+
         for spec in self._widgets:
             if spec.kind == "paned":
                 master = self._widget_masters.get(spec.name, self._root)
@@ -1623,6 +2565,12 @@ class TkApp:
 
         for spec in self._widgets:
             if spec.kind == "paned":
+                continue
+            if spec.name in self._tk_widgets:
+                # Pre-provided by a Layout chrome helper (e.g. ``.status()``
+                # registers its styled status-bar label at mount time);
+                # building again would stack a duplicate widget on top.
+                self._apply_a11y(spec)
                 continue
             builder = self._widget_builders.get(spec.kind)
             if builder is None:
@@ -1633,11 +2581,64 @@ class TkApp:
             if spec.extras.get("pane"):
                 self._pack_pane_child(spec)
             self._apply_a11y(spec)
+            if self._first_focusable is None:
+                w = self._takefocus_widget(spec)
+                if w is not None and self._is_focusable(w):
+                    self._first_focusable = w
 
         self._apply_all_takefocus()
 
+        # ── post-build: wire paired text y-scroll synchronization ──
+        self._wire_text_scroll_sync()
+
         # ── post-build: annotate button labels with bind shortcuts ──
         self._annotate_button_shortcuts()
+
+    def _is_focusable(self, w: tk.Widget) -> bool:
+        """Return True if a widget can receive keyboard focus by default."""
+        try:
+            tf = w.cget("takefocus")
+        except tk.TclError:
+            return False
+        if tf is True or tf == 1 or tf == "1":
+            return True
+        if tf == "" or tf is None or tf is False or tf == 0 or tf == "0":
+            return False
+        # ttk widgets may return a script (e.g. "ttk::takefocus"); treat any
+        # non-falsy non-explicitly-disabled value as focusable.
+        return bool(tf)
+
+    def _set_initial_focus(self) -> None:
+        """Move keyboard focus to the first focusable widget if none has it.
+
+        Gives keyboard users a starting point in the Tab order
+        (WCAG 2.1.1 Keyboard, 2.4.3 Focus Order). Respects ``on_ready`` or
+        explicit user focus: if a widget already has focus, we leave it alone.
+
+        On macOS the window manager may steal focus before the window is
+        mapped, so we defer the actual focus_set until the next idle tick.
+        """
+        root = self._root
+        if root is None:
+            return
+
+        def _apply() -> None:
+            current = root.focus_get()
+            if current is not None and current != root:
+                return
+            w = self._first_focusable
+            if w is None:
+                return
+            try:
+                w.focus_set()
+                w.focus_force()
+            except tk.TclError:
+                pass
+
+        try:
+            root.after_idle(_apply)
+        except tk.TclError:
+            pass
 
     # ── a11y choke point ──
 
@@ -1648,6 +2649,23 @@ class TkApp:
             return self._treeview_inner.get(spec.name)
         return self._tk_widgets.get(spec.name)
 
+    def _wire_text_scroll_sync(self) -> None:
+        """Connect y-scroll commands for paired text widgets after all are built."""
+        for name_a, name_b in self._text_scroll_sync.items():
+            text_a = self._text_inner.get(name_a)
+            text_b = self._text_inner.get(name_b)
+            if text_a is None or text_b is None:
+                continue
+
+            def _sync_from_a(*_args: Any, source: tk.Text = text_a, target: tk.Text = text_b) -> None:
+                target.yview_moveto(source.yview()[0])
+
+            def _sync_from_b(*_args: Any, source: tk.Text = text_b, target: tk.Text = text_a) -> None:
+                target.yview_moveto(source.yview()[0])
+
+            text_a.configure(yscrollcommand=_sync_from_a)
+            text_b.configure(yscrollcommand=_sync_from_b)
+
     def _apply_a11y(self, spec: WidgetSpec) -> None:
         """Route ``WidgetSpec.role`` / ``description`` to Tk accessible attrs.
 
@@ -1656,7 +2674,7 @@ class TkApp:
         Tk the first failing call disables further attempts. Core widgets get
         reasonable defaults from Tk itself, so only user-provided traits are
         pushed. Role vocabulary mapping to Tk roles is tracked in ROADMAP
-        (A11y 実適用).
+        (A11y implementation).
         """
         w = self._a11y_target(spec)
         if w is None or self._root is None or self._acc_supported is False:
@@ -1681,21 +2699,50 @@ class TkApp:
 
     def _build_label(self, spec: WidgetSpec, master: tk.Misc) -> None:
         e = spec.extras
-        w = ttk.Label(master, text="", anchor="center", justify="center")
-        for opt in ("font", "anchor", "justify", "padding"):
+        style = "Heading.TLabel" if spec.role == "heading" else "TLabel"
+        # Kizashi default is left-aligned; centering must be explicit.
+        default_anchor = "w" if self._theme else "center"
+        default_justify = "left" if self._theme else "center"
+        w = ttk.Label(master, text="", anchor=default_anchor, justify=default_justify, style=style)
+        for opt in ("font", "anchor", "justify", "padding", "width"):
             if opt in e:
                 w.configure(**{opt: e[opt]})
         self._tk_widgets[spec.name] = w
         if spec.on_update is not None:
             result = self._dispatch(spec.name, spec.on_update)
+            text = ""
             if isinstance(result, str):
-                w.configure(text=result)
+                text = result
             elif isinstance(result, dict):
-                w.configure(text=str(result.get(spec.name, "")))
+                text = str(result.get(spec.name, ""))
+            w.configure(text=text)
+            # Freeze the label width at the initial rendered text length so
+            # later text changes cannot expand the window. Count full-width
+            # characters as 2 columns to keep CJK text readable.
+            if "width" not in e:
+                def _display_width(s: str) -> int:
+                    width = 0
+                    for ch in s:
+                        eaw = unicodedata.east_asian_width(ch)
+                        width += 2 if eaw in ("F", "W") else 1
+                    return width
+                try:
+                    w.configure(width=_display_width(text))
+                except Exception:
+                    pass
 
     def _build_message(self, spec: WidgetSpec, master: tk.Misc) -> None:
         e = spec.extras
-        w = tk.Message(master, text="", name=spec.name)
+        w = tk.Message(
+            master,
+            text="",
+            name=spec.name,
+            bg=t.BG,
+            fg=t.TEXT,
+            font=t.font("body"),
+            anchor="w",
+            justify="left",
+        )
         self._tk_widgets[spec.name] = w
         if e.get("width") is not None:
             w.configure(width=e["width"])
@@ -1709,10 +2756,16 @@ class TkApp:
                 w.configure(text=str(result.get(spec.name, "")))
 
     def _build_button(self, spec: WidgetSpec, master: tk.Misc) -> None:
-        w = ttk.Button(master, text=spec.label_text or spec.name)
+        style = spec.extras.get("style", "Secondary.TButton")
+        w = ttk.Button(master, text=spec.label_text or spec.name, style=style)
         if "state" in spec.extras:
             w.configure(state=spec.extras["state"])
         self._tk_widgets[spec.name] = w
+
+        # Focus ring is rendered as a 3px border whose color changes on focus
+        # (WCAG 2.4.7 Focus Visible). The physical border always exists, so
+        # the widget geometry never shifts.
+
         if spec.on_click is not None:
             fn = spec.on_click
             w.configure(command=lambda s=spec, f=fn: self._on_button_click(s, f))
@@ -1746,8 +2799,17 @@ class TkApp:
         e = spec.extras
         key = e.get("state_key", spec.name)
         var = tk.StringVar(value="0")
-        w = ttk.Checkbutton(master, text=spec.label_text, variable=var,
-                            onvalue="1", offvalue="0")
+        # padding is owned by the theme style (44px min target size);
+        # a widget-level option here would silently override it.
+        w = ttk.Checkbutton(
+            master,
+            text=spec.label_text,
+            variable=var,
+            onvalue="1",
+            offvalue="0",
+        )
+        # anchor is a ttk layout option (style.layout), not a constructor kwarg
+        # for ttk.Checkbutton; left alignment is enforced by the Kizashi style.
         self._tk_widgets[spec.name] = w
         self._tk_vars[key] = var
         if spec.on_update is not None:
@@ -1762,8 +2824,13 @@ class TkApp:
         if gk not in self._tk_vars:
             self._tk_vars[gk] = tk.StringVar(value="")
         var = self._tk_vars[gk]
-        w = ttk.Radiobutton(master, text=spec.label_text, variable=var,
-                            value=val)
+        # padding is owned by the theme style (44px min target size)
+        w = ttk.Radiobutton(
+            master,
+            text=spec.label_text,
+            variable=var,
+            value=val,
+        )
         self._tk_widgets[spec.name] = w
         if spec.on_update is not None:
             fn = spec.on_update
@@ -1772,9 +2839,74 @@ class TkApp:
 
     def _build_text(self, spec: WidgetSpec, master: tk.Misc) -> None:
         e = spec.extras
-        w = tk.Text(master, width=e.get("width", 50), height=e.get("height", 8),
-                    name=spec.name)
-        self._tk_widgets[spec.name] = w
+        container = ttk.Frame(master)
+        container.rowconfigure(0, weight=1)
+        container.columnconfigure(0, weight=1)
+        w = tk.Text(
+            container,
+            width=e.get("width", 50),
+            height=e.get("height", 8),
+            name=spec.name,
+            bg=t.SURFACE,
+            fg=t.TEXT,
+            insertbackground=t.TEXT,
+            selectbackground=t.ACCENT_RAMP[200],
+            selectforeground=t.ACCENT_RAMP[700],
+            relief="solid",
+            bd=1,
+            highlightthickness=0,
+            font=t.font("body"),
+            wrap="word",
+        )
+        scroll = ttk.Scrollbar(container, orient=tk.VERTICAL, command=w.yview)
+        w.configure(yscrollcommand=scroll.set)
+        w.grid(row=0, column=0, sticky="nsew")
+        scroll.grid(row=0, column=1, sticky="ns")
+        self._tk_widgets[spec.name] = container
+        self._text_inner[spec.name] = w
+
+        tags: dict[str, dict[str, Any]] | None = e.get("tags")
+        if tags:
+            for tag_name, tag_kw in tags.items():
+                w.tag_config(tag_name, **tag_kw)
+
+        if e.get("readonly"):
+            # Read-only: block user edits while keeping the widget focusable,
+            # scrollable, and visible to assistive technologies. Tk's
+            # state="disabled" hides the caret and removes the widget from
+            # focus traversal, so we keep state="normal" and swallow only
+            # editing events. This preserves accessible name/role/value
+            # (WCAG 4.1.2) and keyboard focus with a visible indicator
+            # (WCAG 2.4.7).
+            w.bind("<Key>", lambda _e: "break")
+            w.bind("<Button-1>", lambda _e: "break")
+            w.bind("<B1-Motion>", lambda _e: "break")
+
+        sync_with: str | None = e.get("sync_yscroll_with")
+        if sync_with is not None:
+            self._text_scroll_sync[spec.name] = sync_with
+
+        if not e.get("tab_inserts", False):
+            # By default, Tab moves focus out of the editor so users can
+            # keyboard-traverse the form (WCAG 2.1.1, 2.4.3). Use Ctrl+Tab
+            # (or Ctrl+I) to insert a literal tab. ``return "break"`` swallows
+            # the event so the default tab-insertion behavior does not run.
+            def _focus_tab(_event: tk.Event[tk.Misc], ww: tk.Text) -> str:
+                nxt = ww.tk_focusNext()
+                if nxt is not None:
+                    nxt.focus_set()
+                return "break"
+
+            def _focus_shift_tab(_event: tk.Event[tk.Misc], ww: tk.Text) -> str:
+                prv = ww.tk_focusPrev()
+                if prv is not None:
+                    prv.focus_set()
+                return "break"
+
+            w.bind("<Tab>", lambda e, ww=w: _focus_tab(e, ww))
+            w.bind("<Shift-Tab>", lambda e, ww=w: _focus_shift_tab(e, ww))
+            w.bind("<Control-Tab>", lambda _e: None)
+            w.bind("<Control-Shift-Tab>", lambda _e: None)
         if spec.on_update is not None:
             fn = spec.on_update
             w.bind("<KeyRelease>", lambda _e, s=spec, f=fn:
@@ -1785,8 +2917,17 @@ class TkApp:
         key = e.get("state_key", spec.name)
         var = tk.IntVar(value=int(e.get("from", 0)))
         orient_str: OrientLike = e.get("orient", "horizontal")
-        w = ttk.Scale(master, from_=e.get("from", 0), to=e.get("to", 100),
-                      orient=orient_str, variable=var)  # type: ignore[arg-type]
+        # The slider widget itself is narrow, so add external padding to give
+        # it a larger click/touch target and keep adjacent controls at a
+        # comfortable distance (WCAG 2.5.5 Target Size advisory).
+        w = ttk.Scale(
+            master,
+            from_=e.get("from", 0),
+            to=e.get("to", 100),
+            orient=orient_str,
+            variable=var,
+            length=e.get("length", 200 if orient_str == "horizontal" else 100),
+        )  # type: ignore[arg-type]
         self._tk_widgets[spec.name] = w
         self._tk_vars[key] = var
         self._state[key] = str(var.get())
@@ -1813,7 +2954,35 @@ class TkApp:
             kwargs["to"] = e["to"]
         if e.get("values"):
             kwargs["values"] = e["values"]
+        if e.get("width") is not None:
+            kwargs["width"] = e["width"]
         w = ttk.Spinbox(master, textvariable=var, **kwargs)
+        self._tk_widgets[spec.name] = w
+        self._tk_vars[key] = var
+        if init_val:
+            self._state[key] = init_val
+        if spec.on_update is not None:
+            fn = spec.on_update
+            var.trace_add("write", lambda *_a, s=spec, f=fn, v=var, k=key:
+                          self._on_var_change(s, f, v, k))
+
+    def _build_combobox(self, spec: WidgetSpec, master: tk.Misc) -> None:
+        e = spec.extras
+        key = e.get("state_key", spec.name)
+        values = e.get("values", [])
+        init_val = str(values[0]) if values else ""
+        var = tk.StringVar(value=init_val)
+        kwargs: dict[str, Any] = {
+            "values": values,
+            "textvariable": var,
+            "width": e.get("width", t.DEFAULT_COMBOBOX_WIDTH),
+        }
+        if e.get("readonly"):
+            kwargs["state"] = "readonly"
+            kwargs["style"] = "Readonly.TCombobox"
+        if e.get("font") is not None:
+            kwargs["font"] = e["font"]
+        w = ttk.Combobox(master, **kwargs)
         self._tk_widgets[spec.name] = w
         self._tk_vars[key] = var
         if init_val:
@@ -1825,19 +2994,42 @@ class TkApp:
 
     def _build_listbox(self, spec: WidgetSpec, master: tk.Misc) -> None:
         e = spec.extras
-        kwargs_lb: dict[str, Any] = {}
-        if e.get("height"):
+        kwargs_lb: dict[str, Any] = {
+            "bg": t.SURFACE,
+            "fg": t.TEXT,
+            "selectbackground": t.ACCENT_RAMP[200],
+            "selectforeground": t.ACCENT_RAMP[700],
+            "relief": "solid",
+            "bd": 1,
+            "highlightthickness": 0,
+            "font": t.font("body"),
+        }
+        if e.get("height") is not None:
             kwargs_lb["height"] = e["height"]
+        else:
+            kwargs_lb["height"] = t.DEFAULT_LISTBOX_ROWS
         if e.get("selectmode"):
             kwargs_lb["selectmode"] = e["selectmode"]
         w = tk.Listbox(master, name=spec.name, **kwargs_lb)
         for item in e.get("items", []):
             w.insert("end", item)
         self._tk_widgets[spec.name] = w
+        # Initialize selection state to -1 so state[name] is always an integer
+        # (matching treeview semantics) even before the user interacts.
+        if spec.name not in self._state:
+            self._state[spec.name] = -1
         if spec.on_update is not None:
             fn = spec.on_update
             w.bind("<<ListboxSelect>>", lambda _e, s=spec, f=fn:
                    self._on_listbox_select(s, f))
+        for sequence, handler in e.get("events", {}).items():
+            w.bind(sequence, lambda _e, h=handler: self._on_listbox_event(h))
+
+    def _on_listbox_event(self, handler: ListboxEventHandler) -> None:
+        """Invoke a widget-level listbox event handler and apply its state update."""
+        result = self._dispatch("listbox_event", handler, dict(self._state))
+        if isinstance(result, dict) and result:
+            self._apply_state(result)
 
     def _build_treeview(self, spec: WidgetSpec, master: tk.Misc) -> None:
         e = spec.extras
@@ -1887,8 +3079,14 @@ class TkApp:
 
     def _build_canvas(self, spec: WidgetSpec, master: tk.Misc) -> None:
         e = spec.extras
-        w = tk.Canvas(master, width=e.get("width", 300), height=e.get("height", 200),
-                      bg=e.get("bg", "#f0f0f0"), name=spec.name)
+        w = tk.Canvas(
+            master,
+            width=e.get("width", 300),
+            height=e.get("height", 200),
+            bg=e.get("bg", t.SURFACE),
+            name=spec.name,
+            highlightthickness=0,
+        )
         self._tk_widgets[spec.name] = w
 
     def _build_progressbar(self, spec: WidgetSpec, master: tk.Misc) -> None:
@@ -1986,15 +3184,15 @@ class TkApp:
             value = w.get("1.0", "end-1c")  # type: ignore[attr-defined]
         self._apply_callback_result(self._dispatch(spec.name, fn, value))
 
-    def _on_listbox_select(self, spec: WidgetSpec, fn: Any) -> None:
+    def _on_listbox_select(self, spec: WidgetSpec, fn: ListboxSelectCallback) -> None:
         w = self._tk_widgets.get(spec.name)
-        value = ""
+        idx = -1
         if w is not None and hasattr(w, "curselection"):
             sel = w.curselection()  # type: ignore[attr-defined]
-            if sel and hasattr(w, "get"):
-                value = w.get(sel[0])  # type: ignore[attr-defined]
-        self._state[spec.name] = value
-        self._apply_callback_result(self._dispatch(spec.name, fn, value))
+            if sel:
+                idx = int(sel[0])
+        self._state[spec.name] = idx
+        self._apply_callback_result(self._dispatch(spec.name, fn, idx))
 
     def _apply_treeview_select(self, spec: WidgetSpec, fn: Any, idx: int) -> None:
         """Apply treeview row selection (index) and refresh dependent widgets."""
@@ -2052,6 +3250,7 @@ class TkApp:
         layout: Any = None,
         initial_state: dict[str, Any] | None = None,
         multiview: str | None = None,
+        stages: str | None = None,
         on_ready: Callable[[TkApp], None] | None = None,
         geometry: str | None = None,
     ) -> None:
@@ -2062,14 +3261,38 @@ class TkApp:
         key bindings, or other imperative setup that needs widgets to exist.
         geometry: initial window size, e.g. "640x480".
         """
+        used = sum(x is not None for x in (layout, multiview, stages))
+        if used > 1:
+            raise ValueError(
+                "Only one of layout, multiview, or stages can be used in run()"
+            )
+
+        if stages is not None:
+            cfg = self._stages.get(stages)
+            if cfg is None:
+                raise ValueError(f"Stages '{stages}' is not declared")
+            declared_initial = cfg.get("initial_state") or {}
+            merged_initial: dict[str, Any] | None
+            if initial_state:
+                merged_initial = {**declared_initial, **initial_state}
+            else:
+                merged_initial = declared_initial or None
+            self.run_stages(
+                stages=cfg["stages"],
+                key=cfg["key"],
+                toplevel_widgets=cfg["toplevel_widgets"],
+                initial_state=merged_initial,
+                view_layouts=cfg.get("view_layouts"),
+                center_kinds=cfg.get("center_kinds"),
+                on_ready=on_ready,
+            )
+            return
+
         if multiview is not None:
-            if layout is not None:
-                raise ValueError("layout and multiview cannot be used together in run()")
             cfg = self._multiviews.get(multiview)
             if cfg is None:
                 raise ValueError(f"Multiview '{multiview}' is not declared")
             declared_initial = cfg.get("initial_state") or {}
-            merged_initial: dict[str, Any] | None
             if initial_state:
                 merged_initial = {**declared_initial, **initial_state}
             else:
@@ -2082,13 +3305,22 @@ class TkApp:
                 center_kinds=cfg.get("center_kinds"),
                 on_tab_change=cfg.get("on_tab_change"),
                 on_ready=on_ready,
+                tabposition=cfg.get("tabposition", "nw"),
             )
             return
+
+        if self._theme:
+            from nextpytk.theme import _set_windows_dpi_aware
+            _set_windows_dpi_aware()
 
         self._root = tk.Tk()
         self._root.title(self._title)
         if geometry:
             self._root.geometry(geometry)
+        if self._theme:
+            from nextpytk.theme import apply_theme, configure_window
+            apply_theme(self._root)
+            configure_window(self._root, title=self._title)
         self.clear_runtime()
 
         if layout is not None:
@@ -2103,7 +3335,7 @@ class TkApp:
             layout.pack_children(self)
 
         if initial_state:
-            self.apply_state(initial_state)
+            self._apply_initial_state(initial_state)
 
         if on_ready is not None:
             on_ready(self)
@@ -2112,6 +3344,7 @@ class TkApp:
         self._sync_treeviews()
         self._sync_progressbars()
         self._sync_widget_states()
+        self._set_initial_focus()
         self._root.mainloop()
 
     def run_async(
@@ -2120,6 +3353,7 @@ class TkApp:
         layout: Any = None,
         initial_state: dict[str, Any] | None = None,
         multiview: str | None = None,
+        stages: str | None = None,
         on_ready: Callable[[TkApp], None] | None = None,
         geometry: str | None = None,
     ) -> None:
@@ -2128,16 +3362,38 @@ class TkApp:
         Use ``app.spawn(coro)`` inside ``on_ready`` to schedule async tasks.
         geometry: initial window size, e.g. "640x480".
         """
+        used = sum(x is not None for x in (layout, multiview, stages))
+        if used > 1:
+            raise ValueError(
+                "Only one of layout, multiview, or stages can be used in run_async()"
+            )
+
+        if stages is not None:
+            cfg = self._stages.get(stages)
+            if cfg is None:
+                raise ValueError(f"Stages '{stages}' is not declared")
+            declared_initial = cfg.get("initial_state") or {}
+            merged_initial: dict[str, Any] | None
+            if initial_state:
+                merged_initial = {**declared_initial, **initial_state}
+            else:
+                merged_initial = declared_initial or None
+            asyncio.run(self._async_run_stages(
+                stages=cfg["stages"],
+                key=cfg["key"],
+                toplevel_widgets=cfg["toplevel_widgets"],
+                initial_state=merged_initial,
+                view_layouts=cfg.get("view_layouts"),
+                center_kinds=cfg.get("center_kinds"),
+                on_ready=on_ready,
+            ))
+            return
+
         if multiview is not None:
-            if layout is not None:
-                raise ValueError(
-                    "layout and multiview cannot be used together in run_async()"
-                )
             cfg = self._multiviews.get(multiview)
             if cfg is None:
                 raise ValueError(f"Multiview '{multiview}' is not declared")
             declared_initial = cfg.get("initial_state") or {}
-            merged_initial: dict[str, Any] | None
             if initial_state:
                 merged_initial = {**declared_initial, **initial_state}
             else:
@@ -2150,10 +3406,36 @@ class TkApp:
                 center_kinds=cfg.get("center_kinds"),
                 on_tab_change=cfg.get("on_tab_change"),
                 on_ready=on_ready,
+                tabposition=cfg.get("tabposition", "nw"),
             ))
             return
 
         asyncio.run(self._async_run(layout, initial_state, on_ready, geometry))
+
+    async def _async_run_stages(
+        self,
+        *,
+        stages: list[str],
+        key: str,
+        toplevel_widgets: tuple[str, ...] = (),
+        initial_state: dict[str, Any] | None = None,
+        view_layouts: dict[str, Layout] | None = None,
+        center_kinds: set[str] | None = None,
+        on_ready: Callable[[TkApp], None] | None = None,
+    ) -> None:
+        """Async variant: stages setup + cooperative asyncio mainloop."""
+        self._event_loop = asyncio.get_running_loop()
+        self._setup_stages(
+            name="__run_stages__",
+            stages=stages,
+            key=key,
+            toplevel_widgets=toplevel_widgets,
+            initial_state=initial_state,
+            view_layouts=view_layouts,
+            center_kinds=center_kinds,
+            on_ready=on_ready,
+        )
+        await self._async_mainloop()
 
     async def _async_run(
         self,
@@ -2163,10 +3445,18 @@ class TkApp:
         geometry: str | None = None,
     ) -> None:
         """Internal: build widgets and enter async mainloop."""
+        if self._theme:
+            from nextpytk.theme import _set_windows_dpi_aware
+            _set_windows_dpi_aware()
+
         self._root = tk.Tk()
         self._root.title(self._title)
         if geometry:
             self._root.geometry(geometry)
+        if self._theme:
+            from nextpytk.theme import apply_theme, configure_window
+            apply_theme(self._root)
+            configure_window(self._root, title=self._title)
         self.clear_runtime()
         self._event_loop = asyncio.get_running_loop()
 
@@ -2179,7 +3469,7 @@ class TkApp:
             layout.pack_children(self)
 
         if initial_state:
-            self.apply_state(initial_state)
+            self._apply_initial_state(initial_state)
 
         if on_ready is not None:
             on_ready(self)
@@ -2188,6 +3478,7 @@ class TkApp:
         self._sync_treeviews()
         self._sync_progressbars()
         self._sync_widget_states()
+        self._set_initial_focus()
         await self._async_mainloop()
 
     # ── schema export (for AI agents / LLM Function Calling) ──
@@ -2203,8 +3494,11 @@ class TkApp:
                 "role": w.role,
                 "description": w.description,
             }
-            if w.kind in ("checkbutton", "scale", "spinbox"):
+            if w.kind in ("checkbutton", "scale", "spinbox", "combobox"):
                 d["state_key"] = w.extras.get("state_key")
+            if w.kind == "combobox":
+                d["values"] = w.extras.get("values", [])
+                d["readonly"] = w.extras.get("readonly", False)
             if w.kind == "radiobutton":
                 d["group_key"] = w.extras.get("group_key")
                 d["rb_value"] = w.extras.get("rb_value")
@@ -2228,6 +3522,13 @@ class TkApp:
                 d["value"] = self._state.get(sk, 0)
             if w.kind == "entry":
                 d["placeholder_as_hint"] = w.placeholder_as_hint
+            if w.kind == "menubar":
+                d["items"] = [
+                    {"label": i.get("label"), "command": i.get("command"),
+                     "items": i.get("items")}
+                    for i in w.extras.get("items", [])
+                    if not i.get("separator")
+                ]
             if "takefocus" in w.extras:
                 d["takefocus"] = w.extras["takefocus"]
             widgets_out.append(d)

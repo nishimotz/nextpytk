@@ -34,11 +34,12 @@ def test_entry_state_disabled_is_applied(build):
     assert str(app.widget("name").cget("state")) == "disabled"
 
 
-def test_placeholder_color_meets_contrast(build):
-    """Placeholder color must use the contrast-verified constant."""
-    assert PLACEHOLDER_FG.lower() == "#767676"
+def test_placeholder_color_uses_tokens(build):
+    """Placeholder color is exported from the design tokens."""
+    from nextpytk.tokens import TEXT_MUTED
+    assert PLACEHOLDER_FG is TEXT_MUTED
 
-    app = TkApp(title="t")
+    app = TkApp(title="t", theme=False)
 
     @app.entry("name", placeholder="your name")
     def name(value):
@@ -51,6 +52,37 @@ def test_placeholder_color_meets_contrast(build):
     except tk.TclError:
         return  # platform theme forbids fg query; constant check above suffices
     assert fg.lower() in (PLACEHOLDER_FG, "")
+
+
+def test_theme_applied_by_default(build):
+    """Kizashi theme is applied automatically when theme=True."""
+    app = TkApp(title="t")
+
+    @app.label("msg")
+    def msg():
+        return "hello"
+
+    build(app, layout=["msg"])
+    style = tk.ttk.Style(app.root)
+    # clam theme should be selected and TButton configured with our accent.
+    from nextpytk import tokens
+    assert style.lookup("Primary.TButton", "background") == tokens.ACCENT
+    assert style.lookup("TEntry", "fieldbackground") == tokens.SURFACE
+
+
+def test_theme_disabled(build):
+    """theme=False leaves the platform default theme untouched."""
+    app = TkApp(title="t", theme=False)
+
+    @app.label("msg")
+    def msg():
+        return "hello"
+
+    build(app, layout=["msg"])
+    style = tk.ttk.Style(app.root)
+    # Primary.TButton should not have our custom background.
+    from nextpytk import tokens
+    assert style.lookup("Primary.TButton", "background") != tokens.ACCENT
 
 
 def test_schema_includes_all_widgets(build):

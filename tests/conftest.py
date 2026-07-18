@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
+import time
 from pathlib import Path
+from typing import Any
 
 
 def _ensure_tcl_env() -> None:
@@ -19,15 +22,17 @@ def _ensure_tcl_env() -> None:
     not exist on user machines (the "Can't find a usable init.tcl" failure
     noted in README).
     """
-    if "TCL_LIBRARY" in os.environ:
-        return
     import tkinter
     ver = f"{tkinter.TclVersion:.1f}"
-    lib = Path(sys.base_prefix) / "lib"
-    if (lib / f"tcl{ver}" / "init.tcl").exists():
-        os.environ["TCL_LIBRARY"] = str(lib / f"tcl{ver}")
-    if (lib / f"tk{ver}").exists():
-        os.environ["TK_LIBRARY"] = str(lib / f"tk{ver}")
+    # uv-managed python-build-standalone stores Tcl/Tk under base_prefix/tcl/
+    # rather than the standard lib/ layout.
+    for prefix in (Path(sys.base_prefix) / "tcl", Path(sys.base_prefix) / "lib"):
+        tcl_dir = prefix / f"tcl{ver}"
+        tk_dir = prefix / f"tk{ver}"
+        if (tcl_dir / "init.tcl").exists():
+            os.environ["TCL_LIBRARY"] = str(tcl_dir)
+        if tk_dir.exists():
+            os.environ["TK_LIBRARY"] = str(tk_dir)
 
 
 _ensure_tcl_env()
@@ -41,17 +46,31 @@ from nextpytk import TkApp
 
 
 def _display_available() -> bool:
-    try:
-        root = tk.Tk()
-    except tk.TclError:
-        return False
-    root.destroy()
-    return True
+    for attempt in range(5):
+        try:
+            root = tk.Tk()
+        except tk.TclError as exc:
+            # uv-managed python-build-standalone occasionally fails to read
+            # Tcl support files under concurrent loads; retry briefly.
+            if attempt < 4:
+                time.sleep(0.05 * (attempt + 1))
+                continue
+            return False
+        root.destroy()
+        return True
+    return False
 
 
 requires_display = pytest.mark.skipif(
     not _display_available(), reason="no display available for Tk"
 )
+
+
+# Tk interpreter initialization reads many small Tcl files; under uv-managed
+# python-build-standalone on Windows we occasionally see transient file-read
+# failures when multiple roots are created in quick succession. Serializing
+# root creation with a global lock prevents the races seen in the suite.
+_tk_root_lock = threading.Lock()
 
 
 class HeadlessHarness:
@@ -60,9 +79,30 @@ class HeadlessHarness:
     def __init__(self) -> None:
         self.root: tk.Tk | None = None
 
+    @staticmethod
+    def _make_root() -> tk.Tk:
+        """Create a fresh Tk root with Tcl/Tk library paths refreshed.
+
+        Retries a few times on transient Tcl file-read errors caused by
+        concurrent library loading.
+        """
+        _ensure_tcl_env()
+        with _tk_root_lock:
+            for attempt in range(5):
+                try:
+                    return tk.Tk()
+                except tk.TclError as exc:
+                    # Windows + uv-managed Tcl sometimes fails to source a
+                    # support file on the first attempt. Retry before giving up.
+                    if attempt < 4:
+                        time.sleep(0.05 * (attempt + 1))
+                        continue
+                    raise
+        raise tk.TclError("Failed to create Tk root")
+
     def build(self, app: TkApp, *, layout: object = None,
               initial_state: dict | None = None) -> TkApp:
-        self.root = tk.Tk()
+        self.root = self._make_root()
         self.root.withdraw()
         app.set_root(self.root)
         app.clear_runtime()
@@ -75,14 +115,18 @@ class HeadlessHarness:
         if layout is not None:
             layout.pack_children(app)  # type: ignore[union-attr]
         if initial_state:
-            app.apply_state(initial_state)
+            app._apply_initial_state(initial_state)  # same path as app.run()
         app.sync()
         return app
 
     def pump(self) -> None:
         """Process pending Tk events without entering mainloop."""
         assert self.root is not None
-        self.root.update()
+        try:
+            while self.root.tk.dooneevent(0):
+                pass
+        except tk.TclError:
+            return
 
     def press_key(self, sequence: str) -> None:
         """Fire a global key binding (as bind_all would receive it)."""

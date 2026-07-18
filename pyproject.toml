@@ -4,16 +4,31 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nextpytk"
-version = "0.3.0"
-description = "Flask-style decorator API for tkinter GUI: schema-driven, A11y-first, agent-compatible."
+version = "0.4.0"
+description = "Accessible, declarative Tkinter applications from ordinary Python functions."
 readme = "README.md"
 requires-python = ">=3.13"
 license = { text = "MIT" }
 authors = [{ name = "Takuya Nishimoto" }]
+keywords = ["tkinter", "ttk", "gui", "accessibility", "declarative-ui"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: User Interfaces",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Typing :: Typed",
+]
 dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/nishimotz/nextpytk"
+Repository = "https://github.com/nishimotz/nextpytk"
+Issues = "https://github.com/nishimotz/nextpytk/issues"
+Changelog = "https://github.com/nishimotz/nextpytk/blob/main/ROADMAP.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nextpytk"]

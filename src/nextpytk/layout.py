@@ -17,7 +17,13 @@ import tkinter as tk
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from nextpytk.types import ExpandLike, FillLike, OrientLike, SideLike
+from nextpytk import tokens as _t
+from nextpytk.types import AnchorLike, ExpandLike, FillLike, OrientLike, SideLike
+
+# Layout spacing defaults come from the token scale (tokens.SPACE) — the
+# design system forbids bare pixel integers. Sections carry the vertical
+# rhythm (adjacent gap = 2 * _PAD); children add none of their own.
+_PAD = _t.SPACE[1]
 
 if TYPE_CHECKING:
     from nextpytk.app import TkApp
@@ -32,11 +38,14 @@ class _Row:
     side: SideLike = "top"
     fill: FillLike = "x"
     expand: ExpandLike = False
-    padx: int = 4
-    pady: int = 2
+    padx: int = _PAD
+    pady: int = _PAD
     minsize: int | None = None
+    anchor: AnchorLike | None = None
     # Per-widget pack opts (for future: individual widget packing hints)
     widget_opts: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Extra markers consumed by chrome helpers (e.g. Kizashi header/status).
+    extras: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -49,16 +58,16 @@ class _Paned:
     side: SideLike = "top"
     fill: FillLike = "both"
     expand: ExpandLike = True
-    padx: int = 4
-    pady: int = 2
+    padx: int = _PAD
+    pady: int = _PAD
 
 
 @dataclass
 class _Grid:
     """Internal: grid-based block."""
     cells: dict[str, dict[str, Any]]  # name -> {row, column, sticky, ...}
-    padx: int = 4
-    pady: int = 2
+    padx: int = _PAD
+    pady: int = _PAD
     fill: FillLike = "x"
     expand: ExpandLike = False
     uniform: str = ""
@@ -72,29 +81,45 @@ class _Grid:
 _Block = _Row | _Grid | _Paned
 
 
+def _section_anchor(block: _Row) -> AnchorLike | None:
+    """Effective pack anchor for a section frame.
+
+    Pack centers a non-filling widget in its parcel, so a ``fill="none"``
+    section floats to the middle no matter how its children are anchored.
+    Default to west for the Kizashi left-aligned hierarchy;
+    ``section(anchor=...)`` overrides (e.g. ``anchor="center"``).
+    """
+    if block.anchor is not None:
+        return block.anchor
+    if block.fill in ("none", "y"):
+        return "w"
+    return None
+
+
 def _pack_section_frame(parent: tk.Misc, block: _Row) -> tk.Frame:
     """Pack a section frame, optionally enforcing ``block.minsize``."""
-    if block.minsize is None or block.minsize <= 0:
-        frame = tk.Frame(parent)
-        frame.pack(
-            side="top", fill=block.fill, expand=block.expand,
-            padx=block.padx, pady=block.pady,
-        )
-        return frame
+    pack_kw: dict[str, Any] = {
+        "side": "top", "fill": block.fill, "expand": block.expand,
+        "padx": block.padx, "pady": block.pady,
+    }
+    anchor = _section_anchor(block)
+    if anchor:
+        pack_kw["anchor"] = anchor
 
-    container = tk.Frame(parent)
-    container.pack(
-        side="top", fill=block.fill, expand=block.expand,
-        padx=block.padx, pady=block.pady,
-    )
-    if block.fill in ("both", "y"):
-        container.grid_rowconfigure(0, weight=1, minsize=block.minsize)
-        container.columnconfigure(0, weight=1)
-    else:
-        container.grid_columnconfigure(0, weight=1, minsize=block.minsize)
-        container.rowconfigure(0, weight=1)
-    frame = tk.Frame(container)
-    frame.grid(row=0, column=0, sticky="nsew")
+    frame = tk.Frame(parent)
+    frame.pack(**pack_kw)
+
+    # ``minsize`` reserves space along the grow axis. When a previous sibling
+    # already consumed all available room via ``expand=True`` the packer would
+    # otherwise collapse this frame to 1x1, so we disable propagation and give
+    # the frame a concrete size.
+    if block.minsize is not None and block.minsize > 0:
+        frame.pack_propagate(False)
+        if block.fill in ("both", "y"):
+            frame.configure(height=block.minsize)
+        else:
+            frame.configure(height=block.minsize)
+
     return frame
 
 
@@ -102,9 +127,22 @@ def _pack_section_frame(parent: tk.Misc, block: _Row) -> tk.Frame:
 
 @dataclass
 class Layout:
-    """Fluent layout DSL. Chain section/grid/apply."""
+    """Fluent layout DSL. Chain section/grid/apply.
+
+    When the Kizashi design system is active (the default in ``TkApp``),
+    ``Layout`` wraps the root in a ``content_frame`` with the standard page
+    margin and paints every section frame with the Kizashi ground color.
+    ``.header()`` and ``.status()`` create chrome (title block and bottom bar).
+    Pass ``theme=False`` to ``TkApp`` or build widgets manually to keep the
+    platform-default look.
+    """
 
     _blocks: list[_Block] = field(default_factory=list)
+
+    # Sentinel names used by chrome helpers; they are never registered as
+    # real widgets, so they cannot collide with user widget names.
+    _HEADER = "__kizashi_header__"
+    _STATUS = "__kizashi_status__"
 
     # ── section (pack) ──
 
@@ -114,9 +152,10 @@ class Layout:
         side: SideLike = "top",
         fill: FillLike = "x",
         expand: ExpandLike = False,
-        padx: int = 4,
-        pady: int = 2,
+        padx: int = _PAD,
+        pady: int = _PAD,
         minsize: int | None = None,
+        anchor: AnchorLike | None = None,
     ) -> Layout:
         """Add a pack-based section.
 
@@ -125,6 +164,9 @@ class Layout:
 
         ``minsize``: minimum pixels along the grow axis — height for
         ``fill=\"both\"`` / ``fill=\"y\"``, width for ``fill=\"x\"``.
+        ``anchor``: where a non-filling section sits in the window.
+        Defaults to ``\"w\"`` (left) for ``fill=\"none\"`` / ``\"y\"`` —
+        pass ``anchor=\"center\"`` to center it.
         """
         ws = list(widgets)
         actual_side: SideLike = side
@@ -133,6 +175,7 @@ class Layout:
         self._blocks.append(_Row(
             widgets=ws, side=actual_side, fill=fill,
             expand=expand, padx=padx, pady=pady, minsize=minsize,
+            anchor=anchor,
         ))
         return self
 
@@ -146,8 +189,8 @@ class Layout:
         side: SideLike = "top",
         fill: FillLike = "both",
         expand: ExpandLike = True,
-        padx: int = 4,
-        pady: int = 2,
+        padx: int = _PAD,
+        pady: int = _PAD,
     ) -> Layout:
         """Place a registered ``app.paned(name, ...)`` with per-pane minimum sizes.
 
@@ -195,8 +238,8 @@ class Layout:
     def grid(
         self,
         *,
-        padx: int = 4,
-        pady: int = 2,
+        padx: int = _PAD,
+        pady: int = _PAD,
         fill: FillLike = "x",
         expand: ExpandLike = False,
         uniform: str = "",
@@ -253,20 +296,51 @@ class Layout:
             if allowed_widgets is not None and name not in allowed_widgets:
                 raise ValueError(f"Widget '{name}' is not allowed in this view layout")
 
+        # When the root is a true top-level window (run/run_async), wrap the
+        # layout in a content frame so the Kizashi ground color and page
+        # margin apply even to the simplest Layout.from_list() examples.
+        from nextpytk.theme import content_frame, window_header, status_bar
+        from nextpytk import tokens as t
+        is_toplevel = isinstance(parent, tk.Tk) or getattr(parent, "winfo_toplevel", lambda: parent)() is parent
+        if is_toplevel:
+            body = content_frame(parent, padding=t.SPACE[6])
+        else:
+            # View/tab pages breathe too: inner content margin so sections
+            # don't hug the notebook border (SPACE[6] / 24px page pad).
+            body = tk.Frame(parent, bg=t.BG, bd=0, highlightthickness=0)
+            body.pack(fill="both", expand=True,
+                      padx=t.SPACE[6], pady=t.SPACE[4])
+
         for block in self._blocks:
             if isinstance(block, _Row):
-                frame = _pack_section_frame(parent, block)
+                frame = _pack_section_frame(body, block)
+                extras = block.extras if isinstance(block, _Row) else {}
+                if isinstance(extras, dict):
+                    if "kizashi_header" in extras:
+                        title, subtitle = extras["kizashi_header"]
+                        window_header(frame, title, subtitle)
+                        row_jobs.append((frame, block))
+                        continue
+                    if "kizashi_status" in extras:
+                        name = extras["kizashi_status"]
+                        lbl = status_bar(frame)
+                        app._tk_widgets[name] = lbl
+                        app._widget_masters[name] = frame
+                        row_jobs.append((frame, block))
+                        continue
                 for name in block.widgets:
                     _ensure_allowed(name)
                     app._widget_masters[name] = frame
+                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
                 row_jobs.append((frame, block))
             elif isinstance(block, _Paned):
                 _ensure_allowed(block.name)
-                frame = tk.Frame(parent)
+                frame = tk.Frame(body)
                 frame.pack(
                     side=block.side, fill=block.fill, expand=block.expand,
                     padx=block.padx, pady=block.pady,
                 )
+                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
                 app._widget_masters[block.name] = frame
                 opts: dict[str, Any] = {
                     "minsizes": block.minsizes,
@@ -282,11 +356,12 @@ class Layout:
                     expand=block.expand,
                 )))
             elif isinstance(block, _Grid):
-                frame = tk.Frame(parent)
+                frame = tk.Frame(body)
                 frame.pack(
                     side="top", fill=block.fill, expand=block.expand,
                     padx=block.padx, pady=block.pady,
                 )
+                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
                 for col, w in block.col_weights.items():
                     frame.columnconfigure(col, weight=w, uniform=block.uniform or "")
                 for col, ms in block.col_minsize.items():
@@ -316,10 +391,37 @@ class Layout:
                 if tk_w is None:
                     continue
                 if n == 1:
-                    tk_w.pack(side=row.side, padx=2, pady=1,
+                    tk_w.pack(side=row.side, padx=0, pady=0,
                               fill=row.fill, expand=row.expand)
                 else:
-                    tk_w.pack(side=row.side, padx=2, pady=1)
+                    # horizontal gap between siblings only (section frame
+                    # already carries the outer rhythm). Last child hugs the
+                    # right edge; all children share the available space when
+                    # expand=True.
+                    is_last = name == row.widgets[-1]
+                    tk_w.pack(
+                        side=row.side,
+                        padx=(0, 0 if is_last else _PAD), pady=0,
+                        fill=row.fill,
+                        expand=row.expand,
+                    )
+        # ``minsize`` must be a lower bound, not a hardcoded size.  If a child
+        # naturally needs more space (e.g. a themed button), grow the section
+        # frame so the child is not clipped.  This lets callers drop ``minsize``
+        # for simple fixed-height widgets and still get readable output.
+        for frame, row in row_jobs:
+            if row.minsize is None or row.minsize <= 0:
+                continue
+            if row.fill in ("both", "y"):
+                continue
+            natural = max(
+                (c.winfo_reqheight() for c in frame.winfo_children()), default=0
+            )
+            target = max(row.minsize, natural)
+            if target > row.minsize:
+                frame.pack_propagate(False)
+                frame.configure(height=target)
+
         for _frame, gb in grid_jobs:
             for name, opts in gb.cells.items():
                 tk_w = app._tk_widgets.get(name)
@@ -329,6 +431,35 @@ class Layout:
                              if k in ("row", "column", "sticky", "padx", "pady",
                                       "columnspan", "rowspan")}
                 tk_w.grid(**grid_opts)
+
+    def header(self, title: str, subtitle: str | None = None) -> Layout:
+        """Reserve a top-of-window header area rendered by ``window_header``.
+
+        The header is styled automatically by the Kizashi design system.
+        """
+        self._blocks.append(_Row(
+            widgets=[self._HEADER],
+            side="top",
+            fill="x",
+            expand=False,
+            padx=0,
+            pady=0,
+            extras={"kizashi_header": (title, subtitle)},
+        ))
+        return self
+
+    def status(self, name: str) -> Layout:
+        """Place a widget in a bottom status bar."""
+        self._blocks.append(_Row(
+            widgets=[name],
+            side="top",
+            fill="x",
+            expand=False,
+            padx=0,
+            pady=0,
+            extras={"kizashi_status": name},
+        ))
+        return self
 
     def mount_frames(self, app: TkApp) -> None:
         """Create section Frames on root, register widget→parent mapping."""
@@ -396,8 +527,8 @@ class _GridBuilder:
         name: str,
         *,
         sticky: str = "",
-        padx: int = 2,
-        pady: int = 1,
+        padx: int = _PAD,
+        pady: int = _PAD,
         colspan: int | None = None,
         rowspan: int = 1,
     ) -> _GridBuilder:
@@ -445,8 +576,14 @@ class _GridBuilder:
         self._block.col_weights[col] = weight
         return self
 
+    def col_minsizes(self, *minsizes: int) -> _GridBuilder:
+        """Set column minsizes by position: ``col_minsizes(120, 200)`` → col 0 minsize=120, col 1 minsize=200."""
+        for i, ms in enumerate(minsizes):
+            self._block.col_minsize[i] = ms
+        return self
+
     def col_minsize(self, col: int, minsize: int) -> _GridBuilder:
-        """Set ``columnconfigure(col, minsize=...)``."""
+        """Set ``columnconfigure(col, minsize=...)``. Prefer ``col_minsizes(...)`` for bulk."""
         self._block.col_minsize[col] = minsize
         return self
 
@@ -455,8 +592,14 @@ class _GridBuilder:
         self._block.row_weights[row] = weight
         return self
 
+    def row_minsizes(self, *minsizes: int) -> _GridBuilder:
+        """Set row minsizes by position: ``row_minsizes(60, 40)`` → row 0 minsize=60, row 1 minsize=40."""
+        for i, ms in enumerate(minsizes):
+            self._block.row_minsize[i] = ms
+        return self
+
     def row_minsize(self, row: int, minsize: int) -> _GridBuilder:
-        """Set ``rowconfigure(row, minsize=...)``."""
+        """Set ``rowconfigure(row, minsize=...)``. Prefer ``row_minsizes(...)`` for bulk."""
         self._block.row_minsize[row] = minsize
         return self
 
@@ -509,14 +652,16 @@ class LayoutBuilder:
         side: SideLike = "top",
         fill: FillLike = "x",
         expand: ExpandLike = False,
-        padx: int = 4,
-        pady: int = 2,
+        padx: int = _PAD,
+        pady: int = _PAD,
         minsize: int | None = None,
+        anchor: AnchorLike | None = None,
     ) -> None:
         """Add a pack-based section to the layout."""
         self._layout.section(
             *widgets, side=side, fill=fill,
             expand=expand, padx=padx, pady=pady, minsize=minsize,
+            anchor=anchor,
         )
 
     def paned(
@@ -529,8 +674,8 @@ class LayoutBuilder:
         side: SideLike = "top",
         fill: FillLike = "both",
         expand: ExpandLike = True,
-        padx: int = 4,
-        pady: int = 2,
+        padx: int = _PAD,
+        pady: int = _PAD,
     ) -> None:
         """Place ``app.paned(name)`` with per-pane ``minsizes`` (see ``Layout.paned``)."""
         self._layout.paned(
@@ -550,8 +695,8 @@ class LayoutBuilder:
     def grid(
         self,
         *,
-        padx: int = 4,
-        pady: int = 2,
+        padx: int = _PAD,
+        pady: int = _PAD,
         fill: FillLike = "x",
         expand: ExpandLike = False,
         uniform: str = "",
@@ -601,8 +746,8 @@ class LayoutBuilder:
         name: str,
         *,
         sticky: str = "",
-        padx: int = 2,
-        pady: int = 1,
+        padx: int = _PAD,
+        pady: int = _PAD,
         colspan: int | None = None,
         rowspan: int = 1,
     ) -> None:

@@ -30,11 +30,14 @@ def test_setup_multiview_builds_views_without_mainloop():
         views=["Tab1", "Tab2"],
         toplevel_widgets=("header",),
         initial_state={"t1": "hello"},
-        on_ready=lambda a: a.root.withdraw(),
+        on_ready=lambda a: a.root.withdraw() if a.root is not None else None,
     )
+    assert root is not None
     try:
         assert app.widget("header") is not None
-        assert app.widget("t1").cget("text") == "hello"
+        t1 = app.widget("t1")
+        assert t1 is not None
+        assert t1.cget("text") == "hello"
         assert app.widget("t2") is not None
         # view registration must go through the ViewContext proxy
         assert app.view_widget_names("Tab1") == ["t1"]
@@ -52,3 +55,32 @@ def test_view_context_rejects_unknown_attribute():
             pass
         else:
             raise AssertionError("expected AttributeError")
+
+
+def test_view_pages_get_inner_content_margin():
+    """Tab pages must not hug the notebook border (SPACE[6]/SPACE[4] margin)."""
+    from nextpytk import tokens as t
+    from nextpytk import Layout
+
+    app = TkApp(title="t")
+
+    with app.view("Tab1", layout=Layout().section("t1")) as v:
+        @v.label("t1")
+        def t1():
+            return "body"
+
+    root = app._setup_multiview(
+        views=["Tab1"],
+        on_ready=lambda a: a.root.withdraw() if a.root is not None else None,
+    )
+    assert root is not None
+    try:
+        t1 = app.widget("t1")
+        assert t1 is not None
+        section_frame = t1.master
+        body = section_frame.master
+        info = body.pack_info()
+        assert int(str(info["padx"])) == t.SPACE[6]
+        assert int(str(info["pady"])) == t.SPACE[4]
+    finally:
+        root.destroy()

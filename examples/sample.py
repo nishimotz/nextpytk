@@ -1,4 +1,4 @@
-"""Flask-style decorator sample: Flask-inspired decorator API with DI layout.
+"""Decorator API sample: widgets as functions, layout declared separately.
 
 Usage::
 
@@ -7,29 +7,29 @@ Usage::
 
 from nextpytk import TkApp, Layout
 
-app = TkApp(title="Flask-style decorator サンプル")
+app = TkApp(title="Decorator sample")
 
 
-@app.status("status", description="現在の状態を表示")
+@app.status("status", description="Shows the current state")
 def status():
-    return "待機中"
+    return "Idle"
 
 
-@app.button("submit", label="送信", enabled_if=lambda v: bool((v.get("input") or "").strip()))
+@app.button("submit", label="Send", enabled_if=lambda v: bool((v.get("input") or "").strip()))
 def on_submit(values):
-    return {"status": f"送信しました: {values.get('input', '')}"}
+    return {"status": f"Sent: {values.get('input', '')}"}
 
 
-@app.button("clear", label="クリア")
+@app.button("clear", label="Clear")
 def on_clear(values):
-    return {"status": "待機中", "input": ""}
+    return {"status": "Idle", "input": ""}
 
 
-@app.entry("input", placeholder="入力してください")
+@app.entry("input", placeholder="Type here")
 def on_change(value):
     if not value:
-        return {"status": "待機中"}
-    return {"status": f"入力中: {value}"}
+        return {"status": "Idle"}
+    return {"status": f"Typing: {value}"}
 
 
 layout = (
