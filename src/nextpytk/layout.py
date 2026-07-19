@@ -14,6 +14,7 @@ Types from ``nextpytk.types`` provide IDE autocomplete for options.
 from __future__ import annotations
 
 import tkinter as tk
+import warnings
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -560,46 +561,82 @@ class _GridBuilder:
     # ── column/row configure ──
 
     def col_weights(self, *weights: int) -> _GridBuilder:
-        """Set column weights by position: ``col_weights(0, 1, 1)`` → col 0 weight=0, col 1 weight=1, col 2 weight=1."""
+        """Deprecated in 0.4.1. Use ``col_weight(col, weight)`` instead.
+
+        Previously this set column weights by position:
+        ``col_weights(0, 1, 1)`` → col 0 weight=0, col 1 weight=1, col 2 weight=1.
+        The index-order semantics were easy to misuse, so the plural bulk API is
+        being removed in 0.5.0.
+        """
+        warnings.warn(
+            "col_weights() is deprecated; use col_weight(col, weight) instead. "
+            "Plural bulk methods will be removed in nextpytk 0.5.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         for i, w in enumerate(weights):
-            self._block.col_weights[i] = w
+            self.col_weight(i, w)
         return self
 
     def row_weights(self, *weights: int) -> _GridBuilder:
-        """Set row weights by position: ``row_weights(0, 1)`` → row 0 weight=0, row 1 weight=1."""
+        """Deprecated in 0.4.1. Use ``row_weight(row, weight)`` instead.
+
+        Previously this set row weights by position:
+        ``row_weights(0, 1)`` → row 0 weight=0, row 1 weight=1.
+        The index-order semantics were easy to misuse, so the plural bulk API is
+        being removed in 0.5.0.
+        """
+        warnings.warn(
+            "row_weights() is deprecated; use row_weight(row, weight) instead. "
+            "Plural bulk methods will be removed in nextpytk 0.5.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         for i, w in enumerate(weights):
-            self._block.row_weights[i] = w
+            self.row_weight(i, w)
         return self
 
     def col_weight(self, col: int, weight: int = 1) -> _GridBuilder:
-        """Set ``columnconfigure(col, weight=...)``. Prefer ``col_weights(...)`` for bulk."""
+        """Set ``columnconfigure(col, weight=...)``."""
         self._block.col_weights[col] = weight
         return self
 
     def col_minsizes(self, *minsizes: int) -> _GridBuilder:
-        """Set column minsizes by position: ``col_minsizes(120, 200)`` → col 0 minsize=120, col 1 minsize=200."""
+        """Deprecated in 0.4.1. Use ``col_minsize(col, minsize)`` instead."""
+        warnings.warn(
+            "col_minsizes() is deprecated; use col_minsize(col, minsize) instead. "
+            "Plural bulk methods will be removed in nextpytk 0.5.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         for i, ms in enumerate(minsizes):
-            self._block.col_minsize[i] = ms
+            self.col_minsize(i, ms)
         return self
 
     def col_minsize(self, col: int, minsize: int) -> _GridBuilder:
-        """Set ``columnconfigure(col, minsize=...)``. Prefer ``col_minsizes(...)`` for bulk."""
+        """Set ``columnconfigure(col, minsize=...)``."""
         self._block.col_minsize[col] = minsize
         return self
 
     def row_weight(self, row: int, weight: int = 1) -> _GridBuilder:
-        """Set ``rowconfigure(row, weight=...)``. Prefer ``row_weights(...)`` for bulk."""
+        """Set ``rowconfigure(row, weight=...)``."""
         self._block.row_weights[row] = weight
         return self
 
     def row_minsizes(self, *minsizes: int) -> _GridBuilder:
-        """Set row minsizes by position: ``row_minsizes(60, 40)`` → row 0 minsize=60, row 1 minsize=40."""
+        """Deprecated in 0.4.1. Use ``row_minsize(row, minsize)`` instead."""
+        warnings.warn(
+            "row_minsizes() is deprecated; use row_minsize(row, minsize) instead. "
+            "Plural bulk methods will be removed in nextpytk 0.5.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         for i, ms in enumerate(minsizes):
-            self._block.row_minsize[i] = ms
+            self.row_minsize(i, ms)
         return self
 
     def row_minsize(self, row: int, minsize: int) -> _GridBuilder:
-        """Set ``rowconfigure(row, minsize=...)``. Prefer ``row_minsizes(...)`` for bulk."""
+        """Set ``rowconfigure(row, minsize=...)``."""
         self._block.row_minsize[row] = minsize
         return self
 
@@ -620,7 +657,8 @@ class LayoutBuilder:
         builder = LayoutBuilder()
         with builder:
             builder.section("title")
-            with builder.grid(col_weights=(0, 1)):
+            with builder.grid():
+                builder.col_weight(0, 0).col_weight(1, 1)
                 builder.widget("celsius", sticky="ew")
                 builder.widget("fahrenheit", sticky="ew")
                 builder.next_row().span(2).widget("note")
@@ -707,14 +745,35 @@ class LayoutBuilder:
 
         Example::
 
-            with builder.grid(col_weights=(1, 2)):
+            with builder.grid():
+                builder.col_weight(0, 0).col_weight(1, 1)
                 builder.widget("a")
                 builder.widget("b")
+
+        Note:
+            The ``col_weights`` and ``row_weights`` keyword arguments are
+            deprecated in 0.4.1. Pass single-column/row weights via
+            ``col_weight(col, weight)`` / ``row_weight(row, weight)`` inside
+            the grid block instead.
         """
         block = _Grid(
             cells={}, padx=padx, pady=pady,
             fill=fill, expand=expand, uniform=uniform,
         )
+        if col_weights:
+            warnings.warn(
+                "col_weights=... is deprecated; use builder.col_weight(col, weight) inside the grid block. "
+                "Plural bulk arguments will be removed in nextpytk 0.5.0.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        if row_weights:
+            warnings.warn(
+                "row_weights=... is deprecated; use builder.row_weight(row, weight) inside the grid block. "
+                "Plural bulk arguments will be removed in nextpytk 0.5.0.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         for i, w in enumerate(col_weights):
             block.col_weights[i] = w
         for i, w in enumerate(row_weights):

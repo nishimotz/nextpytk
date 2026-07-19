@@ -1,5 +1,7 @@
 """nextpytk: accessible, declarative Tkinter apps from ordinary Python functions."""
 
+import importlib.metadata
+
 from nextpytk.app import TkApp
 from nextpytk.layout import Layout, LayoutBuilder
 from nextpytk import types
@@ -20,6 +22,11 @@ from nextpytk.theme import (
 )
 from nextpytk import tokens
 
+try:
+    __version__ = importlib.metadata.version("nextpytk")
+except importlib.metadata.PackageNotFoundError:  # pragma: no cover - editable fallback
+    __version__ = "0.0.0+unknown"
+
 __all__ = [
     "TkApp",
     "Layout",
@@ -39,4 +46,5 @@ __all__ = [
     "status_bar",
     "button",
     "tokens",
+    "__version__",
 ]

@@ -245,6 +245,7 @@ class ButtonOptions(CommonWidgetOptions, total=False):
     role: str
     state: StateLike
     primary: bool
+    font: tuple[str, int] | tuple[str, int, str]
 
 
 class EntryOptions(CommonWidgetOptions, total=False):
@@ -254,6 +255,8 @@ class EntryOptions(CommonWidgetOptions, total=False):
     state: StateLike
     show: str | None
     width: int
+    font: tuple[str, int] | tuple[str, int, str]
+    padding: int | tuple[int, int] | tuple[int, int, int, int]
 
 
 class LabelOptions(CommonWidgetOptions, total=False):
@@ -283,12 +286,14 @@ class BindOptions(CommonWidgetOptions, total=False):
 class CheckbuttonOptions(CommonWidgetOptions, total=False):
     text: str
     key: str
+    font: tuple[str, int] | tuple[str, int, str]
 
 
 class RadiobuttonOptions(CommonWidgetOptions, total=False):
     text: str
     value: str
     group: str
+    font: tuple[str, int] | tuple[str, int, str]
 
 
 class TextOptions(CommonWidgetOptions, total=False):
@@ -299,6 +304,7 @@ class TextOptions(CommonWidgetOptions, total=False):
     readonly: bool
     tags: dict[str, dict[str, Any]]
     sync_yscroll_with: str
+    font: tuple[str, int] | tuple[str, int, str]
 
 
 class ScaleOptions(CommonWidgetOptions, total=False):
@@ -314,10 +320,12 @@ class SpinboxOptions(CommonWidgetOptions, total=False):
     to: float | None
     values: list[str]
     width: int
+    font: tuple[str, int] | tuple[str, int, str]
 
 
 class ListboxOptions(CommonWidgetOptions, total=False):
     items: list[str]
+    font: tuple[str, int] | tuple[str, int, str]
     selectmode: SelectModeLike
     height: int | None
     events: dict[str, ListboxEventHandler]

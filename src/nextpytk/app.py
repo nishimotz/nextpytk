@@ -20,6 +20,7 @@ import tkinter as tk
 import tkinter.ttk as ttk
 import traceback
 import unicodedata
+import warnings
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
@@ -212,11 +213,12 @@ class TkApp:
         title: str = "nextpytk",
         *,
         debug: bool = False,
-        theme: bool = True,
+        theme: bool | str = "kizashi",
     ):
         self._title = title
         self._debug = debug
-        self._theme = theme
+        self._theme = self._normalize_theme(theme)
+        self._kizashi = self._theme == "kizashi"
         self._acc_supported: bool | None = None
         self._widgets: list[WidgetSpec] = []
         self._state: dict[str, Any] = {}
@@ -249,6 +251,47 @@ class TkApp:
         self._warned_state_keys: set[str] = set()
         self._first_focusable: tk.Widget | None = None
         self._register_default_builders()
+
+    def _normalize_theme(self, theme: bool | str) -> str:
+        """Convert the legacy bool ``theme=`` parameter to theme names.
+
+        - ``True`` -> ``"kizashi"`` (the nextpytk design system theme)
+        - ``False`` -> ``"none"`` (do not touch ttk styles at all)
+        - ``str`` -> passed through; use ``"kizashi"``, ``"none"``,
+          or any built-in ttk theme name (``"clam"``, ``"vista"``, ...).
+
+        Passing a bool is deprecated and will be removed in v0.5.0.
+        """
+        if isinstance(theme, bool):
+            warnings.warn(
+                "theme=True/False is deprecated; use theme='kizashi' or "
+                "theme='none' (bool support will be removed in v0.5.0).",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            return "kizashi" if theme else "none"
+        if not isinstance(theme, str):
+            raise TypeError(f"theme must be bool or str, got {type(theme).__name__}")
+        return theme
+
+    def clear_runtime(self) -> None:
+        self._tk_widgets.clear()
+        self._treeview_inner.clear()
+        self._treeview_row_cache.clear()
+        self._paned_inner.clear()
+        self._pane_frames.clear()
+        self._layout_paned_opts.clear()
+        self._current_pane = None
+        self._tk_vars.clear()
+        self._widget_masters.clear()
+        self._row_pack_jobs.clear()
+        self._grid_pack_jobs.clear()
+        self._menubar_submenus.clear()
+        self._text_inner.clear()
+        self._text_scroll_sync.clear()
+        self._current_view = None
+        self._current_stage = None
+        self._first_focusable = None
 
     def pane(self, pane_id: str) -> _PaneContext:
         """Context manager: register following widgets inside a ``@app.paned`` pane."""
@@ -356,30 +399,39 @@ class TkApp:
     def title(self) -> str:
         return self._title
 
+    def _configure_theme(self, root: tk.Tk) -> None:
+        """Apply the configured theme and window chrome to ``root``.
+
+        - ``"kizashi"`` applies the Kizashi design system.
+        - any other theme name applies it via ``ttk.Style.theme_use``.
+        - ``"none"`` does not touch ttk styles at all.
+
+        Unknown theme names are silently ignored; a warning would be a
+        future improvement.
+        """
+        if self._theme == "none":
+            return
+        from nextpytk.theme import _set_windows_dpi_aware, configure_window
+        _set_windows_dpi_aware()
+        if self._kizashi:
+            from nextpytk.theme import apply_theme
+            apply_theme(root)
+        else:
+            style = ttk.Style(root)
+            try:
+                style.theme_use(self._theme)
+            except tk.TclError:
+                warnings.warn(
+                    f"ttk theme '{self._theme}' is not available; "
+                    "falling back to the platform default.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+        configure_window(root, title=self._title)
+
     def set_root(self, root: tk.Tk) -> None:
         self._root = root
-        if self._theme:
-            from nextpytk.theme import apply_theme, configure_window
-            apply_theme(root)
-            configure_window(root, title=self._title)
-
-    def clear_runtime(self) -> None:
-        self._tk_widgets.clear()
-        self._treeview_inner.clear()
-        self._treeview_row_cache.clear()
-        self._paned_inner.clear()
-        self._pane_frames.clear()
-        self._layout_paned_opts.clear()
-        self._current_pane = None
-        self._tk_vars.clear()
-        self._widget_masters.clear()
-        self._row_pack_jobs.clear()
-        self._grid_pack_jobs.clear()
-        self._menubar_submenus.clear()
-        self._text_inner.clear()
-        self._text_scroll_sync.clear()
-        self._current_view = None
-        self._current_stage = None
+        self._configure_theme(root)
 
     def set_widget_master(self, widget_name: str, master: tk.Misc) -> None:
         self._widget_masters[widget_name] = master
@@ -481,6 +533,23 @@ class TkApp:
 
     def widget(self, name: str) -> tk.Widget | None:
         return self._tk_widgets.get(name)
+
+    def text_widget(self, name: str) -> tk.Text | None:
+        """Return the real ``tk.Text`` widget for a registered text widget.
+
+        ``app.widget(name)`` returns the outer container frame (the one that
+        holds the text plus its scrollbar). Use this helper when you need the
+        actual ``tk.Text`` instance, for example to bind low-level events or
+        query the raw widget state.
+        """
+        return self._text_inner.get(name)
+
+    def text_get(self, name: str) -> str:
+        """Return the current full contents of a text widget."""
+        inner = self._text_inner.get(name)
+        if inner is None:
+            return ""
+        return str(inner.get("1.0", "end-1c"))
 
     def text_set(self, name: str, content: str) -> None:
         """Replace the full contents of a text widget, even when read-only."""
@@ -705,16 +774,9 @@ class TkApp:
         tabposition: str = "nw",
     ) -> tk.Tk:
         """Build the Notebook UI; everything except entering a mainloop."""
-        if self._theme:
-            from nextpytk.theme import _set_windows_dpi_aware
-            _set_windows_dpi_aware()
-
         root = tk.Tk()
         root.title(self._title)
-        if self._theme:
-            from nextpytk.theme import apply_theme, configure_window
-            apply_theme(root)
-            configure_window(root, title=self._title)
+        self._configure_theme(root)
         self.set_root(root)
         self.clear_runtime()
 
@@ -923,16 +985,9 @@ class TkApp:
             "view_layouts": dict(view_layouts) if view_layouts else None,
             "center_kinds": set(center_kinds) if center_kinds else None,
         }
-        if self._theme:
-            from nextpytk.theme import _set_windows_dpi_aware
-            _set_windows_dpi_aware()
-
         root = tk.Tk()
         root.title(self._title)
-        if self._theme:
-            from nextpytk.theme import apply_theme, configure_window
-            apply_theme(root)
-            configure_window(root, title=self._title)
+        self._configure_theme(root)
         self.set_root(root)
         self.clear_runtime()
 
@@ -1563,9 +1618,12 @@ class TkApp:
             enabled_if = options.get("enabled_if")
             takefocus = options.get("takefocus")
             primary = options.get("primary", False)
+            font = options.get("font")
             extras: dict[str, Any] = {"style": "Primary.TButton" if primary else "Secondary.TButton"}
             if state != "normal":
                 extras["state"] = state
+            if font is not None:
+                extras["font"] = font
             self._add_spec(WidgetSpec(
                 name=name, kind="button", label_text=label, role=role,
                 description=description, on_click=fn, enabled_if=enabled_if,
@@ -1585,6 +1643,9 @@ class TkApp:
         ``show``: set ``"*"`` for password entry.
         ``width``: character width.
         ``state``: initial widget state (``"normal"`` / ``"disabled"``).
+        ``font``: optional ``(family, size[, weight])`` tuple.
+        ``padding``: internal padding override; integer or tuple to increase
+        visual height (ttk.Entry does not support ``height`` directly).
         """
         def decorator(fn: ValueCallback) -> ValueCallback:
             placeholder = options.get("placeholder", "")
@@ -1595,6 +1656,8 @@ class TkApp:
             show = options.get("show")
             width = options.get("width")
             takefocus = options.get("takefocus")
+            font = options.get("font")
+            padding = options.get("padding")
             extras: dict[str, Any] = {}
             if show is not None:
                 extras["show"] = show
@@ -1602,6 +1665,10 @@ class TkApp:
                 extras["width"] = width
             if state != "normal":
                 extras["state"] = state
+            if font is not None:
+                extras["font"] = font
+            if padding is not None:
+                extras["padding"] = padding
             self._add_spec(WidgetSpec(
                 name=name, kind="entry", placeholder=placeholder,
                 placeholder_as_hint=placeholder_as_hint,
@@ -1624,13 +1691,15 @@ class TkApp:
         text = options.get("text", "")
         description = options.get("description")
         takefocus = options.get("takefocus")
+        font = options.get("font")
         def decorator(fn: BoolCallback) -> BoolCallback:
+            extras: dict[str, Any] = {"state_key": actual_key}
+            if font is not None:
+                extras["font"] = font
             self._add_spec(WidgetSpec(
                 name=name, kind="checkbutton", label_text=text,
                 description=description, on_update=fn,
-                extras=self._widget_extras(
-                    {"state_key": actual_key}, takefocus=takefocus,
-                ),
+                extras=self._widget_extras(extras, takefocus=takefocus),
             ))
             return fn
         return decorator
@@ -1649,14 +1718,15 @@ class TkApp:
         group = options.get("group", "radio")
         description = options.get("description")
         takefocus = options.get("takefocus")
+        font = options.get("font")
         def decorator(fn: ValueCallback) -> ValueCallback:
+            extras: dict[str, Any] = {"rb_value": value, "group_key": group}
+            if font is not None:
+                extras["font"] = font
             self._add_spec(WidgetSpec(
                 name=name, kind="radiobutton", label_text=text,
                 description=description, on_update=fn,
-                extras=self._widget_extras(
-                    {"rb_value": value, "group_key": group},
-                    takefocus=takefocus,
-                ),
+                extras=self._widget_extras(extras, takefocus=takefocus),
             ))
             return fn
         return decorator
@@ -1682,6 +1752,7 @@ class TkApp:
         tags = options.get("tags")
         sync_yscroll_with = options.get("sync_yscroll_with")
         takefocus = options.get("takefocus", True)
+        font = options.get("font")
         def decorator(fn: ValueCallback) -> ValueCallback:
             extras: dict[str, Any] = {"width": width, "height": height, "tab_inserts": tab_inserts}
             if state != "normal":
@@ -1692,6 +1763,8 @@ class TkApp:
                 extras["tags"] = tags
             if sync_yscroll_with is not None:
                 extras["sync_yscroll_with"] = sync_yscroll_with
+            if font is not None:
+                extras["font"] = font
             self._add_spec(WidgetSpec(
                 name=name, kind="text", description=description,
                 on_update=fn,
@@ -1744,6 +1817,7 @@ class TkApp:
         width = options.get("width")
         description = options.get("description")
         takefocus = options.get("takefocus")
+        font = options.get("font")
         def decorator(fn: ValueCallback) -> ValueCallback:
             extras: dict[str, Any] = {
                 "state_key": actual_key, "from": from_,
@@ -1751,6 +1825,8 @@ class TkApp:
             }
             if width is not None:
                 extras["width"] = width
+            if font is not None:
+                extras["font"] = font
             self._add_spec(WidgetSpec(
                 name=name, kind="spinbox", description=description,
                 on_update=fn,
@@ -1836,12 +1912,15 @@ class TkApp:
         enabled_if = options.get("enabled_if")
         takefocus = options.get("takefocus")
         events = options.get("events")
+        font = options.get("font")
         def decorator(fn: ListboxSelectCallback) -> ListboxSelectCallback:
             extras: dict[str, Any] = {"items": items or [], "selectmode": selectmode}
             if height is not None:
                 extras["height"] = height
             if events is not None:
                 extras["events"] = events
+            if font is not None:
+                extras["font"] = font
             self._add_spec(WidgetSpec(
                 name=name, kind="listbox", description=description,
                 on_update=fn,
@@ -2281,21 +2360,46 @@ class TkApp:
         w.after_idle(_update_width)
 
     def _sync_widgets(self) -> None:
-        """Push state to label widgets."""
+        """Push state to label and text widgets."""
         for spec in self._widgets:
-            if spec.kind not in ("label", "status", "message"):
-                continue
-            tk_w = self._tk_widgets.get(spec.name)
-            if tk_w is None:
-                continue
-            value = self._state.get(spec.name, "")
-            if spec.name not in self._state and spec.on_update is not None:
-                result = self._dispatch(spec.name, spec.on_update)
-                if isinstance(result, str):
-                    value = result
-                elif isinstance(result, dict):
-                    value = result.get(spec.name, value)
-            tk_w.configure(text=str(value))  # type: ignore[call-arg]
+            if spec.kind in ("label", "status", "message"):
+                tk_w = self._tk_widgets.get(spec.name)
+                if tk_w is None:
+                    continue
+                value = self._state.get(spec.name, "")
+                if spec.name not in self._state and spec.on_update is not None:
+                    result = self._dispatch(spec.name, spec.on_update)
+                    if isinstance(result, str):
+                        value = result
+                    elif isinstance(result, dict):
+                        value = result.get(spec.name, value)
+                tk_w.configure(text=str(value))  # type: ignore[call-arg]
+            elif spec.kind == "text":
+                self._sync_text_widget(spec)
+
+    def _sync_text_widget(self, spec: WidgetSpec) -> None:
+        """Update a text widget from state if the content changed."""
+        if spec.name not in self._state:
+            return
+        inner = self._text_inner.get(spec.name)
+        if inner is None:
+            return
+        value = self._state.get(spec.name, "")
+        current = inner.get("1.0", "end-1c")
+        target = "" if value is None else str(value)
+        if current == target:
+            return
+        # nextpytk's readonly=True does NOT set the tk state to "disabled";
+        # it keeps state="normal" and swallows edit events via key bindings.
+        # The branch below is defensive: it allows programmatic updates to
+        # work if the user has manually disabled the widget via text_widget().
+        previous_state = inner.cget("state")
+        if previous_state == "disabled":
+            inner.configure(state="normal")
+        inner.delete("1.0", "end")
+        inner.insert("1.0", target)
+        if previous_state == "disabled":
+            inner.configure(state="disabled")
 
     def _treeview_rows(self, spec: WidgetSpec) -> list[Any]:
         rows_key = spec.extras.get("rows_key", f"{spec.name}_rows")
@@ -2331,16 +2435,17 @@ class TkApp:
         return False
 
     def _sync_widgets_for_keys(self, update: dict[str, Any]) -> None:
-        """Update only label/status/message widgets named in *update*."""
+        """Update only label/status/message/text widgets named in *update*."""
         for spec in self._widgets:
-            if spec.kind not in ("label", "status", "message"):
-                continue
-            if spec.name not in update:
-                continue
-            tk_w = self._tk_widgets.get(spec.name)
-            if tk_w is None:
-                continue
-            tk_w.configure(text=str(update[spec.name]))  # type: ignore[call-arg]
+            if spec.kind in ("label", "status", "message"):
+                if spec.name not in update:
+                    continue
+                tk_w = self._tk_widgets.get(spec.name)
+                if tk_w is None:
+                    continue
+                tk_w.configure(text=str(update[spec.name]))  # type: ignore[call-arg]
+            elif spec.kind == "text" and spec.name in update:
+                self._sync_text_widget(spec)
 
     def _sync_treeview_selection(self, spec: WidgetSpec) -> None:
         tree = self._treeview_inner.get(spec.name)
@@ -2647,6 +2752,8 @@ class TkApp:
             return None
         if spec.kind == "treeview":
             return self._treeview_inner.get(spec.name)
+        if spec.kind == "text":
+            return self._text_inner.get(spec.name)
         return self._tk_widgets.get(spec.name)
 
     def _wire_text_scroll_sync(self) -> None:
@@ -2697,12 +2804,31 @@ class TkApp:
 
     # ── per-kind builders ──
 
+    def _derive_ttk_style(
+        self,
+        base_style: str,
+        style_name: str,
+        overrides: dict[str, Any],
+    ) -> str:
+        """Create a unique derived ttk style that inherits the base layout.
+
+        Some ttk widgets (Button, Entry, Checkbutton, Radiobutton) do not
+        expose ``-font`` or ``-padding`` through widget ``configure()``.
+        Copying the base style's layout and applying the overrides to a new
+        style name lets users set these options declaratively while keeping
+        all other theme properties (colors, maps, layout) from the base.
+        """
+        style = ttk.Style(self._root)
+        style.layout(style_name, style.layout(base_style))
+        style.configure(style_name, **overrides)
+        return style_name
+
     def _build_label(self, spec: WidgetSpec, master: tk.Misc) -> None:
         e = spec.extras
         style = "Heading.TLabel" if spec.role == "heading" else "TLabel"
         # Kizashi default is left-aligned; centering must be explicit.
-        default_anchor = "w" if self._theme else "center"
-        default_justify = "left" if self._theme else "center"
+        default_anchor = "w" if self._kizashi else "center"
+        default_justify = "left" if self._kizashi else "center"
         w = ttk.Label(master, text="", anchor=default_anchor, justify=default_justify, style=style)
         for opt in ("font", "anchor", "justify", "padding", "width"):
             if opt in e:
@@ -2757,6 +2883,13 @@ class TkApp:
 
     def _build_button(self, spec: WidgetSpec, master: tk.Misc) -> None:
         style = spec.extras.get("style", "Secondary.TButton")
+        overrides: dict[str, Any] = {}
+        if "font" in spec.extras:
+            overrides["font"] = spec.extras["font"]
+        if overrides:
+            style = self._derive_ttk_style(
+                style, f"Unique.{style}.{spec.name}", overrides
+            )
         w = ttk.Button(master, text=spec.label_text or spec.name, style=style)
         if "state" in spec.extras:
             w.configure(state=spec.extras["state"])
@@ -2773,7 +2906,17 @@ class TkApp:
     def _build_entry(self, spec: WidgetSpec, master: tk.Misc) -> None:
         e = spec.extras
         var = tk.StringVar(value="")
-        w = ttk.Entry(master, textvariable=var)
+        style = "TEntry"
+        overrides: dict[str, Any] = {}
+        if "font" in e:
+            overrides["font"] = e["font"]
+        if "padding" in e:
+            overrides["padding"] = e["padding"]
+        if overrides:
+            style = self._derive_ttk_style(
+                style, f"Unique.{style}.{spec.name}", overrides
+            )
+        w = ttk.Entry(master, textvariable=var, style=style)
         self._tk_widgets[spec.name] = w
         self._tk_vars[spec.name] = var
         for opt in ("show", "width", "state"):
@@ -2801,12 +2944,21 @@ class TkApp:
         var = tk.StringVar(value="0")
         # padding is owned by the theme style (44px min target size);
         # a widget-level option here would silently override it.
+        style = "TCheckbutton"
+        overrides: dict[str, Any] = {}
+        if "font" in e:
+            overrides["font"] = e["font"]
+        if overrides:
+            style = self._derive_ttk_style(
+                style, f"Unique.{style}.{spec.name}", overrides
+            )
         w = ttk.Checkbutton(
             master,
             text=spec.label_text,
             variable=var,
             onvalue="1",
             offvalue="0",
+            style=style,
         )
         # anchor is a ttk layout option (style.layout), not a constructor kwarg
         # for ttk.Checkbutton; left alignment is enforced by the Kizashi style.
@@ -2825,11 +2977,20 @@ class TkApp:
             self._tk_vars[gk] = tk.StringVar(value="")
         var = self._tk_vars[gk]
         # padding is owned by the theme style (44px min target size)
+        style = "TRadiobutton"
+        overrides: dict[str, Any] = {}
+        if "font" in e:
+            overrides["font"] = e["font"]
+        if overrides:
+            style = self._derive_ttk_style(
+                style, f"Unique.{style}.{spec.name}", overrides
+            )
         w = ttk.Radiobutton(
             master,
             text=spec.label_text,
             variable=var,
             value=val,
+            style=style,
         )
         self._tk_widgets[spec.name] = w
         if spec.on_update is not None:
@@ -2858,6 +3019,8 @@ class TkApp:
             font=t.font("body"),
             wrap="word",
         )
+        if e.get("font") is not None:
+            w.configure(font=e["font"])
         scroll = ttk.Scrollbar(container, orient=tk.VERTICAL, command=w.yview)
         w.configure(yscrollcommand=scroll.set)
         w.grid(row=0, column=0, sticky="nsew")
@@ -2956,6 +3119,8 @@ class TkApp:
             kwargs["values"] = e["values"]
         if e.get("width") is not None:
             kwargs["width"] = e["width"]
+        if e.get("font") is not None:
+            kwargs["font"] = e["font"]
         w = ttk.Spinbox(master, textvariable=var, **kwargs)
         self._tk_widgets[spec.name] = w
         self._tk_vars[key] = var
@@ -3010,6 +3175,8 @@ class TkApp:
             kwargs_lb["height"] = t.DEFAULT_LISTBOX_ROWS
         if e.get("selectmode"):
             kwargs_lb["selectmode"] = e["selectmode"]
+        if e.get("font") is not None:
+            kwargs_lb["font"] = e["font"]
         w = tk.Listbox(master, name=spec.name, **kwargs_lb)
         for item in e.get("items", []):
             w.insert("end", item)
@@ -3178,7 +3345,7 @@ class TkApp:
         self._apply_callback_result(self._dispatch(spec.name, fn, val))
 
     def _on_text_change(self, spec: WidgetSpec, fn: Any) -> None:
-        w = self._tk_widgets.get(spec.name)
+        w = self._text_inner.get(spec.name)
         value = ""
         if w is not None and hasattr(w, "get"):
             value = w.get("1.0", "end-1c")  # type: ignore[attr-defined]
@@ -3236,7 +3403,8 @@ class TkApp:
 
             with app.layout() as b:
                 b.section("title")
-                with b.grid(col_weights=(0, 1)):
+                with b.grid():
+                    b.col_weight(0, 0).col_weight(1, 1)
                     b.widget("celsius", sticky="ew")
                     b.widget("fahrenheit", sticky="ew")
             app.run(layout=b.build())
@@ -3309,18 +3477,11 @@ class TkApp:
             )
             return
 
-        if self._theme:
-            from nextpytk.theme import _set_windows_dpi_aware
-            _set_windows_dpi_aware()
-
         self._root = tk.Tk()
         self._root.title(self._title)
         if geometry:
             self._root.geometry(geometry)
-        if self._theme:
-            from nextpytk.theme import apply_theme, configure_window
-            apply_theme(self._root)
-            configure_window(self._root, title=self._title)
+        self._configure_theme(self._root)
         self.clear_runtime()
 
         if layout is not None:
@@ -3445,18 +3606,11 @@ class TkApp:
         geometry: str | None = None,
     ) -> None:
         """Internal: build widgets and enter async mainloop."""
-        if self._theme:
-            from nextpytk.theme import _set_windows_dpi_aware
-            _set_windows_dpi_aware()
-
         self._root = tk.Tk()
         self._root.title(self._title)
         if geometry:
             self._root.geometry(geometry)
-        if self._theme:
-            from nextpytk.theme import apply_theme, configure_window
-            apply_theme(self._root)
-            configure_window(self._root, title=self._title)
+        self._configure_theme(self._root)
         self.clear_runtime()
         self._event_loop = asyncio.get_running_loop()
 
