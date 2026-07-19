@@ -1,4 +1,4 @@
-.PHONY: sync test run run-multiscreen run-task-panel run-gallery run-treeview run-paned run-progress run-tab-focus run-du-flat-async
+.PHONY: sync test run run-header run-multiscreen run-task-panel run-gallery run-treeview run-paned run-progress run-tab-focus run-du-flat-async run-menubar
 
 PYTHON ?= 3.14
 
@@ -32,5 +32,10 @@ run-tab-focus: sync
 run-du-flat-async: sync
 	uv run --python $(PYTHON) python examples/disk_usage_flat_async.py
 
+run-menubar: sync
+	uv run --python $(PYTHON) python examples/menubar_demo.py
 test: sync
 	uv run --python $(PYTHON) pytest -q
+
+run-header: sync
+	uv run --python $(PYTHON) python examples/header_demo.py

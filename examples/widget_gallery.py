@@ -53,7 +53,8 @@ with app.view(
     layout=(
         Layout()
         .grid(fill=Fill.BOTH, expand=True, uniform="buttons")
-            .col_weights(1, 1)
+            .col_weight(0, 1)
+            .col_weight(1, 1)
             .widget("b_primary", sticky=Sticky.EW)
             .widget("b_secondary", sticky=Sticky.EW)
             .next_row()

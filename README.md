@@ -45,6 +45,68 @@ app.run(layout=b.build())
 
 ---
 
+## Design System
+
+nextpytk ships with typed constants and design tokens. Prefer them over raw tkinter strings and magic numbers so every app stays consistent and IDE completion works out of the box.
+
+### Typed Constants
+
+```python
+from nextpytk.types import Side, Fill, Sticky, State, Orient
+
+Layout().section("msg", side=Side.LEFT, fill=Fill.X)
+```
+
+| Type | Namespace | Example |
+|------|-----------|---------|
+| `Side` | `Side.TOP/BOTTOM/LEFT/RIGHT` | pack side |
+| `Fill` | `Fill.X/Y/BOTH/NONE` | pack fill |
+| `Sticky` | `Sticky.NSEW/EW/NS/TOP/BOTTOM/LEFT/RIGHT` | grid sticky |
+| `State` | `State.NORMAL/DISABLED/ACTIVE` | widget state |
+| `Orient` | `Orient.HORIZONTAL/VERTICAL` | scale / paned orientation |
+| `Relief` | `Relief.FLAT/RAISED/SUNKEN/...` | border style |
+| `Justify` | `Justify.LEFT/RIGHT/CENTER` | text alignment |
+| `SelectMode` | `SelectMode.SINGLE/BROWSE/MULTIPLE/EXTENDED` | listbox mode |
+
+Each type has a matching `*Like` literal alias (e.g. `FillLike`), so raw strings still work when needed.
+
+### Spacing tokens
+
+```python
+from nextpytk.tokens import SPACE
+
+SPACE[1]  # 4px  — small padding inside a widget
+SPACE[2]  # 8px  — adjacent widgets
+SPACE[3]  # 12px — section inner gaps
+SPACE[4]  # 16px — section margins
+SPACE[6]  # 24px — large blocks
+SPACE[8]  # 32px — page-level gaps
+```
+
+The scale is based on a 4px unit and only common steps are provided. Use `SPACE[n]` for every `padx`/`pady` value and for widget-level `padding` values where practical.
+
+### Themes
+
+`TkApp` accepts a `theme` parameter:
+
+| Value | Meaning |
+|-------|---------|
+| `"kizashi"` (default) | Apply the built-in Kizashi design system |
+| `"none"` | Do not touch ttk styles; use the platform default theme |
+| any built-in name (e.g. `"clam"`, `"vista"`, `"aqua"`) | Switch to that ttk theme without Kizashi overrides |
+
+```python
+# Use the platform default ttk theme
+app = TkApp(title="Native", theme="none")
+
+# Use any installed ttk theme
+app = TkApp(title="Clam", theme="clam")
+```
+
+See `examples/header_demo.py` for `Layout.header()` / `.status()` chrome and `nextpytk.theme.apply_theme()` usage.
+
+---
+
 ## Multiview (Multi-tab)
 
 ```python
@@ -77,11 +139,14 @@ def main_multiview(): pass
 app.run(multiview="main")
 ```
 
-View layouts also accept lists or with-block builders:
+View layouts also accept lists or with-block builders. For example,
+`view_layouts` values may be simple widget-name lists:
 
 ```python
-@app.multiview("main", views=["Home", "Settings"],
-    view_layouts={"Home": ["title", "start"], "Settings": ["timer", "status"]})
+view_layouts = {
+    "Home": ["title", "start"],
+    "Settings": ["timer", "status"],
+}
 ```
 
 ---
@@ -113,13 +178,16 @@ Layout().section("msg").section("phase", "count").section("start", "pause")
 ```python
 from nextpytk.types import Sticky
 
-Layout().grid()
-  .span(2).widget("title", sticky=Sticky.W)
-  .next_row()
-  .widget("label", sticky=Sticky.RIGHT).widget("input", sticky=Sticky.LEFT_RIGHT)
-  .next_row()
-  .span(2).widget("ok")
-.end_grid()
+layout = (
+    Layout()
+    .grid()
+    .span(2).widget("title", sticky=Sticky.W)
+    .next_row()
+    .widget("label", sticky=Sticky.RIGHT).widget("input", sticky=Sticky.LEFT_RIGHT)
+    .next_row()
+    .span(2).widget("ok")
+    .end_grid()
+)
 ```
 
 Grid builder methods:
@@ -131,15 +199,13 @@ Grid builder methods:
 | `next_row()` | Move to next row, reset column |
 | `next_col(n)` | Skip n columns |
 | `at(row, col)` | Jump to absolute position |
-| `col_weights(*w)` | Bulk column weights: `col_weights(0, 1, 1)` |
-| `row_weights(*w)` | Bulk row weights |
-| `col_weight(col, w)` | Single column weight |
-| `row_weight(row, w)` | Single row weight |
+| `col_weight(col, w)` | Set a single column weight |
+| `row_weight(row, w)` | Set a single row weight |
 | `col_minsize(col, px)` | Column minimum width |
 | `row_minsize(row, px)` | Row minimum height |
 | `end_grid()` | Return to Layout chain |
 
-`col_weights(0, 1, 1)` means column 0 → weight 0, column 1 → weight 1, column 2 → weight 1.
+Use `col_weight(0, 0).col_weight(1, 1)` to set column 0 → weight 0 and column 1 → weight 1. This is explicit and less error-prone than index-position bulk lists.
 
 ### With-block (context manager)
 
@@ -150,7 +216,8 @@ from nextpytk import LayoutBuilder
 builder = LayoutBuilder()
 with builder:
     builder.section("title")
-    with builder.grid(col_weights=(0, 1)):
+    with builder.grid():
+        builder.col_weight(0, 0).col_weight(1, 1)
         builder.widget("celsius", sticky="ew")
         builder.widget("fahrenheit", sticky="ew")
         builder.next_row().span(2).widget("note")
@@ -159,14 +226,15 @@ app.run(layout=builder.build())
 # Via app.layout() shortcut
 with app.layout() as b:
     b.section("title")
-    with b.grid(col_weights=(0, 1)):
+    with b.grid():
+        b.col_weight(0, 0).col_weight(1, 1)
         b.widget("celsius", sticky="ew")
 app.run(layout=b.build())
 ```
 
 `with b.grid(...)` auto-closes — no `end_grid()` needed.
 
-`grid()` options available directly: `col_weights=(0,1)`, `row_weights=(...)`, `padx`, `pady`, `fill`, `expand`, `uniform`.
+`grid()` options available directly: `padx`, `pady`, `fill`, `expand`, `uniform`.
 
 ---
 
@@ -177,28 +245,34 @@ app.run(layout=b.build())
 | `@app.label(name, font=..., anchor=..., justify=..., padding=...)` | tk.Label | — | `str` or `dict` |
 | `@app.status(name)` | tk.Label (`role=status` metadata) | — | `str` or `dict` |
 | `@app.message(name, width=..., auto_width=...)` | tk.Label (auto-wrap) | — | `str` or `dict` |
-| `@app.button(name, label=..., enabled_if=...)` | ttk.Button | entry values `dict` | `dict` |
+| `@app.button(name, label=..., font=..., enabled_if=...)` | ttk.Button | entry values `dict` | `dict` |
 | `@app.job(name)` | async callable | entry values `dict` | `dict` |
-| `@app.entry(name, placeholder=..., show=...)` | ttk.Entry | `str` | `dict` |
-| `@app.checkbutton(name, text=...)` | ttk.Checkbutton | `bool` | `dict` |
-| `@app.radiobutton(name, text=..., value=..., group=...)` | ttk.Radiobutton | selected value `str` | `dict` |
-| `@app.combobox(name, values=..., readonly=...)` | ttk.Combobox | selected value `str` | `dict` |
+| `@app.entry(name, placeholder=..., show=..., font=..., padding=..., width=...)` | ttk.Entry | `str` | `dict` |
+| `@app.checkbutton(name, text=..., font=...)` | ttk.Checkbutton | `bool` | `dict` |
+| `@app.radiobutton(name, text=..., value=..., group=..., font=...)` | ttk.Radiobutton | selected value `str` | `dict` |
+| `@app.combobox(name, values=..., readonly=..., font=...)` | ttk.Combobox | selected value `str` | `dict` |
 | `@app.menubar(name)` | tk.Menu (window menubar) | — | menu item list |
-| `@app.text(name, width=..., height=...)` | tk.Text | full content `str` | `dict` |
+| `@app.text(name, width=..., height=..., font=...)` | tk.Text | full content `str` | `dict` |
 | `@app.scale(name, from_=..., to=..., orient=...)` | ttk.Scale | value `str` | `dict` |
-| `@app.spinbox(name, from_=..., to=..., values=...)` | ttk.Spinbox | value `str` | `dict` |
-| `@app.listbox(name, items=..., selectmode=...)` | tk.Listbox | selected item `str` | `dict` |
+| `@app.spinbox(name, from_=..., to=..., values=..., font=...)` | ttk.Spinbox | value `str` | `dict` |
+| `@app.listbox(name, items=..., selectmode=..., font=...)` | tk.Listbox | selected item `str` | `dict` |
 | `@app.canvas(name, width=..., height=...)` | tk.Canvas | — | — |
 
 `@app.status` sets schema / accessible `role="status"` metadata. It is **not** an ARIA live region yet (planned for a later release). Prefer it for operation feedback labels; use `@app.label` for static or high-frequency mirror text.
 
 `app.run(stages=..., tabposition=...)` and `@app.stages` provide state-driven screen switching (one visible stage at a time). Theme helpers (`apply_theme`, `tokens`, layout chrome) ship in the package root — see `examples/header_demo.py`.
 
-Label options:
-- `font`: e.g. `font=("TkDefaultFont", 18, "bold")`
-- `anchor`: e.g. `anchor="e"` (right-aligned)
-- `justify`: multi-line alignment, e.g. `justify="right"`
-- `padding`: e.g. `padding=4` or `padding=(4, 2)`
+Common options:
+- `font`: `(family, size[, weight])` tuple, e.g. `font=("TkDefaultFont", 18, "bold")`
+- `padding`: internal padding; integer or `(x, y)` / `(left, top, right, bottom)` tuple, e.g. `padding=4` or `padding=(4, 2)`
+
+Label options: `font`, `anchor`, `justify`, `padding`, `width`.
+
+Entry options: `placeholder`, `show`, `font`, `padding`, `width`, `state`.
+- `padding` is the declarative way to increase visual height (ttk.Entry does not support `height`).
+
+Button, checkbutton, radiobutton, spinbox, combobox, listbox, text options:
+- `font` is accepted uniformly. Under the hood, ttk widgets use a derived style so the rest of the theme (colors, maps, layout) is inherited.
 
 `@app.message` creates an auto-wrapping label. `width` sets initial pixel width; `auto_width=True` (default) tracks parent container resize.
 
@@ -238,7 +312,7 @@ app.schema()
 # → {"title": "...", "widgets": [{"name": "temperature", "kind": "label", ...}]}
 ```
 
-Output is JSON-compatible and can serve as LLM Function Calling definitions.
+Output is JSON-compatible and can be used as a foundation for agent tools and LLM function definitions.
 
 ---
 

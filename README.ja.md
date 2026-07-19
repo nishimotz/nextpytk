@@ -81,11 +81,20 @@ def main_multiview(): pass
 app.run(multiview="main")
 ```
 
-ビューレイアウトにもリストや with-block を使える:
+例えば、ヘッダー付きタブ UI を 1 行で書くこともできます:
 
 ```python
-@app.multiview("main", views=["Home", "Settings"],
-    view_layouts={"Home": ["title", "start"], "Settings": ["timer", "status"]})
+app.run(multiview="main", toplevel_widgets=["header"])
+```
+
+ビューレイアウトにもリストや with-block を使える。例えば
+`view_layouts` の値はウィジェット名の単純なリストでもよい:
+
+```python
+view_layouts = {
+    "Home": ["title", "start"],
+    "Settings": ["timer", "status"],
+}
 ```
 
 ### 1.4 IoC レイアウト（DI）
@@ -120,6 +129,8 @@ print(app.schema())
 ```
 
 `role="status"` は schema / Tk accessible メタデータです。ARIA live region 相当の自動読み上げは未対応です。
+
+ステータス文字を `font=` などで大きく表示する場合は `@app.status(..., font=("TkDefaultFont", 18, "bold"))` のように指定できます（`@app.label` と同じオプションを受け付けます）。
 
 ### 1.7 レイアウトデバッグ
 
@@ -173,13 +184,16 @@ Layout().section("msg").section("phase", "count").section("start", "pause")
 ```python
 from nextpytk.types import Sticky
 
-Layout().grid()
-  .span(2).widget("title", sticky=Sticky.W)
-  .next_row()
-  .widget("label", sticky=Sticky.RIGHT).widget("input", sticky=Sticky.LEFT_RIGHT)
-  .next_row()
-  .span(2).widget("ok")
-.end_grid()
+layout = (
+    Layout()
+    .grid()
+    .span(2).widget("title", sticky=Sticky.W)
+    .next_row()
+    .widget("label", sticky=Sticky.RIGHT).widget("input", sticky=Sticky.LEFT_RIGHT)
+    .next_row()
+    .span(2).widget("ok")
+    .end_grid()
+)
 ```
 
 Grid builder メソッド:
@@ -224,7 +238,7 @@ app.run(layout=b.build())
 
 `with b.grid(...)` は自動でクローズ。`end_grid()` 不要。
 
-`grid()` に直接指定可能なオプション: `col_weights=(0,1)`, `row_weights=(...)`, `padx`, `pady`, `fill`, `expand`, `uniform`。
+`grid()` に直接指定可能なオプション: `padx`, `pady`, `fill`, `expand`, `uniform`。
 
 ---
 
@@ -261,29 +275,58 @@ uv run python examples/disk_usage_flat_async.py
 | `@app.label(name, font=..., anchor=..., justify=..., padding=...)` | tk.Label | なし | `str` または `dict` |
 | `@app.status(name)` | tk.Label（`role=status` メタデータ） | なし | `str` または `dict` |
 | `@app.message(name, width=..., auto_width=...)` | tk.Label (wrap) | なし | `str` または `dict` |
-| `@app.button(name, label=..., state=..., enabled_if=...)` | ttk.Button | `dict` (entry values) | `dict` (state update) |
+| `@app.button(name, label=..., font=..., state=..., enabled_if=...)` | ttk.Button | `dict` (entry values) | `dict` (state update) |
 | `@app.job(name)` | async callable | `dict` (entry values) | `dict` (state update) |
-| `@app.entry(name, placeholder=..., show=..., width=...)` | ttk.Entry | `str` (値) | `dict` (state update) |
-| `@app.checkbutton(name, text=...)` | ttk.Checkbutton | `bool` | `dict` |
-| `@app.radiobutton(name, text=..., value=..., group=...)` | ttk.Radiobutton | `str` (値) | `dict` |
-| `@app.combobox(name, values=..., readonly=...)` | ttk.Combobox | `str` (値) | `dict` |
+| `@app.entry(name, placeholder=..., show=..., font=..., padding=..., width=...)` | ttk.Entry | `str` (値) | `dict` (state update) |
+| `@app.checkbutton(name, text=..., font=...)` | ttk.Checkbutton | `bool` | `dict` |
+| `@app.radiobutton(name, text=..., value=..., group=..., font=...)` | ttk.Radiobutton | `str` (値) | `dict` |
+| `@app.combobox(name, values=..., readonly=..., font=...)` | ttk.Combobox | `str` (値) | `dict` |
 | `@app.menubar(name)` | tk.Menu（ウィンドウメニューバー） | なし | メニュー項目リスト |
-| `@app.text(name, width=..., height=...)` | tk.Text | `str` (全内容) | `dict` |
+| `@app.text(name, width=..., height=..., font=...)` | tk.Text | `str` (全内容) | `dict` |
 | `@app.scale(name, from_=..., to=..., orient=...)` | ttk.Scale | `str` (値) | `dict` |
-| `@app.spinbox(name, from_=..., to=..., values=...)` | ttk.Spinbox | `str` (値) | `dict` |
-| `@app.listbox(name, items=..., selectmode=...)` | tk.Listbox | `str` (選択項目) | `dict` |
+| `@app.spinbox(name, from_=..., to=..., values=..., font=...)` | ttk.Spinbox | `str` (値) | `dict` |
+| `@app.listbox(name, items=..., selectmode=..., font=...)` | tk.Listbox | `str` (選択項目) | `dict` |
 | `@app.canvas(name, width=..., height=...)` | tk.Canvas | なし | — |
 
 `@app.status` は schema / accessible の `role="status"` メタデータを付けます。ARIA live region 相当の読み上げはまだ未対応です（次バージョン以降の課題）。操作結果のフィードバック向きで、高頻度のミラー表示には `@app.label` を使ってください。
 
 `app.run(stages=..., tabposition=...)` と `@app.stages` で状態駆動の画面切替ができます。テーマヘルパー（`apply_theme` / `tokens` / layout chrome）はパッケージから import できます（`examples/header_demo.py` 参照）。
 
+### テーマ
+
+`TkApp` は `theme` パラメータを受け取ります。
+
+| 値 | 意味 |
+|----|----|
+| `"kizashi"`（デフォルト） | 内蔵の Kizashi デザインシステムを適用 |
+| `"none"` | ttk スタイルを変更しない（プラットフォームのデフォルトを使用） |
+| 組み込みテーマ名（例: `"clam"`, `"vista"`, `"aqua"`） | Kizashi 上書きなしでその ttk テーマを使用 |
+
+```python
+# プラットフォームのデフォルト ttk テーマを使用
+app = TkApp(title="Native", theme="none")
+
+# 任意のインストール済み ttk テーマを使用
+app = TkApp(title="Clam", theme="clam")
+```
+
+### 共通オプション
+
+- `font`: `(family, size[, weight])` タプル。例: `font=("TkDefaultFont", 18, "bold")`
+- `padding`: 内側の余白。整数または `(x, y)` / `(left, top, right, bottom)` タプル。例: `padding=4` または `padding=(4, 2)`
+
 ### label の拡張オプション
 
-- `font`: フォント指定。例: `font=("TkDefaultFont", 18, "bold")`
-- `anchor`: テキストの配置位置。例: `anchor="e"`（右寄せ）
-- `justify`: 複数行テキストの行揃え。例: `justify="right"`
-- `padding`: 内側の余白。例: `padding=4` または `padding=(4, 2)`
+- `font`, `anchor`, `justify`, `padding`, `width`
+
+### entry のオプション
+
+- `placeholder`, `show`, `font`, `padding`, `width`, `state`
+- `padding` は `height` に対応していない `ttk.Entry` の視覚的な高さを宣言的に増やす方法です。
+
+### button / checkbutton / radiobutton / spinbox / combobox / listbox / text
+
+- `font` を統一して受け付けます。ttk 系はテーマを継承した派生 style を内部で作成して適用するため、色やマップ・レイアウトなど他のテーマ属性は維持されます。
 
 ---
 
