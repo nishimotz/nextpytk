@@ -11,12 +11,14 @@ role / description を一箇所にまとめます。書き方は Flask 風のデ
 
 ## Quick Start
 
+まずは、ボタンを押すとメッセージが変わるアプリを作ります。
+
 ```bash
 pip install nextpytk
 ```
 
 ```python
-from nextpytk import TkApp, Layout
+from nextpytk import TkApp
 
 app = TkApp(title="Hello")
 
@@ -25,27 +27,142 @@ def msg():
     return "こんにちは"
 
 @app.button("greet", label="あいさつ")
-def on_greet(values):
+def on_greet():
     return {"msg": "ボタンが押されました！"}
 
-app.run(layout=Layout().section("msg").section("greet"))
+app.run(layout=["msg", "greet"])
 ```
 
-**3つのレイアウト方式 — 目的に合わせて選べます:**
+---
+
+## 動作の考え方
+
+nextpytk では、ウィジェットを名前で登録し、レイアウトを別に宣言します。
+
+この例では、`msg` と `greet` という2つのウィジェットを登録しています。
 
 ```python
-# 1) シンプルリスト（一番おすすめ）
-app.run(layout=["msg", "greet"])
-
-# 2) Fluent DSL
-app.run(layout=Layout().section("msg").section("greet"))
-
-# 3) with-block（コンテキストマネージャ）
-with app.layout() as b:
-    b.section("msg")
-    b.section("greet")
-app.run(layout=b.build())
+@app.status("msg")
 ```
+
+`msg` はメッセージを表示するステータス領域です。
+
+```python
+@app.button("greet", label="あいさつ")
+```
+
+`greet` は「あいさつ」と表示されるボタンです。
+
+最後に、表示する順番を名前で指定します。
+
+```python
+app.run(layout=["msg", "greet"])
+```
+
+ボタンを押すと、コールバックが次の `dict` を返します。
+
+```python
+{"msg": "ボタンが押されました！"}
+```
+
+nextpytk はこの内容をアプリの `state` に反映します。
+
+`msg` は登録済みのステータス領域の名前なので、表示が「ボタンが押されました！」に更新されます。
+
+つまり、この例の基本的な流れは次のとおりです。
+
+* ウィジェットを名前で登録する
+* レイアウトに名前を並べる
+* コールバックから `dict` を返す
+* `state` が更新され、対応するウィジェットへ反映される
+
+---
+
+## 入力した値を使う
+
+次に、名前を入力して「あいさつ」ボタンを押すアプリへ変更します。
+
+```python
+from nextpytk import TkApp
+
+app = TkApp(title="Hello")
+
+@app.entry("name", placeholder="名前")
+def on_name():
+    return {}
+
+@app.status("msg")
+def msg():
+    return "名前を入力してください"
+
+@app.button("greet", label="あいさつ")
+def on_greet(values):
+    name = values["name"]
+    return {"msg": f"こんにちは、{name}さん！"}
+
+app.run(layout=["name", "greet", "msg"])
+```
+
+`entry` は入力欄を登録します。
+
+```python
+@app.entry("name", placeholder="名前")
+```
+
+ここでも `"name"` がウィジェット名です。変更時コールバックは必須なので、
+ボタンからだけ読む場合は引数なしで空の `dict` を返しておけば十分です。
+
+ボタンのコールバックでは、入力欄の現在値を `values` から取得できます。
+
+```python
+def on_greet(values):
+    name = values["name"]
+```
+
+`values["name"]` は、`name` という名前で登録した `entry` の現在値です。
+
+たとえば入力欄に
+
+```text
+Taro
+```
+
+と入力してボタンを押すと、コールバックは次の `dict` を返します。
+
+```python
+{"msg": "こんにちは、Taroさん！"}
+```
+
+この値が `state` にマージされ、`msg` という名前のステータス領域へ反映されます。
+
+## `values` と `state`
+
+ここで2種類の辞書が登場します。
+
+* `values`
+  コールバックを呼び出した時点の入力値
+
+* `state`
+  アプリ全体で共有される現在の状態
+
+ボタンのコールバックでは、`values` を読んで処理し、変更したい状態を `dict` で返します。
+
+```python
+def on_greet(values):
+    name = values["name"]
+    return {"msg": f"こんにちは、{name}さん！"}
+```
+
+流れをまとめると次のようになります。
+
+* `entry` へ入力する
+* ボタンを押す
+* `values` から入力値を読む
+* コールバックが更新内容を `dict` で返す
+* 返された内容が `state` にマージされる
+* `state` の内容が対応するウィジェットへ反映される
+
+この仕組みが nextpytk の基本的な状態更新モデルです。
 
 ---
 
@@ -230,6 +347,24 @@ view_layouts = {
 ---
 
 ## Layout DSL
+
+3方式から目的に合わせて選べます:
+
+```python
+from nextpytk import Layout
+
+# 1) シンプルリスト（一番おすすめ）
+app.run(layout=["msg", "greet"])
+
+# 2) Fluent DSL
+app.run(layout=Layout().section("msg").section("greet"))
+
+# 3) with-block（コンテキストマネージャ）
+with app.layout() as b:
+    b.section("msg")
+    b.section("greet")
+app.run(layout=b.build())
+```
 
 ### Simple list
 

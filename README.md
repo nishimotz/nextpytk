@@ -11,12 +11,14 @@ Uses ttk widgets where available.
 
 ## Quick Start
 
+Start with an app where a button updates a message.
+
 ```bash
 pip install nextpytk
 ```
 
 ```python
-from nextpytk import TkApp, Layout
+from nextpytk import TkApp
 
 app = TkApp(title="Hello")
 
@@ -25,27 +27,143 @@ def msg():
     return "Hello, world!"
 
 @app.button("greet", label="Greet")
-def on_greet(values):
+def on_greet():
     return {"msg": "Button clicked!"}
 
-app.run(layout=Layout().section("msg").section("greet"))
+app.run(layout=["msg", "greet"])
 ```
 
-**Three layout styles — pick the one that fits:**
+---
+
+## How it works
+
+In nextpytk you register widgets by name and declare layout separately.
+
+This example registers two widgets: `msg` and `greet`.
 
 ```python
-# 1) Simple list (easiest)
-app.run(layout=["msg", "greet"])
-
-# 2) Fluent DSL
-app.run(layout=Layout().section("msg").section("greet"))
-
-# 3) with-block (context manager)
-with app.layout() as b:
-    b.section("msg")
-    b.section("greet")
-app.run(layout=b.build())
+@app.status("msg")
 ```
+
+`msg` is a status area that shows a message.
+
+```python
+@app.button("greet", label="Greet")
+```
+
+`greet` is a button labeled "Greet".
+
+Finally, name the display order:
+
+```python
+app.run(layout=["msg", "greet"])
+```
+
+When you press the button, the callback returns this `dict`:
+
+```python
+{"msg": "Button clicked!"}
+```
+
+nextpytk merges that into the app `state`.
+
+Because `msg` is the name of the registered status area, its text becomes
+"Button clicked!".
+
+So the basic flow is:
+
+* Register widgets by name
+* List those names in the layout
+* Return a `dict` from a callback
+* `state` updates and matching widgets refresh
+
+---
+
+## Using input values
+
+Next, change the app so you type a name and press Greet.
+
+```python
+from nextpytk import TkApp
+
+app = TkApp(title="Hello")
+
+@app.entry("name", placeholder="Name")
+def on_name():
+    return {}
+
+@app.status("msg")
+def msg():
+    return "Enter your name"
+
+@app.button("greet", label="Greet")
+def on_greet(values):
+    name = values["name"]
+    return {"msg": f"Hello, {name}!"}
+
+app.run(layout=["name", "greet", "msg"])
+```
+
+`entry` registers a text field.
+
+```python
+@app.entry("name", placeholder="Name")
+```
+
+Again, `"name"` is the widget name. An on-change callback is required; if you
+only read the field from a button, a no-arg callback that returns `{}` is enough.
+
+In the button callback, read the current field value from `values`:
+
+```python
+def on_greet(values):
+    name = values["name"]
+```
+
+`values["name"]` is the current value of the `entry` registered as `name`.
+
+For example, if you type
+
+```text
+Taro
+```
+
+and press the button, the callback returns:
+
+```python
+{"msg": "Hello, Taro!"}
+```
+
+That dict merges into `state` and updates the status area named `msg`.
+
+## `values` and `state`
+
+Two dictionaries appear here:
+
+* `values`
+  Input values at the moment the callback runs
+
+* `state`
+  Shared current state for the whole app
+
+A button callback reads `values`, then returns a `dict` of state changes:
+
+```python
+def on_greet(values):
+    name = values["name"]
+    return {"msg": f"Hello, {name}!"}
+```
+
+The flow is:
+
+* Type into an `entry`
+* Press the button
+* Read input from `values`
+* Return updates as a `dict`
+* Those updates merge into `state`
+* Matching widgets refresh from `state`
+
+That is nextpytk's basic state-update model.
 
 ---
 
@@ -227,6 +345,24 @@ view_layouts = {
 ---
 
 ## Layout DSL
+
+Three styles — pick the one that fits:
+
+```python
+from nextpytk import Layout
+
+# 1) Simple list (easiest)
+app.run(layout=["msg", "greet"])
+
+# 2) Fluent DSL
+app.run(layout=Layout().section("msg").section("greet"))
+
+# 3) with-block (context manager)
+with app.layout() as b:
+    b.section("msg")
+    b.section("greet")
+app.run(layout=b.build())
+```
 
 ### Simple list
 

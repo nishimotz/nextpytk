@@ -15,6 +15,7 @@ Core idea:
 from __future__ import annotations
 
 import asyncio
+import inspect
 import sys
 import tkinter as tk
 import tkinter.ttk as ttk
@@ -95,12 +96,15 @@ def _levenshtein(a: str, b: str) -> int:
 # label/status: no arg, returns str or state dict
 LabelCallback = Callable[[], str | dict[str, Any]]
 
-# button: receives entry values dict, returns state dict
-ButtonCallback = Callable[[dict[str, Any]], dict[str, Any]]
-BindCallback = ButtonCallback  # bind: same signature: state dict → state dict
+# button: receives entry values dict (optional), returns state dict
+ButtonCallback = (
+    Callable[[dict[str, Any]], dict[str, Any]]
+    | Callable[[], dict[str, Any]]
+)
+BindCallback = ButtonCallback  # bind: same signature as button
 
-# entry / text / scale / spinbox: receives value str, returns state dict
-ValueCallback = Callable[[str], dict[str, Any]]
+# entry / text / scale / spinbox: receives value str (optional), returns state dict
+ValueCallback = Callable[[str], dict[str, Any]] | Callable[[], dict[str, Any]]
 
 # treeview: receives selected row index (-1 if none), returns state dict
 TreeviewSelectCallback = Callable[[int], dict[str, Any]]
@@ -316,15 +320,37 @@ class TkApp:
                     )
         self._widgets.append(spec)
 
+    @staticmethod
+    def _callback_requires_args(fn: Callable[..., Any]) -> bool:
+        """Return True if ``fn`` has required positional parameters."""
+        try:
+            sig = inspect.signature(fn)
+        except (TypeError, ValueError):
+            return True
+        for p in sig.parameters.values():
+            if p.kind is inspect.Parameter.VAR_POSITIONAL:
+                return True
+            if p.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            ) and p.default is inspect.Parameter.empty:
+                return True
+        return False
+
     def _dispatch(self, spec_name: str, fn: Callable[..., Any],
                   *args: Any) -> Any:
         """Run a user callback under the framework error policy.
+
+        Callbacks may omit unused arguments (e.g. ``def on_click(): ...`` for
+        a button). Required positional parameters still receive the usual args.
 
         Exceptions are never swallowed silently: the traceback always goes
         to stderr, and ``TkApp(debug=True)`` re-raises.
         Returns the callback result, or ``None`` after a handled error.
         """
         try:
+            if args and not self._callback_requires_args(fn):
+                return fn()
             return fn(*args)
         except Exception:
             print(f"nextpytk: error in callback for {spec_name!r}:",
@@ -1606,7 +1632,10 @@ class TkApp:
         name: str,
         **options: Unpack[ButtonOptions],
     ) -> Callable[[ButtonCallback], ButtonCallback]:
-        """Register a button. Callback receives entry values dict → returns state dict.
+        """Register a button. Callback may take entry values dict → returns state dict.
+
+        The callback may be ``def on_click(): ...`` when it does not need input
+        values, or ``def on_click(values): ...`` to read entry-like widgets.
 
         ``label``: button text.
         ``state``: initial widget state (``"normal"`` / ``"disabled"``).
@@ -1641,7 +1670,10 @@ class TkApp:
         name: str,
         **options: Unpack[EntryOptions],
     ) -> Callable[[ValueCallback], ValueCallback]:
-        """Register an entry. Callback receives value string → returns state dict.
+        """Register an entry. Callback may take value string → returns state dict.
+
+        Use ``def on_change(): return {}`` when you only read the field from a
+        button via ``values``; pass ``def on_change(value): ...`` to react to typing.
 
         ``placeholder``: hint text shown when empty.
         ``show``: set ``"*"`` for password entry.
