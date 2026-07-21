@@ -91,7 +91,7 @@ jobs:
               return "Hello, world!"
 
           @app.button("greet", label="Greet")
-          def on_greet(values):
+          def on_greet():
               return {"msg": "Button clicked!"}
 
           app.run(

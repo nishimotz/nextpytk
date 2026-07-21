@@ -12,7 +12,10 @@ Usage::
 
 from __future__ import annotations
 
+import sys
+import warnings
 from collections.abc import Callable, Sequence
+from functools import lru_cache
 from typing import Any, Literal, Required, TypedDict, Unpack
 
 
@@ -190,31 +193,248 @@ BindCallback = Callable[[dict[str, Any]], dict[str, Any]]
 TreeviewSelectCallback = Callable[[int, list[Any]], dict[str, Any]]
 TreeviewActivateCallback = Callable[[int, list[Any]], dict[str, Any]]
 
-# ── listbox event sequences (widget-level bind) ──
+# ── generic event sequences (bindings, listbox events, etc.) ──
 
-class ListboxEvent:
-    """Common event sequences for ``@app.listbox(..., events=...)``.
+@lru_cache(maxsize=1)
+def _primary_button_number() -> Literal[1, 3]:
+    """Detect the OS primary mouse button and return its tkinter number.
 
-    Use these constants for IDE completion and typo protection; arbitrary
-    tkinter event strings are still accepted at runtime.
+    Returns ``1`` for the physically left button (default on right-handed
+    setups) and ``3`` when the OS has swapped the primary button to the
+    physically right button (left-handed setups).
+
+    The detection is best-effort: Windows via ``GetSystemMetrics``,
+    macOS via ``NSUserDefaults``, Linux/GNOME via ``gsettings``.
+    If detection fails, ``1`` is returned as the safe default.
+
+    The result is cached after the first call because mouse-button swap
+    is a system preference that rarely changes during a process lifetime.
+    """
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            SM_SWAPBUTTON = 23
+            swapped = ctypes.windll.user32.GetSystemMetrics(SM_SWAPBUTTON)
+            return 3 if swapped else 1
+        except Exception:  # pragma: no cover - defensive
+            return 1
+
+    if sys.platform == "darwin":
+        try:
+            # pyright ignore: Foundation (PyObjC) is only available on macOS.
+            from Foundation import NSUserDefaults  # type: ignore[import-not-found]
+
+            defaults = NSUserDefaults.standardUserDefaults()
+            swapped = defaults.boolForKey_("com.apple.mouse.swapLeftRightButton")
+            return 3 if swapped else 1
+        except Exception:  # pragma: no cover - defensive
+            return 1
+
+    # Linux / other Unix: try common GNOME/gsettings path
+    try:
+        import subprocess
+
+        result = subprocess.run(
+            ["gsettings", "get", "org.gnome.desktop.peripherals.mouse", "left-handed"],
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+        swapped = result.stdout.strip() == "true"
+        return 3 if swapped else 1
+    except Exception:  # pragma: no cover - defensive
+        return 1
+
+
+def primary_click() -> str:
+    """Return the event sequence for a single click on the OS primary button."""
+    return f"<Button-{_primary_button_number()}>"
+
+
+def primary_double_click() -> str:
+    """Return the event sequence for a double-click on the OS primary button."""
+    return f"<Double-Button-{_primary_button_number()}>"
+
+
+def primary_button_release() -> str:
+    """Return the event sequence for releasing the OS primary button."""
+    return f"<ButtonRelease-{_primary_button_number()}>"
+
+
+class _LazyEventSeq:
+    """Descriptor: calls *fn* on every class-attribute access.
+
+    Used so ``EventSeq.PRIMARY_DOUBLE_CLICK`` re-evaluates
+    ``primary_double_click()`` each time rather than freezing the
+    value at import time.
+    """
+
+    def __init__(self, fn: Callable[[], str]) -> None:
+        self._fn = fn
+
+    def __get__(self, obj: object | None, objtype: type | None = None) -> str:
+        return self._fn()
+
+
+class _DeprecatedEventSeq:
+    """Descriptor that returns a fixed event string and warns once on access."""
+
+    def __init__(self, value: str, *, message: str) -> None:
+        self._value = value
+        self._message = message
+        self._warned = False
+
+    def __get__(self, obj: object | None, objtype: type | None = None) -> str:
+        if not self._warned:
+            warnings.warn(self._message, DeprecationWarning, stacklevel=2)
+            self._warned = True
+        return self._value
+
+
+class EventSeq:
+    """Common tkinter event sequences used throughout nextpytk.
+
+    In tkinter terminology, an **event sequence** is the string pattern passed
+    to ``bind`` (e.g. ``"<Return>"`` or ``"<Double-Button-1>"``). ``Seq`` is
+    shorthand for *sequence*, not a list or numbered series.
+
+    Use these constants for IDE completion and typo protection with any
+    binding API: ``@app.bind(sequence=EventSeq.RETURN)``,
+    ``@app.listbox(..., events={EventSeq.RETURN: ...})``, etc.
+    Arbitrary tkinter event strings are still accepted at runtime.
+
+    Primary-button helpers (a11y-aware):
+        ``EventSeq.PRIMARY_CLICK``, ``EventSeq.PRIMARY_DOUBLE_CLICK``, and
+        ``EventSeq.PRIMARY_BUTTON_RELEASE`` return the tkinter event sequence
+        for the OS-configured primary mouse button. On left-handed setups
+        these resolve to Button-3 instead of Button-1. They are lazy
+        descriptors and are the recommended choice for widget-level mouse
+        bindings.
+
+    Deprecated:
+        ``EventSeq.DOUBLE_CLICK`` is a deprecated alias of
+        ``EventSeq.DOUBLE_BUTTON_1`` and will be removed in v0.5.0.
+        Use ``EventSeq.PRIMARY_DOUBLE_CLICK`` or ``DOUBLE_BUTTON_1`` instead.
+    """
+
+    # ── keyboard ──
+    RETURN: Literal["<Return>"] = "<Return>"
+    ESCAPE: Literal["<Escape>"] = "<Escape>"
+    TAB: Literal["<Tab>"] = "<Tab>"
+    BACKSPACE: Literal["<BackSpace>"] = "<BackSpace>"
+    DELETE: Literal["<Delete>"] = "<Delete>"
+    INSERT: Literal["<Insert>"] = "<Insert>"
+    HOME: Literal["<Home>"] = "<Home>"
+    END: Literal["<End>"] = "<End>"
+    PAGE_UP: Literal["<Prior>"] = "<Prior>"
+    PAGE_DOWN: Literal["<Next>"] = "<Next>"
+
+    # ── arrow / function keys ──
+    UP: Literal["<Up>"] = "<Up>"
+    DOWN: Literal["<Down>"] = "<Down>"
+    LEFT: Literal["<Left>"] = "<Left>"
+    RIGHT: Literal["<Right>"] = "<Right>"
+    F1: Literal["<F1>"] = "<F1>"
+    F2: Literal["<F2>"] = "<F2>"
+    F3: Literal["<F3>"] = "<F3>"
+    F4: Literal["<F4>"] = "<F4>"
+    F5: Literal["<F5>"] = "<F5>"
+    F6: Literal["<F6>"] = "<F6>"
+    F7: Literal["<F7>"] = "<F7>"
+    F8: Literal["<F8>"] = "<F8>"
+    F9: Literal["<F9>"] = "<F9>"
+    F10: Literal["<F10>"] = "<F10>"
+    F11: Literal["<F11>"] = "<F11>"
+    F12: Literal["<F12>"] = "<F12>"
+
+    # ── mouse ──
+    BUTTON_1: Literal["<Button-1>"] = "<Button-1>"
+    BUTTON_2: Literal["<Button-2>"] = "<Button-2>"
+    BUTTON_3: Literal["<Button-3>"] = "<Button-3>"
+    BUTTON_RELEASE_1: Literal["<ButtonRelease-1>"] = "<ButtonRelease-1>"
+    DOUBLE_BUTTON_1: Literal["<Double-Button-1>"] = "<Double-Button-1>"
+    DOUBLE_BUTTON_2: Literal["<Double-Button-2>"] = "<Double-Button-2>"
+    DOUBLE_BUTTON_3: Literal["<Double-Button-3>"] = "<Double-Button-3>"
+    DOUBLE_CLICK = _DeprecatedEventSeq(  # type: ignore[misc]
+        "<Double-Button-1>",
+        message=(
+            "EventSeq.DOUBLE_CLICK is deprecated; use "
+            "EventSeq.PRIMARY_DOUBLE_CLICK or EventSeq.DOUBLE_BUTTON_1. "
+            "Will be removed in v0.5.0."
+        ),
+    )
+    MOTION: Literal["<Motion>"] = "<Motion>"
+    MOUSE_WHEEL: Literal["<MouseWheel>"] = "<MouseWheel>"
+    ENTER: Literal["<Enter>"] = "<Enter>"
+    LEAVE: Literal["<Leave>"] = "<Leave>"
+
+    # ── focus / window ──
+    FOCUS_IN: Literal["<FocusIn>"] = "<FocusIn>"
+    FOCUS_OUT: Literal["<FocusOut>"] = "<FocusOut>"
+    CONFIGURE: Literal["<Configure>"] = "<Configure>"
+    MAP: Literal["<Map>"] = "<Map>"
+    UNMAP: Literal["<Unmap>"] = "<Unmap>"
+    DESTROY: Literal["<Destroy>"] = "<Destroy>"
+    VISIBILITY: Literal["<Visibility>"] = "<Visibility>"
+
+    # ── virtual events ──
+    LISTBOX_SELECT: Literal["<<ListboxSelect>>"] = "<<ListboxSelect>>"
+    COMBOBOX_SELECTED: Literal["<<ComboboxSelected>>"] = "<<ComboboxSelected>>"
+    TREEVIEW_SELECT: Literal["<<TreeviewSelect>>"] = "<<TreeviewSelect>>"
+    TREEVIEW_OPEN: Literal["<<TreeviewOpen>>"] = "<<TreeviewOpen>>"
+    TREEVIEW_CLOSE: Literal["<<TreeviewClose>>"] = "<<TreeviewClose>>"
+    NOTEBOOK_TAB_CHANGED: Literal["<<NotebookTabChanged>>"] = "<<NotebookTabChanged>>"
+
+    # ── a11y-aware primary button (lazy descriptors) ──
+    PRIMARY_CLICK: _LazyEventSeq = _LazyEventSeq(primary_click)
+    PRIMARY_DOUBLE_CLICK: _LazyEventSeq = _LazyEventSeq(primary_double_click)
+    PRIMARY_BUTTON_RELEASE: _LazyEventSeq = _LazyEventSeq(primary_button_release)
+
+
+# Tkinter accepts arbitrary event-pattern strings (modifier combinations,
+# custom virtual events, platform-specific events, etc.), so the type alias
+# intentionally stays as ``str``. Use EventSeq constants for IDE completion.
+EventSeqLike = str
+
+
+class _ListboxEventMeta(type):
+    """Warn once when any public ``ListboxEvent`` attribute is accessed."""
+
+    _warned: bool = False
+
+    def __getattribute__(cls, name: str) -> Any:
+        if name.startswith("_") or name in ("mro",):
+            return type.__getattribute__(cls, name)
+        if not _ListboxEventMeta._warned:
+            _ListboxEventMeta._warned = True
+            warnings.warn(
+                "ListboxEvent is deprecated; use EventSeq instead. "
+                "Will be removed in v0.5.0.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        return type.__getattribute__(cls, name)
+
+
+class ListboxEvent(EventSeq, metaclass=_ListboxEventMeta):
+    """Backward-compatible aliases for listbox-level event sequences.
+
+    Deprecated in v0.4.2: use ``EventSeq`` directly for any event constant.
+    This class is kept as a thin subclass so existing code keeps working.
     """
 
     SELECT: Literal["<<ListboxSelect>>"] = "<<ListboxSelect>>"
-    RETURN: Literal["<Return>"] = "<Return>"
-    DOUBLE_CLICK: Literal["<Double-Button-1>"] = "<Double-Button-1>"
     KEY_BACKSPACE: Literal["<BackSpace>"] = "<BackSpace>"
     KEY_DELETE: Literal["<Delete>"] = "<Delete>"
 
-ListboxEventLike = Literal[
-    "<<ListboxSelect>>",
-    "<Return>",
-    "<Double-Button-1>",
-    "<BackSpace>",
-    "<Delete>",
-]
 
-# Handler signature: receives current state dict, returns state update dict.
+ListboxEventLike = EventSeqLike
+
+# Handler signature: receives current state/values dict, returns state update.
 ListboxEventHandler = Callable[[dict[str, Any]], dict[str, Any] | None]
+# Entry ``events=`` handlers use the same shape (entry values dict → update).
+EntryEventHandler = ListboxEventHandler
 
 # Menubar callback: returns a list of top-level item dicts and separator strings.
 MenubarCallback = Callable[[], Sequence[dict[str, Any] | str]]
@@ -257,6 +477,7 @@ class EntryOptions(CommonWidgetOptions, total=False):
     width: int
     font: tuple[str, int] | tuple[str, int, str]
     padding: int | tuple[int, int] | tuple[int, int, int, int]
+    events: dict[str, EntryEventHandler]
 
 
 class LabelOptions(CommonWidgetOptions, total=False):
@@ -325,6 +546,7 @@ class SpinboxOptions(CommonWidgetOptions, total=False):
 
 class ListboxOptions(CommonWidgetOptions, total=False):
     items: list[str]
+    items_key: str
     font: tuple[str, int] | tuple[str, int, str]
     selectmode: SelectModeLike
     height: int | None
@@ -334,6 +556,7 @@ class ListboxOptions(CommonWidgetOptions, total=False):
 
 class ComboboxOptions(CommonWidgetOptions, total=False):
     values: list[str]
+    values_key: str
     key: str
     width: int
     readonly: bool
@@ -392,7 +615,10 @@ __all__ = [
     "CanvasOptions",
     "CheckbuttonOptions",
     "CommonWidgetOptions",
+    "EntryEventHandler",
     "EntryOptions",
+    "EventSeq",
+    "EventSeqLike",
     "ExpandLike",
     "Fill",
     "FillLike",
@@ -411,6 +637,9 @@ __all__ = [
     "Orient",
     "OrientLike",
     "PanedOptions",
+    "primary_button_release",
+    "primary_click",
+    "primary_double_click",
     "ProgressModeLike",
     "ProgressbarOptions",
     "RadiobuttonOptions",

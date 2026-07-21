@@ -15,6 +15,7 @@ Core idea:
 from __future__ import annotations
 
 import asyncio
+import inspect
 import sys
 import tkinter as tk
 import tkinter.ttk as ttk
@@ -35,8 +36,10 @@ from nextpytk.types import (
     CheckbuttonOptions,
     ComboboxOptions,
     EntryOptions,
+    EventSeq,
     FillLike,
     LabelOptions,
+    EntryEventHandler,
     ListboxEventHandler,
     ListboxOptions,
     ListboxSelectCallback,
@@ -93,12 +96,15 @@ def _levenshtein(a: str, b: str) -> int:
 # label/status: no arg, returns str or state dict
 LabelCallback = Callable[[], str | dict[str, Any]]
 
-# button: receives entry values dict, returns state dict
-ButtonCallback = Callable[[dict[str, Any]], dict[str, Any]]
-BindCallback = ButtonCallback  # bind: same signature: state dict → state dict
+# button: receives entry values dict (optional), returns state dict
+ButtonCallback = (
+    Callable[[dict[str, Any]], dict[str, Any]]
+    | Callable[[], dict[str, Any]]
+)
+BindCallback = ButtonCallback  # bind: same signature as button
 
-# entry / text / scale / spinbox: receives value str, returns state dict
-ValueCallback = Callable[[str], dict[str, Any]]
+# entry / text / scale / spinbox: receives value str (optional), returns state dict
+ValueCallback = Callable[[str], dict[str, Any]] | Callable[[], dict[str, Any]]
 
 # treeview: receives selected row index (-1 if none), returns state dict
 TreeviewSelectCallback = Callable[[int], dict[str, Any]]
@@ -220,6 +226,7 @@ class TkApp:
         self._theme = self._normalize_theme(theme)
         self._kizashi = self._theme == "kizashi"
         self._acc_supported: bool | None = None
+        self._a11y_last_toggle: dict[str, str] = {}
         self._widgets: list[WidgetSpec] = []
         self._state: dict[str, Any] = {}
         self._root: tk.Tk | None = None
@@ -289,6 +296,7 @@ class TkApp:
         self._menubar_submenus.clear()
         self._text_inner.clear()
         self._text_scroll_sync.clear()
+        self._a11y_last_toggle.clear()
         self._current_view = None
         self._current_stage = None
         self._first_focusable = None
@@ -312,15 +320,41 @@ class TkApp:
                     )
         self._widgets.append(spec)
 
+    @staticmethod
+    def _callback_accepts_args(fn: Callable[..., Any]) -> bool:
+        """Return True if ``fn`` can take positional arguments.
+
+        Optional parameters (``values=None``) and ``*args`` count as accepting
+        args; only a zero-parameter callable is invoked with no framework args.
+        """
+        try:
+            sig = inspect.signature(fn)
+        except (TypeError, ValueError):
+            return True
+        return any(
+            p.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.VAR_POSITIONAL,
+            )
+            for p in sig.parameters.values()
+        )
+
     def _dispatch(self, spec_name: str, fn: Callable[..., Any],
                   *args: Any) -> Any:
         """Run a user callback under the framework error policy.
+
+        Callbacks may omit unused arguments (e.g. ``def on_click(): ...`` for
+        a button). If the callable declares any positional parameter
+        (including defaults or ``*args``), the usual framework args are passed.
 
         Exceptions are never swallowed silently: the traceback always goes
         to stderr, and ``TkApp(debug=True)`` re-raises.
         Returns the callback result, or ``None`` after a handled error.
         """
         try:
+            if args and not self._callback_accepts_args(fn):
+                return fn()
             return fn(*args)
         except Exception:
             print(f"nextpytk: error in callback for {spec_name!r}:",
@@ -1294,7 +1328,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="bind", label_text=label,
                 role="shortcut", description=description,
-                on_click=lambda state: fn(state),
+                on_click=lambda state: self._dispatch(name, fn, state),
                 bindings=[(sequence, label)],
             ))
             return fn
@@ -1602,7 +1636,10 @@ class TkApp:
         name: str,
         **options: Unpack[ButtonOptions],
     ) -> Callable[[ButtonCallback], ButtonCallback]:
-        """Register a button. Callback receives entry values dict → returns state dict.
+        """Register a button. Callback may take entry values dict → returns state dict.
+
+        The callback may be ``def on_click(): ...`` when it does not need input
+        values, or ``def on_click(values): ...`` to read entry-like widgets.
 
         ``label``: button text.
         ``state``: initial widget state (``"normal"`` / ``"disabled"``).
@@ -1637,7 +1674,10 @@ class TkApp:
         name: str,
         **options: Unpack[EntryOptions],
     ) -> Callable[[ValueCallback], ValueCallback]:
-        """Register an entry. Callback receives value string → returns state dict.
+        """Register an entry. Callback may take value string → returns state dict.
+
+        Use ``def on_change(): return {}`` when you only read the field from a
+        button via ``values``; pass ``def on_change(value): ...`` to react to typing.
 
         ``placeholder``: hint text shown when empty.
         ``show``: set ``"*"`` for password entry.
@@ -1658,6 +1698,7 @@ class TkApp:
             takefocus = options.get("takefocus")
             font = options.get("font")
             padding = options.get("padding")
+            events = options.get("events")
             extras: dict[str, Any] = {}
             if show is not None:
                 extras["show"] = show
@@ -1669,6 +1710,8 @@ class TkApp:
                 extras["font"] = font
             if padding is not None:
                 extras["padding"] = padding
+            if events is not None:
+                extras["events"] = events
             self._add_spec(WidgetSpec(
                 name=name, kind="entry", placeholder=placeholder,
                 placeholder_as_hint=placeholder_as_hint,
@@ -1843,13 +1886,26 @@ class TkApp:
         """Register a ``ttk.Combobox``. Callback receives selected value → returns state dict.
 
         ``values``: list of selectable strings.
+        ``values_key``: state key for dynamic values. When omitted, ``values=`` is
+        used as a static list. With ``values_key``,
+        ``apply_state({values_key: [...]})`` refreshes the dropdown choices while
+        keeping the selected string in ``state[key]``.
         ``state[key]`` holds the current string value. Key defaults to name.
         ``readonly``: when True, the user can only pick from ``values``.
         ``font``: optional ``(family, size[, weight])`` tuple.
         ``padding``: internal padding override; integer or tuple.
+
+        Example::
+
+            @app.combobox("folder", values_key="folder_values")
+            def on_folder(value: str) -> dict[str, str]:
+                return {}
+
+            app.apply_state({"folder_values": ["INBOX", "Sent", "Drafts"]})
         """
         actual_key = options.get("key") or name
         values = options.get("values")
+        values_key = options.get("values_key")
         width = options.get("width")
         readonly = options.get("readonly", False)
         font = options.get("font")
@@ -1862,6 +1918,8 @@ class TkApp:
                 "values": values or [],
                 "readonly": readonly,
             }
+            if values_key is not None:
+                extras["values_key"] = values_key
             if width is not None:
                 extras["width"] = width
             if font is not None:
@@ -1885,27 +1943,35 @@ class TkApp:
         is selected. This matches the behavior of ``treeview`` callbacks and
         avoids ambiguity caused by duplicate display strings.
         ``enabled_if``: disables selection when False (sets selectmode="none").
+        ``items_key``: state key for dynamic items. When omitted, ``items=`` is
+        used as a static list. With ``items_key``, ``apply_state({items_key: [...]})``
+        refreshes the listbox contents while keeping selection state in
+        ``state[name]``.
         ``events``: widget-level event bindings. Each handler receives the
         current state dict and returns a state update dict (same signature as
-        button callbacks). Use ``nextpytk.types.ListboxEvent`` constants for
-        common sequences such as ``ListboxEvent.RETURN`` or
-        ``ListboxEvent.DOUBLE_CLICK``.
+        button callbacks). Use ``nextpytk.types.EventSeq`` constants for
+        common sequences such as ``EventSeq.RETURN`` or
+        ``EventSeq.PRIMARY_DOUBLE_CLICK`` for an a11y-aware double-click.
 
         Example::
 
             @app.listbox(
-                "file_list",
+                "results",
+                items_key="results_items",
                 selectmode=SelectMode.BROWSE,
                 events={
-                    ListboxEvent.RETURN: lambda state: open_child(),
-                    ListboxEvent.DOUBLE_CLICK: lambda state: open_child(),
-                    ListboxEvent.KEY_BACKSPACE: lambda state: go_parent(),
+                    EventSeq.RETURN: lambda state: open_child(),
+                    EventSeq.PRIMARY_DOUBLE_CLICK: lambda state: open_child(),
+                    EventSeq.BACKSPACE: lambda state: go_parent(),
                 },
             )
-            def on_file_list_select(idx: int) -> dict[str, Any]:
+            def on_results_select(idx: int) -> dict[str, Any]:
                 ...
+
+            app.apply_state({"results_items": ["a", "b", "c"]})
         """
         items = options.get("items")
+        items_key = options.get("items_key")
         selectmode = options.get("selectmode", "browse")
         height = options.get("height")
         description = options.get("description")
@@ -1915,6 +1981,8 @@ class TkApp:
         font = options.get("font")
         def decorator(fn: ListboxSelectCallback) -> ListboxSelectCallback:
             extras: dict[str, Any] = {"items": items or [], "selectmode": selectmode}
+            if items_key is not None:
+                extras["items_key"] = items_key
             if height is not None:
                 extras["height"] = height
             if events is not None:
@@ -2120,6 +2188,10 @@ class TkApp:
             self._sync_treeviews(force=True)
         elif full and self._treeview_update_touches_selection(update_to_apply):
             self._sync_treeview_selections()
+        if self._listbox_update_touches_items(update_to_apply):
+            self._sync_listbox_items_for_specs(touched_keys=set(update_to_apply.keys()))
+        if self._combobox_update_touches_values(update_to_apply):
+            self._sync_combobox_values_for_specs(touched_keys=set(update_to_apply.keys()))
         # Update menubar regardless of full/partial so enabled_if reacts to
         # any state change (e.g. dirty flag toggled by entry or button).
         self._sync_menubar()
@@ -2147,12 +2219,22 @@ class TkApp:
             elif spec.kind == "treeview":
                 keys.add(str(spec.extras.get("rows_key", f"{spec.name}_rows")))
                 keys.add(spec.name)
+            elif spec.kind == "listbox":
+                items_key = spec.extras.get("items_key")
+                if items_key is not None:
+                    keys.add(str(items_key))
+                keys.add(spec.name)
             elif spec.kind == "progressbar":
                 keys.add(str(spec.extras.get("state_key", spec.name)))
                 keys.add(f"{spec.name}_running")
                 keys.add(f"{spec.name}_mode")
+            elif spec.kind == "combobox":
+                values_key = spec.extras.get("values_key")
+                if values_key is not None:
+                    keys.add(str(values_key))
+                keys.add(str(spec.extras.get("state_key", spec.name)))
             elif spec.kind in ("label", "status", "message", "entry", "text",
-                               "listbox", "button", "bind"):
+                               "button", "bind"):
                 keys.add(spec.name)
         return keys
 
@@ -2231,6 +2313,12 @@ class TkApp:
 
         # Update menubar item states after per-widget states.
         self._sync_menubar_states()
+
+        # Emit a11y state change for checkbutton / radiobutton so NVDA
+        # announces toggles without polling.
+        for spec in self._widgets:
+            if spec.kind in ("checkbutton", "radiobutton"):
+                self._emit_a11y_state_change(spec)
 
     def _entry_spec(self, name: str) -> WidgetSpec | None:
         for w in self._widgets:
@@ -2360,7 +2448,7 @@ class TkApp:
         w.after_idle(_update_width)
 
     def _sync_widgets(self) -> None:
-        """Push state to label and text widgets."""
+        """Push state to label, text, and listbox widgets."""
         for spec in self._widgets:
             if spec.kind in ("label", "status", "message"):
                 tk_w = self._tk_widgets.get(spec.name)
@@ -2376,6 +2464,10 @@ class TkApp:
                 tk_w.configure(text=str(value))  # type: ignore[call-arg]
             elif spec.kind == "text":
                 self._sync_text_widget(spec)
+            elif spec.kind == "listbox" and spec.extras.get("items_key") is not None:
+                self._sync_listbox_items(spec)
+            elif spec.kind == "combobox" and spec.extras.get("values_key") is not None:
+                self._sync_combobox_values(spec)
 
     def _sync_text_widget(self, spec: WidgetSpec) -> None:
         """Update a text widget from state if the content changed."""
@@ -2447,6 +2539,104 @@ class TkApp:
             elif spec.kind == "text" and spec.name in update:
                 self._sync_text_widget(spec)
 
+    def _listbox_items(self, spec: WidgetSpec) -> list[str]:
+        items_key = spec.extras.get("items_key")
+        if items_key is not None:
+            items = self._state.get(items_key, [])
+        else:
+            items = spec.extras.get("items", [])
+        return [str(item) for item in items] if isinstance(items, list) else []
+
+    def _listbox_update_touches_items(self, update: dict[str, Any]) -> bool:
+        for spec in self._widgets:
+            if spec.kind != "listbox":
+                continue
+            items_key = spec.extras.get("items_key")
+            if items_key is None:
+                continue
+            if items_key in update:
+                return True
+        return False
+
+    def _sync_listbox_items(self, spec: WidgetSpec) -> None:
+        w = self._tk_widgets.get(spec.name)
+        if w is None or not isinstance(w, tk.Listbox):
+            return
+        items = self._listbox_items(spec)
+        w.delete(0, "end")
+        for item in items:
+            w.insert("end", item)
+        # Clamp selection index to new bounds and update state[name].
+        idx = self._state.get(spec.name, -1)
+        if not isinstance(idx, int):
+            idx = -1
+        if items and 0 <= idx < len(items):
+            w.selection_clear(0, "end")
+            w.selection_set(idx)
+            w.see(idx)
+        else:
+            w.selection_clear(0, "end")
+            self._state[spec.name] = -1
+        self._emit_a11y_selection_change(spec)
+
+    def _sync_listbox_items_for_specs(self,
+                                      touched_keys: set[str] | None = None) -> None:
+        for spec in self._widgets:
+            if spec.kind != "listbox":
+                continue
+            items_key = spec.extras.get("items_key")
+            if items_key is None:
+                continue
+            if touched_keys is None or items_key in touched_keys:
+                self._sync_listbox_items(spec)
+
+    def _combobox_values(self, spec: WidgetSpec) -> list[str]:
+        values_key = spec.extras.get("values_key")
+        if values_key is not None:
+            values = self._state.get(values_key, [])
+        else:
+            values = spec.extras.get("values", [])
+        return [str(v) for v in values] if isinstance(values, list) else []
+
+    def _combobox_update_touches_values(self, update: dict[str, Any]) -> bool:
+        for spec in self._widgets:
+            if spec.kind != "combobox":
+                continue
+            values_key = spec.extras.get("values_key")
+            if values_key is None:
+                continue
+            if values_key in update:
+                return True
+        return False
+
+    def _sync_combobox_values(self, spec: WidgetSpec) -> None:
+        w = self._tk_widgets.get(spec.name)
+        if w is None or not isinstance(w, ttk.Combobox):
+            return
+        values = self._combobox_values(spec)
+        w.configure(values=values)
+        # If the current selection is no longer in values, clear it and
+        # reset the associated state key so the user sees an empty pick.
+        key = str(spec.extras.get("state_key", spec.name))
+        current = self._state.get(key, "")
+        if current not in values:
+            w.set("")
+            self._state[key] = ""
+            var = self._tk_vars.get(key)
+            if var is not None and isinstance(var, tk.StringVar):
+                var.set("")
+
+    def _sync_combobox_values_for_specs(self,
+                                        touched_keys: set[str] | None = None) -> None:
+        for spec in self._widgets:
+            if spec.kind != "combobox":
+                continue
+            values_key = spec.extras.get("values_key")
+            if values_key is None:
+                continue
+            if touched_keys is None or values_key in touched_keys:
+                self._sync_combobox_values(spec)
+
     def _sync_treeview_selection(self, spec: WidgetSpec) -> None:
         tree = self._treeview_inner.get(spec.name)
         if tree is None:
@@ -2463,6 +2653,7 @@ class TkApp:
         tree.selection_set(iid)
         tree.focus(iid)
         tree.see(iid)
+        self._emit_a11y_selection_change(spec)
 
     def _sync_treeview_selections(self) -> None:
         for spec in self._widgets:
@@ -2531,6 +2722,7 @@ class TkApp:
                 value = 0.0
             value = max(0.0, min(maximum, value))
             w.configure(value=value)
+            self._emit_a11y_value_change(spec)
 
     def _treeview_selected_index(self, spec: WidgetSpec) -> int:
         tree = self._treeview_inner.get(spec.name)
@@ -2773,6 +2965,26 @@ class TkApp:
             text_a.configure(yscrollcommand=_sync_from_a)
             text_b.configure(yscrollcommand=_sync_from_b)
 
+    # ── a11y helpers (Tk 9.1+ / TIP 733) ──
+
+    def _call_accessible(self, *args: str) -> bool:
+        """Call ``tk accessible ...``, returning True on success.
+
+        On the first ``TclError`` (Tk < 9.1) sets ``_acc_supported = False``
+        so all subsequent calls short-circuit without touching the Tcl
+        interpreter.
+        """
+        if self._root is None or self._acc_supported is False:
+            return False
+        try:
+            self._root.tk.call("tk", "accessible", *args)
+            self._acc_supported = True
+            return True
+        except tk.TclError:
+            if self._acc_supported is None:
+                self._acc_supported = False
+            return False
+
     def _apply_a11y(self, spec: WidgetSpec) -> None:
         """Route ``WidgetSpec.role`` / ``description`` to Tk accessible attrs.
 
@@ -2784,23 +2996,84 @@ class TkApp:
         (A11y implementation).
         """
         w = self._a11y_target(spec)
-        if w is None or self._root is None or self._acc_supported is False:
+        if w is None:
             return
-        traits: list[tuple[str, str]] = []
         if spec.role:
-            traits.append(("set_acc_role", spec.role))
+            self._call_accessible("set_acc_role", str(w), spec.role)
         if spec.description:
-            traits.append(("set_acc_description", spec.description))
-        if not traits:
+            self._call_accessible("set_acc_description", str(w), spec.description)
+
+    def _apply_a11y_to_layout_frames(self) -> None:
+        """Mark intermediate layout frames as grouping containers.
+
+        ``Layout.section()`` creates ``tk.Frame`` wrappers that sit between
+        the root and user widgets.  Without an explicit accessible role these
+        frames can break MSAA focus tracking, causing NVDA to stay silent
+        during Tab navigation.  Marking them as ``"Grouping"`` tells the
+        accessibility tree to treat them as transparent layout helpers.
+        """
+        seen: set[int] = set()
+        for frame in self._widget_masters.values():
+            fid = id(frame)
+            if fid in seen:
+                continue
+            seen.add(fid)
+            if not self._call_accessible("set_acc_role", str(frame), "Grouping"):
+                return
+
+    def _emit_a11y_selection_change(self, spec: WidgetSpec) -> None:
+        """Notify AT that the selection of *spec* has changed.
+
+        Called automatically after ``_sync_treeview_selection`` and
+        ``_sync_listbox_items``.  This is the key proof-point for
+        "declarative → notifications are free": plain tkinter requires
+        a manual ``tk accessible emit_selection_change`` call, but
+        nextpytk's ``apply_state()`` already knows which widget was
+        updated and can emit the event automatically.
+        """
+        w = self._a11y_target(spec)
+        if w is None:
             return
-        try:
-            for cmd, value in traits:
-                self._root.tk.call("tk", "accessible", cmd, str(w), value)
-            self._acc_supported = True
-        except tk.TclError:
-            # Tk < 9.1 has no `tk accessible`; don't retry per widget.
-            if self._acc_supported is None:
-                self._acc_supported = False
+        self._call_accessible("emit_selection_change", str(w))
+
+    def _emit_a11y_value_change(self, spec: WidgetSpec) -> None:
+        """Notify AT that the value of *spec* has changed.
+
+        Called automatically after ``_sync_progressbars`` and other
+        value-bearing widgets (scale, spinbox).  The current value is
+        pushed via ``set_acc_value`` so screen readers can announce
+        progress updates without polling.
+        """
+        w = self._a11y_target(spec)
+        if w is None:
+            return
+        key = spec.extras.get("state_key", spec.name)
+        value = str(self._state.get(key, ""))
+        self._call_accessible("set_acc_value", str(w), value)
+
+    def _emit_a11y_state_change(self, spec: WidgetSpec) -> None:
+        """Notify AT that the checked/selected state of *spec* has changed.
+
+        Called automatically after ``_sync_widget_states`` for
+        checkbutton and radiobutton widgets.  Pushes the current
+        ``state`` key value so screen readers can announce toggles.
+        Only emits when the value differs from the last emitted value.
+        """
+        w = self._a11y_target(spec)
+        if w is None:
+            return
+        if spec.kind == "checkbutton":
+            key = str(spec.extras.get("state_key", spec.name))
+        elif spec.kind == "radiobutton":
+            key = str(spec.extras.get("group_key", "radio"))
+        else:
+            key = spec.name
+        value = str(self._state.get(key, ""))
+        cache_key = f"{spec.kind}:{spec.name}:{key}"
+        if self._a11y_last_toggle.get(cache_key) == value:
+            return
+        self._a11y_last_toggle[cache_key] = value
+        self._call_accessible("set_acc_value", str(w), value)
 
     # ── per-kind builders ──
 
@@ -2937,6 +3210,8 @@ class TkApp:
         if spec.on_update is not None:
             fn = spec.on_update
             w.bind("<KeyRelease>", lambda _e, s=spec, f=fn: self._on_entry_change(s, f))
+        for sequence, handler in e.get("events", {}).items():
+            w.bind(sequence, lambda _e, h=handler: self._on_entry_event(h))
 
     def _build_checkbutton(self, spec: WidgetSpec, master: tk.Misc) -> None:
         e = spec.extras
@@ -2944,22 +3219,21 @@ class TkApp:
         var = tk.StringVar(value="0")
         # padding is owned by the theme style (44px min target size);
         # a widget-level option here would silently override it.
-        style = "TCheckbutton"
         overrides: dict[str, Any] = {}
         if "font" in e:
             overrides["font"] = e["font"]
-        if overrides:
-            style = self._derive_ttk_style(
-                style, f"Unique.{style}.{spec.name}", overrides
-            )
         w = ttk.Checkbutton(
             master,
             text=spec.label_text,
             variable=var,
             onvalue="1",
             offvalue="0",
-            style=style,
         )
+        if overrides:
+            style = self._derive_ttk_style(
+                "TCheckbutton", f"Unique.TCheckbutton.{spec.name}", overrides
+            )
+            w.configure(style=style)
         # anchor is a ttk layout option (style.layout), not a constructor kwarg
         # for ttk.Checkbutton; left alignment is enforced by the Kizashi style.
         self._tk_widgets[spec.name] = w
@@ -3134,7 +3408,7 @@ class TkApp:
     def _build_combobox(self, spec: WidgetSpec, master: tk.Misc) -> None:
         e = spec.extras
         key = e.get("state_key", spec.name)
-        values = e.get("values", [])
+        values = self._combobox_values(spec)
         init_val = str(values[0]) if values else ""
         var = tk.StringVar(value=init_val)
         kwargs: dict[str, Any] = {
@@ -3178,7 +3452,7 @@ class TkApp:
         if e.get("font") is not None:
             kwargs_lb["font"] = e["font"]
         w = tk.Listbox(master, name=spec.name, **kwargs_lb)
-        for item in e.get("items", []):
+        for item in self._listbox_items(spec):
             w.insert("end", item)
         self._tk_widgets[spec.name] = w
         # Initialize selection state to -1 so state[name] is always an integer
@@ -3325,6 +3599,18 @@ class TkApp:
     def _on_entry_change(self, spec: WidgetSpec, fn: Any) -> None:
         value = self._entry_effective_value(spec.name)
         self._apply_callback_result(self._dispatch(spec.name, fn, value))
+
+    def _on_entry_event(self, handler: EntryEventHandler) -> None:
+        """Invoke a widget-level entry event handler and apply its state update.
+
+        Entry event handlers receive the current entry values dict (so they can
+        read live text from all entries, including the one that fired) and return
+        a state update dict, just like button callbacks.
+        """
+        values = self._entry_values_dict()
+        result = self._dispatch("entry_event", handler, values)
+        if isinstance(result, dict) and result:
+            self._apply_state(result)
 
     def _on_checkbutton_change(self, spec: WidgetSpec, fn: Any,
                                 var: tk.StringVar, key: str) -> None:
@@ -3495,6 +3781,10 @@ class TkApp:
         if layout is not None:
             layout.pack_children(self)
 
+        # Mark intermediate layout frames as grouping containers so they
+        # don't block MSAA focus tracking (Tk 9.1+ / TIP 733).
+        self._apply_a11y_to_layout_frames()
+
         if initial_state:
             self._apply_initial_state(initial_state)
 
@@ -3622,6 +3912,8 @@ class TkApp:
         if layout is not None:
             layout.pack_children(self)
 
+        self._apply_a11y_to_layout_frames()
+
         if initial_state:
             self._apply_initial_state(initial_state)
 
@@ -3651,13 +3943,17 @@ class TkApp:
             if w.kind in ("checkbutton", "scale", "spinbox", "combobox"):
                 d["state_key"] = w.extras.get("state_key")
             if w.kind == "combobox":
-                d["values"] = w.extras.get("values", [])
+                d["values_key"] = w.extras.get("values_key")
+                values = self._combobox_values(w)
+                d["values"] = values
                 d["readonly"] = w.extras.get("readonly", False)
             if w.kind == "radiobutton":
                 d["group_key"] = w.extras.get("group_key")
                 d["rb_value"] = w.extras.get("rb_value")
             if w.kind == "listbox":
-                d["items_count"] = len(w.extras.get("items", []))
+                d["items_key"] = w.extras.get("items_key")
+                items = self._listbox_items(w)
+                d["items_count"] = len(items)
             if w.kind == "treeview":
                 d["columns"] = w.extras.get("column_ids", [])
                 d["rows_key"] = w.extras.get("rows_key")

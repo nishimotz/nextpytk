@@ -54,6 +54,65 @@ def test_button_click_applies_state(build):
     assert app.state["msg"] == "after"
 
 
+def test_button_click_allows_no_arg_callback(build):
+    """Button callbacks may omit values when they do not need input."""
+    app = TkApp(title="t")
+
+    @app.label("msg")
+    def msg():
+        return "before"
+
+    @app.button("go", label="Go")
+    def go():
+        return {"msg": "after"}
+
+    build(app, layout=["msg", "go"])
+    app.widget("go").invoke()
+    assert app.widget("msg").cget("text") == "after"
+
+
+def test_button_passes_values_to_optional_parameter(build):
+    """Optional positional params still receive values (not left at default)."""
+    app = TkApp(title="t")
+    seen: list[object] = []
+
+    @app.entry("name")
+    def on_name():
+        return {}
+
+    @app.button("go", label="Go")
+    def go(values=None):
+        seen.append(values)
+        return {}
+
+    build(app, layout=["name", "go"])
+    app.widget("name").insert(0, "Taro")
+    app.widget("go").invoke()
+    assert seen == [{"name": "Taro"}]
+
+
+def test_entry_allows_no_arg_callback(build):
+    """Entry callbacks may omit value when only buttons read values[name]."""
+    app = TkApp(title="t")
+
+    @app.entry("name")
+    def on_name():
+        return {}
+
+    @app.button("go", label="Go")
+    def go(values):
+        return {"echo": values["name"]}
+
+    @app.label("echo")
+    def echo():
+        return ""
+
+    build(app, layout=["name", "go", "echo"])
+    app.widget("name").insert(0, "Taro")
+    app.widget("go").invoke()
+    assert app.widget("echo").cget("text") == "Taro"
+
+
 def test_treeview_rows_key_and_selection(build):
     app = TkApp(title="t")
 
