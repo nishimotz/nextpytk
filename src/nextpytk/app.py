@@ -321,35 +321,39 @@ class TkApp:
         self._widgets.append(spec)
 
     @staticmethod
-    def _callback_requires_args(fn: Callable[..., Any]) -> bool:
-        """Return True if ``fn`` has required positional parameters."""
+    def _callback_accepts_args(fn: Callable[..., Any]) -> bool:
+        """Return True if ``fn`` can take positional arguments.
+
+        Optional parameters (``values=None``) and ``*args`` count as accepting
+        args; only a zero-parameter callable is invoked with no framework args.
+        """
         try:
             sig = inspect.signature(fn)
         except (TypeError, ValueError):
             return True
-        for p in sig.parameters.values():
-            if p.kind is inspect.Parameter.VAR_POSITIONAL:
-                return True
-            if p.kind in (
+        return any(
+            p.kind in (
                 inspect.Parameter.POSITIONAL_ONLY,
                 inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            ) and p.default is inspect.Parameter.empty:
-                return True
-        return False
+                inspect.Parameter.VAR_POSITIONAL,
+            )
+            for p in sig.parameters.values()
+        )
 
     def _dispatch(self, spec_name: str, fn: Callable[..., Any],
                   *args: Any) -> Any:
         """Run a user callback under the framework error policy.
 
         Callbacks may omit unused arguments (e.g. ``def on_click(): ...`` for
-        a button). Required positional parameters still receive the usual args.
+        a button). If the callable declares any positional parameter
+        (including defaults or ``*args``), the usual framework args are passed.
 
         Exceptions are never swallowed silently: the traceback always goes
         to stderr, and ``TkApp(debug=True)`` re-raises.
         Returns the callback result, or ``None`` after a handled error.
         """
         try:
-            if args and not self._callback_requires_args(fn):
+            if args and not self._callback_accepts_args(fn):
                 return fn()
             return fn(*args)
         except Exception:

@@ -71,6 +71,26 @@ def test_button_click_allows_no_arg_callback(build):
     assert app.widget("msg").cget("text") == "after"
 
 
+def test_button_passes_values_to_optional_parameter(build):
+    """Optional positional params still receive values (not left at default)."""
+    app = TkApp(title="t")
+    seen: list[object] = []
+
+    @app.entry("name")
+    def on_name():
+        return {}
+
+    @app.button("go", label="Go")
+    def go(values=None):
+        seen.append(values)
+        return {}
+
+    build(app, layout=["name", "go"])
+    app.widget("name").insert(0, "Taro")
+    app.widget("go").invoke()
+    assert seen == [{"name": "Taro"}]
+
+
 def test_entry_allows_no_arg_callback(build):
     """Entry callbacks may omit value when only buttons read values[name]."""
     app = TkApp(title="t")
