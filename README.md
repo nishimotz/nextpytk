@@ -4,12 +4,16 @@ Accessible, declarative Tkinter applications from ordinary Python functions.
 
 Register widgets as plain Python functions, declare layout separately, and
 keep roles/descriptions in one place. The decorator style is Flask-inspired;
-`schema()` exports the same structure for agents and tools.
+`schema()` exports the registered widget structure as JSON-compatible data.
 Uses ttk widgets where available.
 
 ---
 
 ## Quick Start
+
+```bash
+pip install nextpytk
+```
 
 ```python
 from nextpytk import TkApp, Layout
@@ -75,16 +79,43 @@ Each type has a matching `*Like` literal alias (e.g. `FillLike`), so raw strings
 
 ### Event sequences
 
-Use `EventSeq` constants for widget-level event bindings (`events=` on `@app.listbox` and `@app.entry`):
+Use `EventSeq` constants for widget-level event bindings (`events=` on
+`@app.listbox` and `@app.entry`). These handlers are **separate from** the
+widget's select/change callback:
+
+| API | Handler argument | Typical use |
+|-----|------------------|-------------|
+| `@app.listbox` select callback | selected index `int` (`-1` if none) | react to selection |
+| `@app.listbox(..., events=...)` | current **state** dict | Return / double-click / Backspace |
+| `@app.entry` change callback | value `str` | react to typing |
+| `@app.entry(..., events=...)` | **entry values** dict (all entries) | Return to submit, like a button |
 
 ```python
-from nextpytk.types import EventSeq
+from nextpytk.types import EventSeq, SelectMode
 
-events={
-    EventSeq.RETURN: lambda state: open_child(),
-    EventSeq.PRIMARY_DOUBLE_CLICK: lambda state: open_child(),
-    EventSeq.BACKSPACE: lambda state: go_parent(),
-}
+@app.listbox(
+    "results",
+    items_key="results_items",
+    selectmode=SelectMode.BROWSE,
+    events={
+        EventSeq.RETURN: lambda state: open_child(),
+        EventSeq.PRIMARY_DOUBLE_CLICK: lambda state: open_child(),
+        EventSeq.BACKSPACE: lambda state: go_parent(),
+    },
+)
+def on_results_select(idx: int) -> dict:
+    return {"status": f"selected:{idx}"}
+
+@app.entry(
+    "query",
+    events={
+        EventSeq.RETURN: lambda values: {
+            "status": f"search:{(values.get('query') or '').strip()}"
+        },
+    },
+)
+def on_query(value: str) -> dict:
+    return {}
 ```
 
 `EventSeq.PRIMARY_CLICK`, `EventSeq.PRIMARY_DOUBLE_CLICK`, and
@@ -94,17 +125,26 @@ return the event sequence for the OS-configured primary mouse button
 
 ### Dynamic choices
 
-- `@app.listbox(..., items_key="results_items")` — state-driven list contents.
-  `apply_state({"results_items": ["a", "b", "c"]})` refreshes the listbox.
-- `@app.combobox(..., values_key="folder_values")` — state-driven dropdown values.
-  `apply_state({"folder_values": ["INBOX", "Sent"]})` refreshes the choices.
+State-driven choices mirror treeview's `rows_key`: keep the selection in
+`state[name]` / `state[key]`, and refresh the options via a separate key.
 
-### Entry widget-level events
+```python
+@app.listbox("results", items_key="results_items")
+def on_results_select(idx: int) -> dict:
+    return {}
 
-`@app.entry(..., events={EventSeq.RETURN: handler})` binds widget-level
-event handlers. Each handler receives the current entry values dict and
-returns a state update dict (same signature as button callbacks).
+@app.combobox("folder", values_key="folder_values")
+def on_folder(value: str) -> dict:
+    return {}
 
+# Later (button, job, or initial_state):
+app.apply_state({
+    "results_items": ["a", "b", "c"],
+    "folder_values": ["INBOX", "Sent"],
+})
+```
+
+Omit `items_key` / `values_key` to keep a static `items=` / `values=` list.
 ### Spacing tokens
 
 ```python
@@ -240,7 +280,7 @@ Grid builder methods:
 | `row_minsize(row, px)` | Row minimum height |
 | `end_grid()` | Return to Layout chain |
 
-Use `col_weight(0, 0).col_weight(1, 1)` to set column 0 → weight 0 and column 1 → weight 1. This is explicit and less error-prone than index-position bulk lists.
+Use `col_weight(0, 0).col_weight(1, 1)` to set column 0 → weight 0 and column 1 → weight 1.
 
 ### With-block (context manager)
 
@@ -290,7 +330,7 @@ app.run(layout=b.build())
 | `@app.text(name, width=..., height=..., font=...)` | tk.Text | full content `str` | `dict` |
 | `@app.scale(name, from_=..., to=..., orient=...)` | ttk.Scale | value `str` | `dict` |
 | `@app.spinbox(name, from_=..., to=..., values=..., font=...)` | ttk.Spinbox | value `str` | `dict` |
-| `@app.listbox(name, items=..., items_key=..., selectmode=..., font=..., events=...)` | tk.Listbox | selected item `str` | `dict` |
+| `@app.listbox(name, items=..., items_key=..., selectmode=..., font=..., events=...)` | tk.Listbox | selected index `int` (`-1` if none) | `dict` |
 | `@app.canvas(name, width=..., height=...)` | tk.Canvas | — | — |
 
 `@app.status` sets schema / accessible `role="status"` metadata. It is **not** an ARIA live region yet (planned for a later release). Prefer it for operation feedback labels; use `@app.label` for static or high-frequency mirror text.
@@ -340,17 +380,19 @@ accept raw strings too.
 
 ---
 
-## Schema Export (Agent/LLM)
+## Schema Export
+
+`app.schema()` returns a JSON-compatible snapshot of registered widgets
+(`name`, `kind`, `label`, `role`, `description`, plus kind-specific fields).
 
 ```python
-@label("temperature")
-def t(): return "25°C"
+@app.label("temperature")
+def t():
+    return "25°C"
 
 app.schema()
 # → {"title": "...", "widgets": [{"name": "temperature", "kind": "label", ...}]}
 ```
-
-Output is JSON-compatible and can be used as a foundation for agent tools and LLM function definitions.
 
 ---
 
@@ -358,7 +400,7 @@ Output is JSON-compatible and can be used as a foundation for agent tools and LL
 
 After widgets are built, `app.debug_layout()` returns JSON-compatible geometry
 and pack/grid info for every registered widget (useful for clipping, minsize,
-and layout regressions; also handy to hand to an agent).
+and layout regressions).
 
 ```python
 app.run(layout=["msg", "go"])  # or build via tests / custom runner
