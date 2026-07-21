@@ -6,7 +6,7 @@ import tkinter as tk
 from typing import Any
 
 from nextpytk import TkApp
-from nextpytk.types import ListboxEvent
+from nextpytk.types import EventSeq
 
 from .conftest import requires_display
 
@@ -98,7 +98,7 @@ def test_listbox_events_receive_state_and_apply_update(build):
         "files",
         items=["a", "b", "c"],
         events={
-            ListboxEvent.RETURN: lambda state: {"msg": f"return:{state.get('files', '')}"},
+            EventSeq.RETURN: lambda state: {"msg": f"return:{state.get('files', '')}"},
         },
     )
     def on_select(idx):
@@ -107,7 +107,7 @@ def test_listbox_events_receive_state_and_apply_update(build):
     build(app, layout=["files", "msg"], initial_state={"msg": "idle"})
     spec = app._spec("files")
     assert spec is not None
-    handler = spec.extras["events"][ListboxEvent.RETURN]
+    handler = spec.extras["events"][EventSeq.RETURN]
     app._on_listbox_event(handler)
     assert app.state["msg"] == "return:-1"
 
@@ -124,7 +124,7 @@ def test_listbox_event_handler_receives_current_state(build):
         "files",
         items=["x"],
         events={
-            ListboxEvent.KEY_DELETE: lambda state: {"msg": state.get("marker", "missing")},
+            EventSeq.DELETE: lambda state: {"msg": state.get("marker", "missing")},
         },
     )
     def on_select(idx):

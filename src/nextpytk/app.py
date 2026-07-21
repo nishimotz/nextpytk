@@ -38,6 +38,7 @@ from nextpytk.types import (
     EventSeq,
     FillLike,
     LabelOptions,
+    EntryEventHandler,
     ListboxEventHandler,
     ListboxOptions,
     ListboxSelectCallback,
@@ -221,6 +222,7 @@ class TkApp:
         self._theme = self._normalize_theme(theme)
         self._kizashi = self._theme == "kizashi"
         self._acc_supported: bool | None = None
+        self._a11y_last_toggle: dict[str, str] = {}
         self._widgets: list[WidgetSpec] = []
         self._state: dict[str, Any] = {}
         self._root: tk.Tk | None = None
@@ -290,6 +292,7 @@ class TkApp:
         self._menubar_submenus.clear()
         self._text_inner.clear()
         self._text_scroll_sync.clear()
+        self._a11y_last_toggle.clear()
         self._current_view = None
         self._current_stage = None
         self._first_focusable = None
@@ -2181,17 +2184,21 @@ class TkApp:
                 keys.add(str(spec.extras.get("rows_key", f"{spec.name}_rows")))
                 keys.add(spec.name)
             elif spec.kind == "listbox":
-                keys.add(str(spec.extras.get("items_key", f"{spec.name}_items")))
+                items_key = spec.extras.get("items_key")
+                if items_key is not None:
+                    keys.add(str(items_key))
                 keys.add(spec.name)
             elif spec.kind == "progressbar":
                 keys.add(str(spec.extras.get("state_key", spec.name)))
                 keys.add(f"{spec.name}_running")
                 keys.add(f"{spec.name}_mode")
             elif spec.kind == "combobox":
-                keys.add(str(spec.extras.get("values_key", f"{spec.name}_values")))
+                values_key = spec.extras.get("values_key")
+                if values_key is not None:
+                    keys.add(str(values_key))
                 keys.add(str(spec.extras.get("state_key", spec.name)))
             elif spec.kind in ("label", "status", "message", "entry", "text",
-                               "listbox", "button", "bind"):
+                               "button", "bind"):
                 keys.add(spec.name)
         return keys
 
@@ -2508,7 +2515,9 @@ class TkApp:
         for spec in self._widgets:
             if spec.kind != "listbox":
                 continue
-            items_key = spec.extras.get("items_key", f"{spec.name}_items")
+            items_key = spec.extras.get("items_key")
+            if items_key is None:
+                continue
             if items_key in update:
                 return True
         return False
@@ -2539,7 +2548,9 @@ class TkApp:
         for spec in self._widgets:
             if spec.kind != "listbox":
                 continue
-            items_key = spec.extras.get("items_key", f"{spec.name}_items")
+            items_key = spec.extras.get("items_key")
+            if items_key is None:
+                continue
             if touched_keys is None or items_key in touched_keys:
                 self._sync_listbox_items(spec)
 
@@ -2555,7 +2566,9 @@ class TkApp:
         for spec in self._widgets:
             if spec.kind != "combobox":
                 continue
-            values_key = spec.extras.get("values_key", f"{spec.name}_values")
+            values_key = spec.extras.get("values_key")
+            if values_key is None:
+                continue
             if values_key in update:
                 return True
         return False
@@ -2582,7 +2595,9 @@ class TkApp:
         for spec in self._widgets:
             if spec.kind != "combobox":
                 continue
-            values_key = spec.extras.get("values_key", f"{spec.name}_values")
+            values_key = spec.extras.get("values_key")
+            if values_key is None:
+                continue
             if touched_keys is None or values_key in touched_keys:
                 self._sync_combobox_values(spec)
 
@@ -3006,11 +3021,22 @@ class TkApp:
         Called automatically after ``_sync_widget_states`` for
         checkbutton and radiobutton widgets.  Pushes the current
         ``state`` key value so screen readers can announce toggles.
+        Only emits when the value differs from the last emitted value.
         """
         w = self._a11y_target(spec)
         if w is None:
             return
-        value = str(self._state.get(spec.name, ""))
+        if spec.kind == "checkbutton":
+            key = str(spec.extras.get("state_key", spec.name))
+        elif spec.kind == "radiobutton":
+            key = str(spec.extras.get("group_key", "radio"))
+        else:
+            key = spec.name
+        value = str(self._state.get(key, ""))
+        cache_key = f"{spec.kind}:{spec.name}:{key}"
+        if self._a11y_last_toggle.get(cache_key) == value:
+            return
+        self._a11y_last_toggle[cache_key] = value
         self._call_accessible("set_acc_value", str(w), value)
 
     # ── per-kind builders ──
@@ -3538,7 +3564,7 @@ class TkApp:
         value = self._entry_effective_value(spec.name)
         self._apply_callback_result(self._dispatch(spec.name, fn, value))
 
-    def _on_entry_event(self, handler: ListboxEventHandler) -> None:
+    def _on_entry_event(self, handler: EntryEventHandler) -> None:
         """Invoke a widget-level entry event handler and apply its state update.
 
         Entry event handlers receive the current entry values dict (so they can

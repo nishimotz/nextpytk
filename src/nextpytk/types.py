@@ -13,9 +13,10 @@ Usage::
 from __future__ import annotations
 
 import sys
+import warnings
 from collections.abc import Callable, Sequence
 from functools import lru_cache
-from typing import Any, ClassVar, Literal, Required, TypedDict, Unpack
+from typing import Any, Literal, Required, TypedDict, Unpack
 
 
 # ── pack side ──
@@ -276,6 +277,21 @@ class _LazyEventSeq:
         return self._fn()
 
 
+class _DeprecatedEventSeq:
+    """Descriptor that returns a fixed event string and warns once on access."""
+
+    def __init__(self, value: str, *, message: str) -> None:
+        self._value = value
+        self._message = message
+        self._warned = False
+
+    def __get__(self, obj: object | None, objtype: type | None = None) -> str:
+        if not self._warned:
+            warnings.warn(self._message, DeprecationWarning, stacklevel=2)
+            self._warned = True
+        return self._value
+
+
 class EventSeq:
     """Common tkinter event sequences used throughout nextpytk.
 
@@ -340,7 +356,14 @@ class EventSeq:
     DOUBLE_BUTTON_1: Literal["<Double-Button-1>"] = "<Double-Button-1>"
     DOUBLE_BUTTON_2: Literal["<Double-Button-2>"] = "<Double-Button-2>"
     DOUBLE_BUTTON_3: Literal["<Double-Button-3>"] = "<Double-Button-3>"
-    DOUBLE_CLICK: Literal["<Double-Button-1>"] = DOUBLE_BUTTON_1  # Deprecated: use EventSeq.PRIMARY_DOUBLE_CLICK or DOUBLE_BUTTON_1. Will be removed in v0.5.0.
+    DOUBLE_CLICK = _DeprecatedEventSeq(  # type: ignore[misc]
+        "<Double-Button-1>",
+        message=(
+            "EventSeq.DOUBLE_CLICK is deprecated; use "
+            "EventSeq.PRIMARY_DOUBLE_CLICK or EventSeq.DOUBLE_BUTTON_1. "
+            "Will be removed in v0.5.0."
+        ),
+    )
     MOTION: Literal["<Motion>"] = "<Motion>"
     MOUSE_WHEEL: Literal["<MouseWheel>"] = "<MouseWheel>"
     ENTER: Literal["<Enter>"] = "<Enter>"
@@ -375,7 +398,26 @@ class EventSeq:
 EventSeqLike = str
 
 
-class ListboxEvent(EventSeq):
+class _ListboxEventMeta(type):
+    """Warn once when any public ``ListboxEvent`` attribute is accessed."""
+
+    _warned: bool = False
+
+    def __getattribute__(cls, name: str) -> Any:
+        if name.startswith("_") or name in ("mro",):
+            return type.__getattribute__(cls, name)
+        if not _ListboxEventMeta._warned:
+            _ListboxEventMeta._warned = True
+            warnings.warn(
+                "ListboxEvent is deprecated; use EventSeq instead. "
+                "Will be removed in v0.5.0.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        return type.__getattribute__(cls, name)
+
+
+class ListboxEvent(EventSeq, metaclass=_ListboxEventMeta):
     """Backward-compatible aliases for listbox-level event sequences.
 
     Deprecated in v0.4.2: use ``EventSeq`` directly for any event constant.
@@ -389,8 +431,10 @@ class ListboxEvent(EventSeq):
 
 ListboxEventLike = EventSeqLike
 
-# Handler signature: receives current state dict, returns state update dict.
+# Handler signature: receives current state/values dict, returns state update.
 ListboxEventHandler = Callable[[dict[str, Any]], dict[str, Any] | None]
+# Entry ``events=`` handlers use the same shape (entry values dict → update).
+EntryEventHandler = ListboxEventHandler
 
 # Menubar callback: returns a list of top-level item dicts and separator strings.
 MenubarCallback = Callable[[], Sequence[dict[str, Any] | str]]
@@ -433,7 +477,7 @@ class EntryOptions(CommonWidgetOptions, total=False):
     width: int
     font: tuple[str, int] | tuple[str, int, str]
     padding: int | tuple[int, int] | tuple[int, int, int, int]
-    events: dict[str, ListboxEventHandler]
+    events: dict[str, EntryEventHandler]
 
 
 class LabelOptions(CommonWidgetOptions, total=False):
@@ -571,6 +615,7 @@ __all__ = [
     "CanvasOptions",
     "CheckbuttonOptions",
     "CommonWidgetOptions",
+    "EntryEventHandler",
     "EntryOptions",
     "EventSeq",
     "EventSeqLike",

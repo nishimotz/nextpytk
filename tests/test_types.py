@@ -23,7 +23,19 @@ class TestEventSeqMouseConstants:
         assert EventSeq.DOUBLE_BUTTON_3 == "<Double-Button-3>"
 
     def test_double_click_alias_points_to_double_button_1(self):
-        assert EventSeq.DOUBLE_CLICK == EventSeq.DOUBLE_BUTTON_1
+        with pytest.warns(DeprecationWarning, match="DOUBLE_CLICK"):
+            assert EventSeq.DOUBLE_CLICK == EventSeq.DOUBLE_BUTTON_1
+
+
+class TestListboxEventDeprecation:
+    def test_listbox_event_warns_once(self):
+        from nextpytk.types import ListboxEvent, _ListboxEventMeta
+
+        _ListboxEventMeta._warned = False
+        with pytest.warns(DeprecationWarning, match="ListboxEvent is deprecated"):
+            assert ListboxEvent.RETURN == "<Return>"
+        # Second access should not warn again
+        assert ListboxEvent.SELECT == "<<ListboxSelect>>"
 
 
 class TestPrimaryButtonDetection:
