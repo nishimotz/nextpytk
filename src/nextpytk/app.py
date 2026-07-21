@@ -1324,7 +1324,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="bind", label_text=label,
                 role="shortcut", description=description,
-                on_click=lambda state: fn(state),
+                on_click=lambda state: self._dispatch(name, fn, state),
                 bindings=[(sequence, label)],
             ))
             return fn
