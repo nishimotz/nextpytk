@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from nextpytk import TkApp, Layout
-from nextpytk.types import Fill, ListboxEvent, SelectMode
+from nextpytk.types import EventSeq, Fill, SelectMode
 
 app = TkApp(title="nextpytk Disk Usage (async)")
 
@@ -134,9 +134,9 @@ def detail_lbl():
     selectmode=SelectMode.BROWSE,
     enabled_if=lambda vals: not _busy,
     events={
-        ListboxEvent.RETURN: lambda _s: _navigate_child(),
-        ListboxEvent.DOUBLE_CLICK: lambda _s: _navigate_child(),
-        ListboxEvent.KEY_BACKSPACE: lambda _s: _navigate_parent(),
+        EventSeq.RETURN: lambda _s: _navigate_child(),
+        EventSeq.PRIMARY_DOUBLE_CLICK: lambda _s: _navigate_child(),
+        EventSeq.BACKSPACE: lambda _s: _navigate_parent(),
     },
 )
 def on_file_list_select(idx: int) -> dict[str, str]:

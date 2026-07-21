@@ -67,8 +67,43 @@ Layout().section("msg", side=Side.LEFT, fill=Fill.X)
 | `Relief` | `Relief.FLAT/RAISED/SUNKEN/...` | border style |
 | `Justify` | `Justify.LEFT/RIGHT/CENTER` | text alignment |
 | `SelectMode` | `SelectMode.SINGLE/BROWSE/MULTIPLE/EXTENDED` | listbox mode |
+| `EventSeq` | `EventSeq.RETURN/ESCAPE/BACKSPACE/DELETE/TAB/...` | event sequences for bindings |
+| `EventSeq` (mouse) | `EventSeq.BUTTON_1/2/3`, `DOUBLE_BUTTON_1/2/3`, `PRIMARY_DOUBLE_CLICK` | mouse event sequences |
+| `EventSeq` (virtual) | `EventSeq.LISTBOX_SELECT/COMBOBOX_SELECTED/NOTEBOOK_TAB_CHANGED/...` | virtual events |
 
 Each type has a matching `*Like` literal alias (e.g. `FillLike`), so raw strings still work when needed.
+
+### Event sequences
+
+Use `EventSeq` constants for widget-level event bindings (`events=` on `@app.listbox` and `@app.entry`):
+
+```python
+from nextpytk.types import EventSeq
+
+events={
+    EventSeq.RETURN: lambda state: open_child(),
+    EventSeq.PRIMARY_DOUBLE_CLICK: lambda state: open_child(),
+    EventSeq.BACKSPACE: lambda state: go_parent(),
+}
+```
+
+`EventSeq.PRIMARY_CLICK`, `EventSeq.PRIMARY_DOUBLE_CLICK`, and
+`EventSeq.PRIMARY_BUTTON_RELEASE` are a11y-aware lazy descriptors that
+return the event sequence for the OS-configured primary mouse button
+(accounting for left/right button swap on Windows, macOS, and Linux/GNOME).
+
+### Dynamic choices
+
+- `@app.listbox(..., items_key="results_items")` — state-driven list contents.
+  `apply_state({"results_items": ["a", "b", "c"]})` refreshes the listbox.
+- `@app.combobox(..., values_key="folder_values")` — state-driven dropdown values.
+  `apply_state({"folder_values": ["INBOX", "Sent"]})` refreshes the choices.
+
+### Entry widget-level events
+
+`@app.entry(..., events={EventSeq.RETURN: handler})` binds widget-level
+event handlers. Each handler receives the current entry values dict and
+returns a state update dict (same signature as button callbacks).
 
 ### Spacing tokens
 
@@ -247,15 +282,15 @@ app.run(layout=b.build())
 | `@app.message(name, width=..., auto_width=...)` | tk.Label (auto-wrap) | — | `str` or `dict` |
 | `@app.button(name, label=..., font=..., enabled_if=...)` | ttk.Button | entry values `dict` | `dict` |
 | `@app.job(name)` | async callable | entry values `dict` | `dict` |
-| `@app.entry(name, placeholder=..., show=..., font=..., padding=..., width=...)` | ttk.Entry | `str` | `dict` |
+| `@app.entry(name, placeholder=..., show=..., font=..., padding=..., width=..., events=...)` | ttk.Entry | `str` | `dict` |
 | `@app.checkbutton(name, text=..., font=...)` | ttk.Checkbutton | `bool` | `dict` |
 | `@app.radiobutton(name, text=..., value=..., group=..., font=...)` | ttk.Radiobutton | selected value `str` | `dict` |
-| `@app.combobox(name, values=..., readonly=..., font=...)` | ttk.Combobox | selected value `str` | `dict` |
+| `@app.combobox(name, values=..., values_key=..., readonly=..., font=...)` | ttk.Combobox | selected value `str` | `dict` |
 | `@app.menubar(name)` | tk.Menu (window menubar) | — | menu item list |
 | `@app.text(name, width=..., height=..., font=...)` | tk.Text | full content `str` | `dict` |
 | `@app.scale(name, from_=..., to=..., orient=...)` | ttk.Scale | value `str` | `dict` |
 | `@app.spinbox(name, from_=..., to=..., values=..., font=...)` | ttk.Spinbox | value `str` | `dict` |
-| `@app.listbox(name, items=..., selectmode=..., font=...)` | tk.Listbox | selected item `str` | `dict` |
+| `@app.listbox(name, items=..., items_key=..., selectmode=..., font=..., events=...)` | tk.Listbox | selected item `str` | `dict` |
 | `@app.canvas(name, width=..., height=...)` | tk.Canvas | — | — |
 
 `@app.status` sets schema / accessible `role="status"` metadata. It is **not** an ARIA live region yet (planned for a later release). Prefer it for operation feedback labels; use `@app.label` for static or high-frequency mirror text.
@@ -299,6 +334,9 @@ accept raw strings too.
 | `Relief` | `Relief.FLAT/RAISED/SUNKEN/GROOVE/RIDGE/SOLID` | border style |
 | `Justify` | `Justify.LEFT/RIGHT/CENTER` | text alignment |
 | `SelectMode` | `SelectMode.SINGLE/BROWSE/MULTIPLE/EXTENDED` | listbox mode |
+| `EventSeq` | `EventSeq.RETURN/ESCAPE/BACKSPACE/DELETE/TAB/...` | event sequences for bindings |
+| `EventSeq` (mouse) | `EventSeq.BUTTON_1/2/3`, `DOUBLE_BUTTON_1/2/3`, `PRIMARY_DOUBLE_CLICK` | mouse event sequences |
+| `EventSeq` (virtual) | `EventSeq.LISTBOX_SELECT/COMBOBOX_SELECTED/NOTEBOOK_TAB_CHANGED/...` | virtual events |
 
 ---
 

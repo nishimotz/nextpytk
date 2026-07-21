@@ -277,15 +277,15 @@ uv run python examples/disk_usage_flat_async.py
 | `@app.message(name, width=..., auto_width=...)` | tk.Label (wrap) | なし | `str` または `dict` |
 | `@app.button(name, label=..., font=..., state=..., enabled_if=...)` | ttk.Button | `dict` (entry values) | `dict` (state update) |
 | `@app.job(name)` | async callable | `dict` (entry values) | `dict` (state update) |
-| `@app.entry(name, placeholder=..., show=..., font=..., padding=..., width=...)` | ttk.Entry | `str` (値) | `dict` (state update) |
+| `@app.entry(name, placeholder=..., show=..., font=..., padding=..., width=..., events=...)` | ttk.Entry | `str` (値) | `dict` (state update) |
 | `@app.checkbutton(name, text=..., font=...)` | ttk.Checkbutton | `bool` | `dict` |
 | `@app.radiobutton(name, text=..., value=..., group=..., font=...)` | ttk.Radiobutton | `str` (値) | `dict` |
-| `@app.combobox(name, values=..., readonly=..., font=...)` | ttk.Combobox | `str` (値) | `dict` |
+| `@app.combobox(name, values=..., values_key=..., readonly=..., font=...)` | ttk.Combobox | `str` (値) | `dict` |
 | `@app.menubar(name)` | tk.Menu（ウィンドウメニューバー） | なし | メニュー項目リスト |
 | `@app.text(name, width=..., height=..., font=...)` | tk.Text | `str` (全内容) | `dict` |
 | `@app.scale(name, from_=..., to=..., orient=...)` | ttk.Scale | `str` (値) | `dict` |
 | `@app.spinbox(name, from_=..., to=..., values=..., font=...)` | ttk.Spinbox | `str` (値) | `dict` |
-| `@app.listbox(name, items=..., selectmode=..., font=...)` | tk.Listbox | `str` (選択項目) | `dict` |
+| `@app.listbox(name, items=..., items_key=..., selectmode=..., font=..., events=...)` | tk.Listbox | `str` (選択項目) | `dict` |
 | `@app.canvas(name, width=..., height=...)` | tk.Canvas | なし | — |
 
 `@app.status` は schema / accessible の `role="status"` メタデータを付けます。ARIA live region 相当の読み上げはまだ未対応です（次バージョン以降の課題）。操作結果のフィードバック向きで、高頻度のミラー表示には `@app.label` を使ってください。
@@ -342,6 +342,41 @@ app = TkApp(title="Clam", theme="clam")
 | `Relief` | `Relief.FLAT/RAISED/SUNKEN/GROOVE/RIDGE/SOLID` | border style |
 | `Justify` | `Justify.LEFT/RIGHT/CENTER` | text alignment |
 | `SelectMode` | `SelectMode.SINGLE/BROWSE/MULTIPLE/EXTENDED` | listbox mode |
+| `EventSeq` | `EventSeq.RETURN/ESCAPE/BACKSPACE/DELETE/TAB/...` | イベントシーケンス（binding 用） |
+| `EventSeq` (マウス) | `EventSeq.BUTTON_1/2/3`, `DOUBLE_BUTTON_1/2/3`, `PRIMARY_DOUBLE_CLICK` | マウスイベントシーケンス |
+| `EventSeq` (仮想) | `EventSeq.LISTBOX_SELECT/COMBOBOX_SELECTED/NOTEBOOK_TAB_CHANGED/...` | 仮想イベント |
+
+### イベントシーケンス
+
+`EventSeq` 定数を `events=` オプション（`@app.listbox` / `@app.entry`）で使います:
+
+```python
+from nextpytk.types import EventSeq
+
+events={
+    EventSeq.RETURN: lambda state: open_child(),
+    EventSeq.PRIMARY_DOUBLE_CLICK: lambda state: open_child(),
+    EventSeq.BACKSPACE: lambda state: go_parent(),
+}
+```
+
+`EventSeq.PRIMARY_CLICK`, `EventSeq.PRIMARY_DOUBLE_CLICK`,
+`EventSeq.PRIMARY_BUTTON_RELEASE` は a11y 対応の遅延デスクリプタで、
+OS のプライマリマウスボタン設定（Windows/macOS/Linux の左右入れ替え）を
+考慮したイベントシーケンスを返します。
+
+### 動的選択肢
+
+- `@app.listbox(..., items_key="results_items")` — 状態駆動のリスト内容。
+  `apply_state({"results_items": ["a", "b", "c"]})` でリストを更新。
+- `@app.combobox(..., values_key="folder_values")` — 状態駆動のドロップダウン値。
+  `apply_state({"folder_values": ["INBOX", "Sent"]})` で選択肢を更新。
+
+### entry ウィジェットレベルのイベント
+
+`@app.entry(..., events={EventSeq.RETURN: handler})` でウィジェット固有の
+イベントハンドラを登録。ハンドラは現在の entry values dict を受け取り、
+state update dict を返します（button コールバックと同じシグネチャ）。
 
 ---
 
