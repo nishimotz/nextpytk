@@ -378,6 +378,114 @@ app.run(layout=["title", "timer", "start", "status"])
 Layout.from_list(["a", "b"], fill="both", expand=True)
 ```
 
+### Layout spacing（レイアウト単位の間隔設定）
+
+デフォルトのブロック余白はデザイントークン `SPACE[1]`（4 px）から取得されます。
+`Layout` コンストラクタに `spacing=...` を渡すと、その Layout が作るすべてのブックで
+使われるデフォルト余白を一括で変更できます:
+
+```python
+from nextpytk import tokens
+
+layout = Layout(spacing=2).section("a").section("b").grid().widget("c").end_grid()
+```
+
+`spacing` は `nextpytk.tokens.SPACE` のキー（1, 2, 3, 4, 6, 8）を受け取り、
+`section()` / `grid()` / `paned()` / grid の `widget()` / ネストフレーム におけるデフォルトの
+`padx` / `pady` を決めます。メソッド呼び出しで明示的に `padx` / `pady` を指定した場合は
+それが優先されます。
+
+直接 `padx` / `pady` を指定することもできます:
+
+```python
+Layout(padx=tokens.SPACE[4], pady=tokens.SPACE[3]).section("a")
+```
+
+### Nested frames（ネストフレーム）
+
+ひとつの `Layout` を名前付きフレームの中に入れ、視覚的なグループを作れます。
+親子で pack/grid を混在させる問題を避け、内部は独立した Layout DSL で宣言できます。
+内部の Layout は自分の spacing を持ち、pack セクション・grid・paned・さらなるネストフレームを
+自由に使えます。
+
+```python
+inner = Layout().section("a", "b")
+outer = Layout().section("title").frame("group", inner).section("ok")
+app.run(layout=outer)
+```
+
+`frame(name, layout, side=..., fill=..., expand=..., padx=..., pady=...)` は
+内部レイアウトを1つのブロックとして pack します。フレームは `name` として登録されるため、
+grid のセル内に配置することも可能です:
+
+```python
+outer = (
+    Layout()
+    .grid()
+    .widget("label")
+    .widget("group", sticky="nsew")
+    .end_grid()
+    .frame("group", Layout().section("a", "b"))
+)
+```
+
+### Paired レイアウト
+
+`Layout.paired(left, right, ...)` は2つのウィジェットを1つの2列フレームに
+左右に並べます。`app.paned` より軽量な diff/compare ビュー向けの選択肢です:
+
+```python
+layout = (
+    Layout()
+    .section("info")
+    .paired(
+        "left_text",
+        "right_text",
+        weight=(1, 1),
+        fill=Fill.BOTH,
+        expand=True,
+        sync_yscroll=True,
+    )
+)
+```
+
+オプション:
+
+| 引数 | 既定値 | 説明 |
+|----------|---------|-------------|
+| `weight` | `(1, 1)` | 2列の `(左, 右)` 重み |
+| `fill` | `"x"` | フレームの `pack fill` |
+| `expand` | `False` | フレームの `pack expand` |
+| `sync_yscroll` | `False` | 2つのウィジェットの y-scroll コマンドを相互接続 |
+| `side`, `padx`, `pady`, `anchor` | — | 通常の Layout ブロック配置オプション |
+
+`sync_yscroll=True` で、両方が `@app.text` ウィジェットの場合、どちらかを
+スクロールするともう一方も追従します。同じ効果はウィジェットごとに
+`@app.text(..., sync_yscroll_with="other")` で得られますが、paired レイアウトは
+ウィジェット宣言を変更せずにレイアウトレベルでその接続を提供します。
+
+### Cluster レイアウト
+
+`Layout.cluster()` は折り返しフローです。各ウィジェットを列いっぱいに伸ばさず、
+内容や `width=` で決まる幅のまま左から右へ並べ、次のウィジェットが残り幅に
+収まらなくなったら自動的に次の行へ折り返します。同じ行に並ぶ widget は上下方向を
+中央揃えし、たとえば高い `entry` と低い `button` や `checkbutton` が midline で
+揃います。gap はレイアウトの spacing を既定値として継承します。
+
+```python
+TAGS = ["python", "tkinter", "async", "uv", "type hints"]
+for tag in TAGS:
+    @app.button(tag, label=f"#{tag}")
+    def on_tag(values, tag=tag):
+        return {"msg": f"Selected: {tag}"}
+
+app.run(layout=Layout(spacing=2).status("msg").cluster(*TAGS))
+```
+
+Cluster はタグクラウド、ツールバー、フィルター UI などに向いています。
+ウィンドウをリサイズすると行が自動的に再計算されます。`gap=...` で間隔を上書き、
+`side`/`fill`/`expand` で cluster フレームの pack 動作を制御できます。
+
 ### Fluent DSL
 
 **Pack セクション:**
@@ -466,6 +574,7 @@ app.run(layout=b.build())
 | `@app.radiobutton(name, text=..., value=..., group=..., font=...)` | ttk.Radiobutton | 選択値 `str` | `dict` |
 | `@app.combobox(name, values=..., values_key=..., readonly=..., font=...)` | ttk.Combobox | 選択値 `str` | `dict` |
 | `@app.menubar(name)` | tk.Menu（ウィンドウメニューバー） | — | メニュー項目リスト |
+| `@app.filepicker(name, mode=..., label=..., title=..., filetypes=..., ...)` | ttk.Button → tkinter.filedialog | 選択パス `str`, `list[str]`, または `None` | `dict` |
 | `@app.text(name, width=..., height=..., font=...)` | tk.Text | 全内容 `str` | `dict` |
 | `@app.scale(name, from_=..., to=..., orient=...)` | ttk.Scale | 値 `str` | `dict` |
 | `@app.spinbox(name, from_=..., to=..., values=..., font=...)` | ttk.Spinbox | 値 `str` | `dict` |
@@ -473,6 +582,34 @@ app.run(layout=b.build())
 | `@app.canvas(name, width=..., height=...)` | tk.Canvas | — | — |
 
 `@app.status` は schema / accessible の `role="status"` メタデータを付けます。ARIA live region 相当の読み上げはまだ未対応です（後続リリース予定）。操作結果のフィードバック向きで、静的・高頻度のミラー表示には `@app.label` を使ってください。
+
+### ファイルピッカー
+
+`@app.filepicker` はクリックで tkinter のファイルダイアログを開くボタンを作ります。
+選択されたパスがコールバックに渡され、キャンセル時は `None` になります。
+
+```python
+@app.filepicker("open_file", mode="open", label="ファイルを開く",
+                title="ファイルを開く", filetypes=[("テキストファイル", "*.txt")])
+def pick_open_file(path: str | None) -> dict[str, Any]:
+    return {"open_path": path}
+```
+
+モード: `"open"`（既定）, `"open_multiple"`, `"save"`, `"directory"`。
+
+filepicker はメニューバーからも呼び出せます。`command` に filepicker 名を指定するだけです：
+
+```python
+@app.filepicker("m_open", mode="open", title="ファイルを開く")
+def m_open(path):
+    return {"open_path": path}
+
+@app.menubar("menu")
+def menu_bar():
+    return [{"label": "ファイル", "items": [
+        {"label": "開く...", "command": "m_open"},
+    ]}]
+```
 
 `app.run(stages=..., tabposition=...)` と `@app.stages` で状態駆動の画面切替ができます。テーマヘルパー（`apply_theme` / `tokens` / layout chrome）はパッケージから import できます（`examples/header_demo.py` 参照）。
 
@@ -574,7 +711,9 @@ uv run python examples/widget_gallery.py      # 全ウィジェット種別
 uv run python examples/header_demo.py         # Layout.header / .status chrome
 uv run python examples/combobox_demo.py       # ttk.Combobox
 uv run python examples/menubar_demo.py        # メニューバー
+uv run python examples/filepicker_demo.py     # ファイルピッカー
 uv run python examples/disk_usage_flat_async.py       # ncdu風ビューア（非同期）
+uv run python examples/paired_demo.py           # 左右ペアレイアウト + y-scroll 同期
 ```
 
 ---

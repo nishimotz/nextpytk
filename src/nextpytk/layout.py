@@ -14,6 +14,7 @@ Types from ``nextpytk.types`` provide IDE autocomplete for options.
 from __future__ import annotations
 
 import tkinter as tk
+import tkinter.ttk as ttk
 import warnings
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -39,8 +40,8 @@ class _Row:
     side: SideLike = "top"
     fill: FillLike = "x"
     expand: ExpandLike = False
-    padx: int = _PAD
-    pady: int = _PAD
+    padx: int | None = _PAD
+    pady: int | None = _PAD
     minsize: int | None = None
     anchor: AnchorLike | None = None
     # Per-widget pack opts (for future: individual widget packing hints)
@@ -59,16 +60,16 @@ class _Paned:
     side: SideLike = "top"
     fill: FillLike = "both"
     expand: ExpandLike = True
-    padx: int = _PAD
-    pady: int = _PAD
+    padx: int | None = _PAD
+    pady: int | None = _PAD
 
 
 @dataclass
 class _Grid:
     """Internal: grid-based block."""
     cells: dict[str, dict[str, Any]]  # name -> {row, column, sticky, ...}
-    padx: int = _PAD
-    pady: int = _PAD
+    padx: int | None = _PAD
+    pady: int | None = _PAD
     fill: FillLike = "x"
     expand: ExpandLike = False
     uniform: str = ""
@@ -77,9 +78,285 @@ class _Grid:
     col_minsize: dict[int, int] = field(default_factory=dict)
     row_weights: dict[int, int] = field(default_factory=dict)
     row_minsize: dict[int, int] = field(default_factory=dict)
+    # Optional explicit visual/tab order. If provided, <Key-Tab> and
+    # <Shift-Key-Tab> events are intercepted to move focus in this order
+    # within the grid frame. Used by cluster blocks.
+    order: tuple[str, ...] = ()
 
 
-_Block = _Row | _Grid | _Paned
+@dataclass
+class _Nested:
+    """Internal: a named nested frame containing an independent Layout."""
+    name: str
+    layout: Layout
+    side: SideLike = "top"
+    fill: FillLike = "x"
+    expand: ExpandLike = False
+    padx: int | None = _PAD
+    pady: int | None = _PAD
+
+
+@dataclass
+class _Cluster:
+    """Internal: a cluster block that packs widgets without stretching widths."""
+    widgets: list[str]
+    gap: int
+    side: SideLike = "top"
+    fill: FillLike = "x"
+    expand: ExpandLike = False
+    padx: int | None = _PAD
+    pady: int | None = _PAD
+
+
+@dataclass
+class _Paired:
+    """Internal: a paired block with two side-by-side widgets and optional scroll sync."""
+    left: str
+    right: str
+    weight: tuple[int, ...] = (1, 1)
+    sync_yscroll: bool = True
+    side: SideLike = "top"
+    fill: FillLike = "both"
+    expand: ExpandLike = True
+    padx: int | None = _PAD
+    pady: int | None = _PAD
+
+
+_Block = _Row | _Grid | _Paned | _Nested | _Cluster | _Paired
+
+
+def _wire_cluster_tab_order(
+    app: TkApp,
+    frame: tk.Frame,
+    order: tuple[str, ...],
+) -> None:
+    """Bind <Key-Tab> / <Shift-Key-Tab> on cluster children for visual tab order.
+
+    Inserts a custom bindtag before the widget's class binding so the handler
+    fires before ttk's built-in ``ttk::takefocus``. Text widgets are excluded
+    because Tab is used for text input.
+    """
+    n = len(order)
+    if n <= 1:
+        return
+
+    # Clean up stale bindtags for this frame before wiring the current order.
+    prefix = f"ClusterTab{str(frame).replace('.', '_')}_"
+    for name in order:
+        w = app.widget(name)
+        if w is None:
+            continue
+        tags = list(w.bindtags())
+        for tag in list(tags):
+            if tag.startswith(prefix):
+                tags.remove(tag)
+                frame.bind_class(tag, "<Key-Tab>", "")
+                frame.bind_class(tag, "<Shift-Key-Tab>", "")
+        w.bindtags(tags)
+
+    for i, name in enumerate(order):
+        w = app.widget(name)
+        if w is None:
+            continue
+        # Text and Entry widgets use Tab for text input; skip them.
+        if isinstance(w, (tk.Text, tk.Entry)):
+            continue
+
+        # Each widget gets its own bindtag so handlers don't accumulate
+        # across widgets.
+        tag = f"{prefix}{name}"
+
+        # Tab: move to next in order, wrapping to the first item at the end.
+        next_w = app.widget(order[(i + 1) % n])
+        if next_w is not None:
+            frame.bind_class(
+                tag, "<Key-Tab>",
+                lambda e, nw=next_w: _focus_and_break(nw, e),
+            )
+        # Shift-Tab: move to previous, wrapping to the last item at the start.
+        prev_w = app.widget(order[(i - 1) % n])
+        if prev_w is not None:
+            frame.bind_class(
+                tag, "<Shift-Key-Tab>",
+                lambda e, pw=prev_w: _focus_and_break(pw, e),
+            )
+
+        # Insert the custom tag right after the widget's own tag so it
+        # fires before the class binding (TButton, TEntry, etc.).
+        tags = list(w.bindtags())
+        if tag not in tags:
+            tags.insert(1, tag)
+            w.bindtags(tags)
+
+
+def _focus_and_break(target: tk.Widget, event: tk.Event[tk.Misc]) -> str:
+    """Focus *target* and stop event propagation."""
+    try:
+        target.focus_set()
+    except tk.TclError:
+        pass
+    return "break"
+
+
+def _cluster_rows(widgets: list[str], widths: list[int], gap_px: int, avail: int) -> list[list[str]]:
+    """Group widget names into rows that fit in ``avail`` pixels.
+
+    Each widget keeps its own width; a new row is started when the next
+    widget plus gap would exceed the available width. At least one widget is
+    always placed per row.
+    """
+    n = len(widgets)
+    if n == 0:
+        return []
+    rows: list[list[str]] = []
+    current: list[str] = [widgets[0]]
+    used = widths[0]
+    for i in range(1, n):
+        needed = widths[i] + gap_px
+        if used + needed <= avail:
+            current.append(widgets[i])
+            used += needed
+        else:
+            rows.append(current)
+            current = [widgets[i]]
+            used = widths[i]
+    rows.append(current)
+    return rows
+
+
+def _place_cluster(app: TkApp, frame: tk.Frame, block: _Cluster) -> None:
+    """Place cluster widgets without stretching, using absolute positioning.
+
+    Uses ``place`` so widgets can be positioned inside *frame* regardless of
+    their Tk window-tree parent.  Row heights and the overall frame height are
+    computed from ``winfo_reqheight`` / ``winfo_reqwidth``.
+    """
+    gap_px = _t.SPACE[block.gap]
+    padx = block.padx if block.padx is not None else 0
+    pady = block.pady if block.pady is not None else 0
+
+    # Collect widget info: (name, widget, reqwidth, reqheight)
+    items: list[tuple[str, tk.Widget, int, int]] = []
+    for name in block.widgets:
+        tk_w = app._tk_widgets.get(name)
+        if tk_w is None:
+            continue
+        try:
+            rw = max(1, tk_w.winfo_reqwidth())
+            rh = max(1, tk_w.winfo_reqheight())
+        except tk.TclError:
+            rw, rh = 1, 1
+        items.append((name, tk_w, rw, rh))
+
+    if not items:
+        return
+
+    # Forget any previous placement so we can re-place cleanly.
+    for _, tk_w, _, _ in items:
+        tk_w.place_forget()
+
+    names = [it[0] for it in items]
+    widths = [it[2] for it in items]
+
+    try:
+        avail = max(1, frame.winfo_width() - 2 * padx)
+    except tk.TclError:
+        avail = 1
+
+    rows = _cluster_rows(names, widths, gap_px, avail)
+
+    # Place each widget row by row.  Widgets keep their own height and
+    # are vertically centered within the row so that tall widgets (e.g. an
+    # entry) and short widgets (e.g. a button) align on their midline.
+    y = pady
+    ordered_names: list[str] = []
+    for row_names in rows:
+        row_height = max(
+            (it[3] for it in items if it[0] in row_names),
+            default=1,
+        )
+        x = padx
+        for j, name in enumerate(row_names):
+            item = next(it for it in items if it[0] == name)
+            tk_w = item[1]
+            w = item[2]
+            h = item[3]
+            is_last = j == len(row_names) - 1
+            cy = y + (row_height - h) // 2
+            tk_w.place(in_=frame, x=x, y=cy, width=w, height=h, anchor="nw")
+            x += w + (0 if is_last else gap_px)
+            ordered_names.append(name)
+        y += row_height + gap_px
+
+    # Set the cluster frame height explicitly; place does not propagate size.
+    total_height = y - gap_px + pady
+    frame.pack_propagate(False)
+    frame.configure(height=total_height)
+
+    _wire_cluster_tab_order(app, frame, tuple(ordered_names))
+
+
+def _place_paired(app: TkApp, frame: tk.Frame, block: _Paired) -> None:
+    """Grid two widgets side-by-side in ``frame`` and wire y-scroll sync.
+
+    Both children are gridded sticky ``nsew`` so they share the full frame
+    area according to the configured column weights.  When
+    ``sync_yscroll=True`` and both registered widgets expose a real
+    ``tk.Text`` (via ``app._text_inner``), their ``yscrollcommand`` chains are
+    linked so scrolling either text moves the other.
+    """
+    left = app._tk_widgets.get(block.left)
+    right = app._tk_widgets.get(block.right)
+    if left is None or right is None:
+        return
+
+    # Ensure any previous geometry is cleared before gridding.
+    left.grid_forget()
+    right.grid_forget()
+
+    left.grid(in_=frame, row=0, column=0, sticky="nsew", padx=(0, _t.SPACE[1] // 2))
+    right.grid(in_=frame, row=0, column=1, sticky="nsew", padx=(_t.SPACE[1] // 2, 0))
+
+    if not block.sync_yscroll:
+        return
+
+    text_a = app._text_inner.get(block.left)
+    text_b = app._text_inner.get(block.right)
+    if text_a is None or text_b is None:
+        return
+
+    # If the widgets already declared reciprocal sync_yscroll_with, the
+    # app-level wiring in ``_wire_text_scroll_sync`` already handles bi-
+    # directional movement and scrollbar updates.  Avoid installing a second,
+    # conflicting layer that can create feedback loops or mask scrollbar events.
+    if app._text_scroll_sync.get(block.left) == block.right:
+        return
+
+    sb_a = app._text_scrollbars.get(block.left)
+    sb_b = app._text_scrollbars.get(block.right)
+
+    def _sync_from_a(
+        *args: Any,
+        source: tk.Text = text_a,
+        target: tk.Text = text_b,
+        sb: ttk.Scrollbar | None = sb_a,
+    ) -> None:
+        target.yview_moveto(source.yview()[0])
+        if sb is not None:
+            sb.set(*args)
+
+    def _sync_from_b(
+        *args: Any,
+        source: tk.Text = text_b,
+        target: tk.Text = text_a,
+        sb: ttk.Scrollbar | None = sb_b,
+    ) -> None:
+        target.yview_moveto(source.yview()[0])
+        if sb is not None:
+            sb.set(*args)
+
+    text_a.configure(yscrollcommand=_sync_from_a)
+    text_b.configure(yscrollcommand=_sync_from_b)
 
 
 def _section_anchor(block: _Row) -> AnchorLike | None:
@@ -97,11 +374,13 @@ def _section_anchor(block: _Row) -> AnchorLike | None:
     return None
 
 
+# ── Public API ──
+
 def _pack_section_frame(parent: tk.Misc, block: _Row) -> tk.Frame:
     """Pack a section frame, optionally enforcing ``block.minsize``."""
     pack_kw: dict[str, Any] = {
         "side": "top", "fill": block.fill, "expand": block.expand,
-        "padx": block.padx, "pady": block.pady,
+        "padx": block.padx or 0, "pady": block.pady or 0,
     }
     anchor = _section_anchor(block)
     if anchor:
@@ -136,7 +415,21 @@ class Layout:
     ``.header()`` and ``.status()`` create chrome (title block and bottom bar).
     Pass ``theme=False`` to ``TkApp`` or build widgets manually to keep the
     platform-default look.
+
+    Args:
+        spacing: Default padding for every block, expressed as a design token
+            key from ``nextpytk.tokens.SPACE``. This sets the per-Layout
+            ``padx``/``pady`` default used by ``section()``, ``grid()`` and
+            ``paned()`` when those methods are not given explicit values.
+            Default is ``1`` (``SPACE[1] == 4px``). Pass ``spacing=2`` to
+            open the standard 8px gap, etc.
+        padx, pady: Direct pixel overrides. If either is provided, it takes
+            precedence over the value derived from ``spacing``.
     """
+
+    padx: int | None = None
+    pady: int | None = None
+    spacing: int = 1
 
     _blocks: list[_Block] = field(default_factory=list)
 
@@ -144,6 +437,19 @@ class Layout:
     # real widgets, so they cannot collide with user widget names.
     _HEADER = "__kizashi_header__"
     _STATUS = "__kizashi_status__"
+
+    def __post_init__(self) -> None:
+        token = _t.SPACE.get(self.spacing)
+        if token is None:
+            valid = ", ".join(str(k) for k in sorted(_t.SPACE.keys()))
+            raise ValueError(
+                f"Layout spacing={self.spacing!r} is not a valid SPACE token; "
+                f"choose from {valid}"
+            )
+        if self.padx is None:
+            object.__setattr__(self, "padx", token)
+        if self.pady is None:
+            object.__setattr__(self, "pady", token)
 
     # ── section (pack) ──
 
@@ -153,8 +459,8 @@ class Layout:
         side: SideLike = "top",
         fill: FillLike = "x",
         expand: ExpandLike = False,
-        padx: int = _PAD,
-        pady: int = _PAD,
+        padx: int | None = None,
+        pady: int | None = None,
         minsize: int | None = None,
         anchor: AnchorLike | None = None,
     ) -> Layout:
@@ -175,7 +481,10 @@ class Layout:
             actual_side = "left"
         self._blocks.append(_Row(
             widgets=ws, side=actual_side, fill=fill,
-            expand=expand, padx=padx, pady=pady, minsize=minsize,
+            expand=expand,
+            padx=padx if padx is not None else self.padx,
+            pady=pady if pady is not None else self.pady,
+            minsize=minsize,
             anchor=anchor,
         ))
         return self
@@ -190,8 +499,8 @@ class Layout:
         side: SideLike = "top",
         fill: FillLike = "both",
         expand: ExpandLike = True,
-        padx: int = _PAD,
-        pady: int = _PAD,
+        padx: int | None = None,
+        pady: int | None = None,
     ) -> Layout:
         """Place a registered ``app.paned(name, ...)`` with per-pane minimum sizes.
 
@@ -211,8 +520,8 @@ class Layout:
             side=side,
             fill=fill,
             expand=expand,
-            padx=padx,
-            pady=pady,
+            padx=padx if padx is not None else self.padx,
+            pady=pady if pady is not None else self.pady,
         ))
         return self
 
@@ -239,8 +548,8 @@ class Layout:
     def grid(
         self,
         *,
-        padx: int = _PAD,
-        pady: int = _PAD,
+        padx: int | None = None,
+        pady: int | None = None,
         fill: FillLike = "x",
         expand: ExpandLike = False,
         uniform: str = "",
@@ -257,7 +566,9 @@ class Layout:
                 .end_grid()
         """
         block = _Grid(
-            cells={}, padx=padx, pady=pady,
+            cells={},
+            padx=padx if padx is not None else self.padx,
+            pady=pady if pady is not None else self.pady,
             fill=fill, expand=expand, uniform=uniform,
         )
         self._blocks.append(block)
@@ -266,16 +577,143 @@ class Layout:
     # ── apply (called by TkApp.run) ──
 
     def widget_names(self) -> set[str]:
-        """Return all widget names referenced by this layout."""
+        """Return all widget names referenced by this layout and nested layouts."""
         out: set[str] = set()
         for block in self._blocks:
-            if isinstance(block, _Row):
+            if isinstance(block, _Row | _Cluster):
                 out.update(block.widgets)
             elif isinstance(block, _Paned):
                 out.add(block.name)
             elif isinstance(block, _Grid):
                 out.update(block.cells.keys())
+            elif isinstance(block, _Paired):
+                out.update((block.left, block.right))
+            elif isinstance(block, _Nested):
+                out.update(block.layout.widget_names())
         return out
+
+    def cluster(
+        self,
+        *widgets: str,
+        gap: int | None = None,
+        side: SideLike = "top",
+        fill: FillLike = "x",
+        expand: ExpandLike = False,
+        padx: int | None = None,
+        pady: int | None = None,
+    ) -> Layout:
+        """Pack widgets in a wrapping-flow Cluster without stretching them.
+
+        Widgets are arranged left-to-right, top-to-bottom, wrapping to a new
+        row whenever the next widget would not fit in the remaining frame
+        width. Each widget keeps the width implied by its content or
+        ``width=`` (e.g. an ``entry(width=30)`` stays wider than a short
+        button) rather than being stretched to fill a column.
+
+        ``gap`` is a key from ``nextpytk.tokens.SPACE`` and controls both the
+        horizontal gap between items and the vertical gap between rows. When
+        omitted it inherits the Layout's ``spacing`` setting.
+
+        Example::
+
+            Layout().cluster("tag1", "tag2", "tag3", "tag4")
+        """
+        effective_gap = gap if gap is not None else self.spacing
+        if effective_gap not in _t.SPACE:
+            valid = ", ".join(str(k) for k in sorted(_t.SPACE.keys()))
+            raise ValueError(
+                f"Cluster gap={effective_gap!r} is not a valid SPACE token; choose from {valid}"
+            )
+        ws = list(widgets)
+        self._blocks.append(_Cluster(
+            widgets=ws,
+            gap=effective_gap,
+            side=side,
+            fill=fill,
+            expand=expand,
+            padx=padx if padx is not None else self.padx,
+            pady=pady if pady is not None else self.pady,
+        ))
+        return self
+
+    def paired(
+        self,
+        left: str,
+        right: str,
+        *,
+        weight: tuple[int, int] | list[int] = (1, 1),
+        sync_yscroll: bool = True,
+        side: SideLike = "top",
+        fill: FillLike = "both",
+        expand: ExpandLike = True,
+        padx: int | None = None,
+        pady: int | None = None,
+    ) -> Layout:
+        """Place two widgets side-by-side in a single frame with optional scroll sync.
+
+        Designed for diff / compare views (e.g. tkmerge left/right file panes).
+        Both widgets share the available width according to ``weight`` and fill
+        the frame. When ``sync_yscroll=True`` the vertical scroll position of
+        one widget follows the other (requires scrollable widgets such as
+        ``@app.text``).
+
+        Example::
+
+            app.text("left", readonly=True, sync_yscroll_with="right")
+            app.text("right", sync_yscroll_with="left")
+            Layout().paired("left", "right", weight=(1, 1), sync_yscroll=True)
+
+        Scroll sync is a layout-level hint; each text widget should also
+        declare the reciprocal ``sync_yscroll_with`` option so the underlying
+        ``yscrollcommand`` chain is already wired by ``TkApp._build_widgets``.
+        This method additionally ensures the pair share a common frame and
+        the same visual height.
+        """
+        self._blocks.append(_Paired(
+            left=left,
+            right=right,
+            weight=tuple(weight),  # type: ignore[arg-type]
+            sync_yscroll=sync_yscroll,
+            side=side,
+            fill=fill,
+            expand=expand,
+            padx=padx if padx is not None else self.padx,
+            pady=pady if pady is not None else self.pady,
+        ))
+        return self
+
+    def frame(
+        self,
+        name: str,
+        layout: Layout,
+        *,
+        side: SideLike = "top",
+        fill: FillLike = "x",
+        expand: ExpandLike = False,
+        padx: int | None = None,
+        pady: int | None = None,
+    ) -> Layout:
+        """Add a named nested frame that contains its own independent ``Layout``.
+
+        The nested layout is mounted inside a new Frame which is packed into the
+        parent layout. Widgets inside ``layout`` must still be registered in the
+        same ``TkApp``; they are simply grouped visually.
+
+        Example::
+
+            inner = Layout().section("a").section("b")
+            Layout().section("title").frame("group", inner).section("ok")
+        """
+        self._blocks.append(_Nested(
+            name=name,
+            layout=layout,
+            side=side,
+            fill=fill,
+            expand=expand,
+            padx=padx if padx is not None else self.padx,
+            pady=pady if pady is not None else self.pady,
+        ))
+        return self
 
     def mount_frames_into(
         self,
@@ -339,7 +777,7 @@ class Layout:
                 frame = tk.Frame(body)
                 frame.pack(
                     side=block.side, fill=block.fill, expand=block.expand,
-                    padx=block.padx, pady=block.pady,
+                    padx=block.padx or 0, pady=block.pady or 0,
                 )
                 frame.configure(bg=t.BG, bd=0, highlightthickness=0)
                 app._widget_masters[block.name] = frame
@@ -360,7 +798,7 @@ class Layout:
                 frame = tk.Frame(body)
                 frame.pack(
                     side="top", fill=block.fill, expand=block.expand,
-                    padx=block.padx, pady=block.pady,
+                    padx=block.padx or 0, pady=block.pady or 0,
                 )
                 frame.configure(bg=t.BG, bd=0, highlightthickness=0)
                 for col, w in block.col_weights.items():
@@ -375,6 +813,58 @@ class Layout:
                     _ensure_allowed(name)
                     app._widget_masters[name] = frame
                 grid_jobs.append((frame, block))
+            elif isinstance(block, _Cluster):
+                frame = tk.Frame(body)
+                frame.pack(
+                    side=block.side, fill=block.fill, expand=block.expand,
+                    padx=block.padx if block.padx is not None else 0,
+                    pady=block.pady if block.pady is not None else 0,
+                )
+                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                for name in block.widgets:
+                    _ensure_allowed(name)
+                    app._widget_masters[name] = frame
+                # Defer packing until children exist; store the cluster block
+                # on the frame for the Configure handler to re-layout.
+                frame._cluster_block = block  # type: ignore[attr-defined]
+                grid_jobs.append((frame, _Grid(cells={}, padx=0, pady=0)))
+            elif isinstance(block, _Paired):
+                frame = tk.Frame(body)
+                frame.pack(
+                    side=block.side, fill=block.fill, expand=block.expand,
+                    padx=block.padx if block.padx is not None else 0,
+                    pady=block.pady if block.pady is not None else 0,
+                )
+                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                # Two-column grid: left and right share the width by weight.
+                frame.columnconfigure(0, weight=block.weight[0])
+                frame.columnconfigure(1, weight=block.weight[1])
+                frame.rowconfigure(0, weight=1)
+                for name in (block.left, block.right):
+                    _ensure_allowed(name)
+                    app._widget_masters[name] = frame
+                # Store the pair metadata for pack_children_for.
+                frame._paired_block = block  # type: ignore[attr-defined]
+                grid_jobs.append((frame, _Grid(cells={}, padx=0, pady=0)))
+            elif isinstance(block, _Nested):
+                # Mount a new Frame, then recursively mount the nested Layout
+                # inside it. The nested Layout manages its own frame hierarchy.
+                frame = tk.Frame(body)
+                frame.pack(
+                    side=block.side, fill=block.fill, expand=block.expand,
+                    padx=block.padx if block.padx is not None else 0,
+                    pady=block.pady if block.pady is not None else 0,
+                )
+                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                nested_row_jobs, nested_grid_jobs = block.layout.mount_frames_into(
+                    app, frame, allowed_widgets=allowed_widgets
+                )
+                row_jobs.extend(nested_row_jobs)
+                grid_jobs.extend(nested_grid_jobs)
+                # Register the nested frame so the parent can place it inside a
+                # grid cell, and so it is not repacked as a regular child.
+                app._tk_widgets[block.name] = frame
+                app._widget_masters[block.name] = frame
 
         return row_jobs, grid_jobs
 
@@ -402,7 +892,7 @@ class Layout:
                     is_last = name == row.widgets[-1]
                     tk_w.pack(
                         side=row.side,
-                        padx=(0, 0 if is_last else _PAD), pady=0,
+                        padx=(0, 0 if is_last else row.padx or 0), pady=0,
                         fill=row.fill,
                         expand=row.expand,
                     )
@@ -424,6 +914,26 @@ class Layout:
                 frame.configure(height=target)
 
         for _frame, gb in grid_jobs:
+            # Cluster blocks are placed without stretching widths, not gridded.
+            block = getattr(_frame, "_cluster_block", None)
+            if isinstance(block, _Cluster):
+                _place_cluster(app, _frame, block)
+                # Recompute row wrapping whenever the cluster frame is resized.
+                _frame.bind(
+                    "<Configure>",
+                    lambda e, a=app, f=_frame, b=block: (
+                        _place_cluster(a, f, b) if e.widget == f else None
+                    ),
+                    add=True,
+                )
+                continue
+
+            # Paired blocks: two-column grid with optional y-scroll sync.
+            pblock = getattr(_frame, "_paired_block", None)
+            if isinstance(pblock, _Paired):
+                _place_paired(app, _frame, pblock)
+                continue
+
             for name, opts in gb.cells.items():
                 tk_w = app._tk_widgets.get(name)
                 if tk_w is None:
@@ -431,7 +941,18 @@ class Layout:
                 grid_opts = {k: v for k, v in opts.items()
                              if k in ("row", "column", "sticky", "padx", "pady",
                                       "columnspan", "rowspan")}
+                # Explicitly place the cell widget inside the grid frame.
+                # Nested frames are packed into the parent body by
+                # ``mount_frames_into``; without ``in_`` the geometry
+                # manager would try to grid them in the wrong parent and
+                # conflict with packed siblings.
+                grid_opts["in_"] = _frame
                 tk_w.grid(**grid_opts)
+            # Wire cluster tab order via <Key-Tab> / <Shift-Key-Tab> bindings.
+            # Tk has no native API to reorder focus traversal, so we intercept
+            # the events and move focus in the visual row-major order.
+            if gb.order:
+                _wire_cluster_tab_order(app, _frame, gb.order)
 
     def header(self, title: str, subtitle: str | None = None) -> Layout:
         """Reserve a top-of-window header area rendered by ``window_header``.
@@ -528,8 +1049,8 @@ class _GridBuilder:
         name: str,
         *,
         sticky: str = "",
-        padx: int = _PAD,
-        pady: int = _PAD,
+        padx: int | None = None,
+        pady: int | None = None,
         colspan: int | None = None,
         rowspan: int = 1,
     ) -> _GridBuilder:
@@ -540,7 +1061,9 @@ class _GridBuilder:
         cs = colspan if colspan is not None else self._colspan
         opts: dict[str, Any] = {
             "row": self._row, "column": self._col,
-            "sticky": sticky, "padx": padx, "pady": pady,
+            "sticky": sticky,
+            "padx": padx if padx is not None else self._layout.padx,
+            "pady": pady if pady is not None else self._layout.pady,
         }
         if cs > 1:
             opts["columnspan"] = cs
@@ -690,8 +1213,8 @@ class LayoutBuilder:
         side: SideLike = "top",
         fill: FillLike = "x",
         expand: ExpandLike = False,
-        padx: int = _PAD,
-        pady: int = _PAD,
+        padx: int | None = None,
+        pady: int | None = None,
         minsize: int | None = None,
         anchor: AnchorLike | None = None,
     ) -> None:
@@ -712,8 +1235,8 @@ class LayoutBuilder:
         side: SideLike = "top",
         fill: FillLike = "both",
         expand: ExpandLike = True,
-        padx: int = _PAD,
-        pady: int = _PAD,
+        padx: int | None = None,
+        pady: int | None = None,
     ) -> None:
         """Place ``app.paned(name)`` with per-pane ``minsizes`` (see ``Layout.paned``)."""
         self._layout.paned(
@@ -728,13 +1251,56 @@ class LayoutBuilder:
             pady=pady,
         )
 
+    def frame(
+        self,
+        name: str,
+        layout: Layout,
+        *,
+        side: SideLike = "top",
+        fill: FillLike = "x",
+        expand: ExpandLike = False,
+        padx: int | None = None,
+        pady: int | None = None,
+    ) -> None:
+        """Add a named nested frame containing an independent ``Layout``."""
+        self._layout.frame(
+            name,
+            layout,
+            side=side,
+            fill=fill,
+            expand=expand,
+            padx=padx,
+            pady=pady,
+        )
+
+    def cluster(
+        self,
+        *widgets: str,
+        gap: int | None = None,
+        side: SideLike = "top",
+        fill: FillLike = "x",
+        expand: ExpandLike = False,
+        padx: int | None = None,
+        pady: int | None = None,
+    ) -> None:
+        """Add a cluster block to the layout (see ``Layout.cluster``)."""
+        self._layout.cluster(
+            *widgets,
+            gap=gap,
+            side=side,
+            fill=fill,
+            expand=expand,
+            padx=padx,
+            pady=pady,
+        )
+
     # ── grid block (context manager) ──
 
     def grid(
         self,
         *,
-        padx: int = _PAD,
-        pady: int = _PAD,
+        padx: int | None = None,
+        pady: int | None = None,
         fill: FillLike = "x",
         expand: ExpandLike = False,
         uniform: str = "",
@@ -757,7 +1323,9 @@ class LayoutBuilder:
             the grid block instead.
         """
         block = _Grid(
-            cells={}, padx=padx, pady=pady,
+            cells={},
+            padx=padx if padx is not None else self._layout.padx,
+            pady=pady if pady is not None else self._layout.pady,
             fill=fill, expand=expand, uniform=uniform,
         )
         if col_weights:
@@ -805,8 +1373,8 @@ class LayoutBuilder:
         name: str,
         *,
         sticky: str = "",
-        padx: int = _PAD,
-        pady: int = _PAD,
+        padx: int | None = None,
+        pady: int | None = None,
         colspan: int | None = None,
         rowspan: int = 1,
     ) -> None:

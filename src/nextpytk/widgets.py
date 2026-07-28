@@ -21,6 +21,7 @@ class WidgetSpec:
     # Widget kind: label | status | message | button | entry | checkbutton
     #              | radiobutton | text | scale | spinbox | combobox | listbox
     #              | treeview | paned | progressbar | canvas | bind | menubar
+    #              | filepicker
     kind: str
 
     # Common label / display text

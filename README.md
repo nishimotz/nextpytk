@@ -376,6 +376,118 @@ Each name gets its own pack-based section. Extra kwargs forwarded to `section()`
 Layout.from_list(["a", "b"], fill="both", expand=True)
 ```
 
+### Layout spacing
+
+The default block padding comes from the design token `SPACE[1]` (4 px). Pass
+`spacing=...` to a `Layout` constructor to change the default padding for every
+block it creates:
+
+```python
+from nextpytk import tokens
+
+layout = Layout(spacing=2).section("a").section("b").grid().widget("c").end_grid()
+```
+
+`spacing` accepts a key from `nextpytk.tokens.SPACE` (1, 2, 3, 4, 6, 8). It sets
+the default `padx` and `pady` used by `section()`, `grid()`, `paned()`, grid
+`widget()` placements, and nested frames. Explicit `padx`/`pady` arguments still
+override the default.
+
+For finer control, pass `padx` or `pady` directly to the constructor:
+
+```python
+Layout(padx=tokens.SPACE[4], pady=tokens.SPACE[3]).section("a")
+```
+
+### Nested frames
+
+A `Layout` can be placed inside a named frame to group widgets visually without
+mixing pack and grid in the same parent. The inner layout owns its own spacing
+and may use any layout style (pack sections, grid, paned, or further nested
+frames).
+
+```python
+inner = Layout().section("a", "b")
+outer = Layout().section("title").frame("group", inner).section("ok")
+app.run(layout=outer)
+```
+
+`frame(name, layout, side=..., fill=..., expand=..., padx=..., pady=...)` packs
+the inner layout as a single block. The frame itself is registered under `name`,
+so it can also be placed inside a grid cell:
+
+```python
+outer = (
+    Layout()
+    .grid()
+    .widget("label")
+    .widget("group", sticky="nsew")
+    .end_grid()
+    .frame("group", Layout().section("a", "b"))
+)
+```
+
+### Paired layout
+
+`Layout.paired(left, right, ...)` places two widgets side by side in a
+single two-column frame.  It is a lighter alternative to `app.paned` for
+diff/compare views:
+
+```python
+layout = (
+    Layout()
+    .section("info")
+    .paired(
+        "left_text",
+        "right_text",
+        weight=(1, 1),
+        fill=Fill.BOTH,
+        expand=True,
+        sync_yscroll=True,
+    )
+)
+```
+
+Options:
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `weight` | `(1, 1)` | Two-column `(left, right)` grid weights |
+| `fill` | `"x"` | Frame `fill` passed to `pack` |
+| `expand` | `False` | Frame `expand` passed to `pack` |
+| `sync_yscroll` | `False` | Wire the two widgets' y-scroll commands together |
+| `side`, `padx`, `pady`, `anchor` | — | Standard `Layout` block placement options |
+
+When `sync_yscroll=True` and both widgets are `@app.text` widgets, scrolling
+either pane moves the other.  For text widgets the same effect can also be
+achieved per-widget with `@app.text(..., sync_yscroll_with="other")`; paired
+layout provides a layout-level switch that works without editing widget
+declarations.
+
+### Cluster layout
+
+`Layout.cluster()` is a wrapping flow: widgets are not stretched to fill a
+column; each keeps the width implied by its content or `width=` and they lay
+out left to right, wrapping to the next row whenever the next widget no longer
+fits in the remaining frame width. Widgets in the same row are vertically
+centered on their midline, so a tall `entry` aligns cleanly with a shorter
+`button` or `checkbutton`. The gap inherits the layout spacing by default.
+
+```python
+TAGS = ["python", "tkinter", "async", "uv", "type hints"]
+for tag in TAGS:
+    @app.button(tag, label=f"#{tag}")
+    def on_tag(values, tag=tag):
+        return {"msg": f"Selected: {tag}"}
+
+app.run(layout=Layout(spacing=2).status("msg").cluster(*TAGS))
+```
+
+Cluster is ideal for tag clouds, toolbars, and filter UIs. The layout recomputes
+rows automatically when the window is resized. Pass `gap=...` to override the
+spacing default, and `side`/`fill`/`expand` to control how the cluster frame is
+packed.
+
 ### Fluent DSL
 
 **Pack sections:**
@@ -463,6 +575,7 @@ app.run(layout=b.build())
 | `@app.radiobutton(name, text=..., value=..., group=..., font=...)` | ttk.Radiobutton | selected value `str` | `dict` |
 | `@app.combobox(name, values=..., values_key=..., readonly=..., font=...)` | ttk.Combobox | selected value `str` | `dict` |
 | `@app.menubar(name)` | tk.Menu (window menubar) | — | menu item list |
+| `@app.filepicker(name, mode=..., label=..., title=..., filetypes=..., ...)` | ttk.Button → tkinter.filedialog | selected path(s) `str`, `list[str]`, or `None` | `dict` |
 | `@app.text(name, width=..., height=..., font=...)` | tk.Text | full content `str` | `dict` |
 | `@app.scale(name, from_=..., to=..., orient=...)` | ttk.Scale | value `str` | `dict` |
 | `@app.spinbox(name, from_=..., to=..., values=..., font=...)` | ttk.Spinbox | value `str` | `dict` |
@@ -470,6 +583,35 @@ app.run(layout=b.build())
 | `@app.canvas(name, width=..., height=...)` | tk.Canvas | — | — |
 
 `@app.status` sets schema / accessible `role="status"` metadata. It is **not** an ARIA live region yet (planned for a later release). Prefer it for operation feedback labels; use `@app.label` for static or high-frequency mirror text.
+
+### File picker
+
+`@app.filepicker` creates a button that opens a tkinter file dialog.
+The selected path(s) are passed to the callback; `None` on cancel.
+
+```python
+@app.filepicker("open_file", mode="open", label="Open file",
+                title="Open file", filetypes=[("Text files", "*.txt")])
+def pick_open_file(path: str | None) -> dict[str, Any]:
+    return {"open_path": path}
+```
+
+Modes: `"open"` (default), `"open_multiple"`, `"save"`, `"directory"`.
+
+A filepicker can also be invoked from a menubar item by using its name
+as the `command`:
+
+```python
+@app.filepicker("m_open", mode="open", title="Open file")
+def m_open(path):
+    return {"open_path": path}
+
+@app.menubar("menu")
+def menu_bar():
+    return [{"label": "File", "items": [
+        {"label": "Open...", "command": "m_open"},
+    ]}]
+```
 
 `app.run(stages=..., tabposition=...)` and `@app.stages` provide state-driven screen switching (one visible stage at a time). Theme helpers (`apply_theme`, `tokens`, layout chrome) ship in the package root — see `examples/header_demo.py`.
 
@@ -572,7 +714,9 @@ uv run python examples/widget_gallery.py      # all widget types
 uv run python examples/header_demo.py         # Layout.header / .status chrome
 uv run python examples/combobox_demo.py       # ttk.Combobox
 uv run python examples/menubar_demo.py        # menubar
+uv run python examples/filepicker_demo.py     # file picker
 uv run python examples/disk_usage_flat_async.py       # ncdu-style viewer (async)
+uv run python examples/paired_demo.py           # side-by-side paired layout with y-scroll sync
 ```
 
 ---

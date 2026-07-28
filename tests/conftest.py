@@ -46,19 +46,27 @@ from nextpytk import TkApp
 
 
 def _display_available() -> bool:
-    for attempt in range(5):
-        try:
-            root = tk.Tk()
-        except tk.TclError as exc:
-            # uv-managed python-build-standalone occasionally fails to read
-            # Tcl support files under concurrent loads; retry briefly.
-            if attempt < 4:
-                time.sleep(0.05 * (attempt + 1))
-                continue
-            return False
-        root.destroy()
-        return True
-    return False
+    """Check whether a display is available for Tk.
+
+    Does **not** create a Tk instance.  On Python 3.14+freethreaded,
+    creating a Tk, destroying it, then creating a second Tk and calling
+    ``update_idletasks()`` reliably segfaults inside ``showRootWindow``.
+    We avoid that by probing the environment instead of the interpreter.
+
+    ``_ensure_tcl_env()`` (called at import time) already verified that the
+    Tcl/Tk libraries are reachable; if they are not, ``tk.Tk()`` will raise
+    ``TclError`` during ``_make_root()`` and the test will fail with a clear
+    message.
+    """
+    if sys.platform == "darwin":
+        return True  # macOS always has a window server
+    if sys.platform == "win32":
+        return True  # Windows always has a desktop
+    # Linux / other Unix: check the usual display environment variables.
+    return bool(
+        os.environ.get("DISPLAY")
+        or os.environ.get("WAYLAND_DISPLAY")
+    )
 
 
 requires_display = pytest.mark.skipif(
