@@ -192,6 +192,7 @@ LabelCallback = Callable[[], str | dict[str, Any]]
 BindCallback = Callable[[dict[str, Any]], dict[str, Any]]
 TreeviewSelectCallback = Callable[[int, list[Any]], dict[str, Any]]
 TreeviewActivateCallback = Callable[[int, list[Any]], dict[str, Any]]
+FilepickerCallback = Callable[..., dict[str, Any]]
 
 # ── generic event sequences (bindings, listbox events, etc.) ──
 
@@ -604,6 +605,23 @@ class CanvasOptions(CommonWidgetOptions, total=False):
     items: list[Any]
 
 
+FilepickerModeLike = Literal["open", "save", "directory", "open_multiple"]
+
+
+class FilepickerOptions(CommonWidgetOptions, total=False):
+    mode: FilepickerModeLike
+    title: str
+    initialdir: str
+    initialfile: str
+    filetypes: Sequence[tuple[str, str]]
+    defaultextension: str
+    multiple: bool
+    label: str
+    primary: bool
+    font: tuple[str, int] | tuple[str, int, str]
+    state: StateLike
+
+
 
 
 __all__ = [
@@ -620,6 +638,9 @@ __all__ = [
     "EventSeq",
     "EventSeqLike",
     "ExpandLike",
+    "FilepickerCallback",
+    "FilepickerModeLike",
+    "FilepickerOptions",
     "Fill",
     "FillLike",
     "Justify",

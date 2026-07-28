@@ -130,7 +130,18 @@ PyPI: Trusted Publishing on `v*` tag push (`.github/workflows/publish.yml`).
 
 ---
 
-## Near term (post-0.4.2)
+## Snapshot (v0.4.3) — filepicker + layout blocks
+
+- Added `@app.filepicker` (`filedialog` wrapper; `mode=` open/save/directory/open_multiple).
+- Added `Layout(spacing=...)` for a layout-wide SPACE token default (padx/pady inheritance).
+- Added `Layout.frame(...)` for nested layouts (`Layout` inside `Layout`).
+- Added `Layout.cluster(...)` wrapping flow: widgets keep content/`width=` sizes and wrap left-to-right.
+- Added `Layout.paired(left, right, ..., sync_yscroll=)` for side-by-side panes with optional text y-scroll sync.
+- Docs/examples/tests for the above (`filepicker_demo`, `nested_frame_demo`, `cluster_demo`, `paired_demo`).
+
+---
+
+## Near term (post-0.4.3)
 
 ### A11y
 
@@ -149,19 +160,21 @@ PyPI: Trusted Publishing on `v*` tag push (`.github/workflows/publish.yml`).
 - [x] Per-widget `bind` for entry and listbox (`events=` on `@app.entry` and `@app.listbox`)
 - [ ] Per-widget `bind` for other widgets (`text`, `combobox`, `treeview`, `button`, etc.)
 - [x] listbox callback value design: keep selection index (unify with `treeview`)
+- [x] `@app.filepicker` — `filedialog` wrapper (schema/tool naming still open)
 
 ### Layout DSL
 
 - [x] Deprecate index-order plural methods `col_weights`/`row_weights`/`col_minsizes`/`row_minsizes` in 0.4.1 (remove in 0.5.0).
 - [ ] CSS-grid-inspired layout API for 0.5.0: explicit `grid-template-columns` / `grid-template-rows` strings (e.g. `"1fr 2fr"`, `"auto 1fr"`), area-based placement, and gap tokens. Reduce misuse by making rows/columns and widget placement visually aligned in one declaration.
-- [ ] Nested frames (`Layout` inside `Layout`)
-- [ ] Global default for `padx`/`pady`
+- [x] Nested frames (`Layout` inside `Layout`) via `Layout.frame(...)`
+- [x] Global default for `padx`/`pady` via `Layout(spacing=...)`
+- [x] `Layout.cluster(...)` wrapping flow; `Layout.paired(..., sync_yscroll=)`
 
 ### Agent / LLM integration
 
 - [ ] Expose `schema()` as Function Calling definition (bind `sequence`, treeview column defs, etc.)
 - [ ] `@agent_tool` integration (GUI operations as agent vocabulary)
-- [ ] `@app.filepicker` — `filedialog` wrapper (tool name in schema)
+- [ ] Surface `@app.filepicker` in `schema()` / tool vocabulary
 
 ---
 

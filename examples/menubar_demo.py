@@ -10,6 +10,12 @@ from nextpytk import TkApp, Layout
 app = TkApp(title="Menubar Demo — nextpytk")
 
 
+@app.filepicker("m_open", mode="open", title="Open file",
+                filetypes=[("Text files", "*.txt"), ("All files", "*")])
+def m_open(path):
+    return {"msg": f"Opened: {path}", "dirty": True}
+
+
 @app.menubar("menu")
 def menu_bar():
     return [
@@ -17,7 +23,7 @@ def menu_bar():
             "label": "File",
             "items": [
                 {"label": "New", "command": "m_new"},
-                {"label": "Open", "command": "m_open"},
+                {"label": "Open...", "command": "m_open"},
                 {"label": "Save", "command": "m_save",
                  "enabled_if": lambda vals: bool(vals.get("dirty"))},
                 "---",
@@ -30,11 +36,6 @@ def menu_bar():
 @app.button("m_new")
 def m_new(vals):
     return {"msg": "New file", "dirty": True}
-
-
-@app.button("m_open")
-def m_open(vals):
-    return {"msg": "Open file", "dirty": True}
 
 
 @app.button("m_save")

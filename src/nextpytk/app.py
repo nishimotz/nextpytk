@@ -37,6 +37,8 @@ from nextpytk.types import (
     ComboboxOptions,
     EntryOptions,
     EventSeq,
+    FilepickerCallback,
+    FilepickerOptions,
     FillLike,
     LabelOptions,
     EntryEventHandler,
@@ -102,6 +104,9 @@ ButtonCallback = (
     | Callable[[], dict[str, Any]]
 )
 BindCallback = ButtonCallback  # bind: same signature as button
+
+# filepicker: receives selected path(s) or None, returns state dict
+FilepickerCallback = Callable[[str | list[str] | None], dict[str, Any]]
 
 # entry / text / scale / spinbox: receives value str (optional), returns state dict
 ValueCallback = Callable[[str], dict[str, Any]] | Callable[[], dict[str, Any]]
@@ -186,7 +191,7 @@ class ViewContext:
         "label", "status", "message", "button", "bind", "entry",
         "checkbutton", "radiobutton", "text", "scale", "spinbox",
         "listbox", "combobox", "treeview", "paned", "progressbar", "canvas",
-        "menubar",
+        "menubar", "filepicker",
     })
 
     def pane(self, pane_id: str) -> _PaneContext:
@@ -248,6 +253,7 @@ class TkApp:
         self._treeview_inner: dict[str, ttk.Treeview] = {}
         self._treeview_row_cache: dict[str, tuple[Any, ...]] = {}
         self._text_inner: dict[str, tk.Text] = {}
+        self._text_scrollbars: dict[str, ttk.Scrollbar] = {}
         self._text_scroll_sync: dict[str, str] = {}
         self._paned_inner: dict[str, ttk.Panedwindow] = {}
         self._pane_frames: dict[str, tk.Widget] = {}
@@ -295,6 +301,7 @@ class TkApp:
         self._grid_pack_jobs.clear()
         self._menubar_submenus.clear()
         self._text_inner.clear()
+        self._text_scrollbars.clear()
         self._text_scroll_sync.clear()
         self._a11y_last_toggle.clear()
         self._current_view = None
@@ -1463,6 +1470,9 @@ class TkApp:
         spec = self._spec(command_name)
         if spec is None or spec.on_click is None:
             return
+        if spec.kind == "filepicker":
+            self._invoke_filepicker(spec)
+            return
         values = self._entry_values_dict()
         self._state[command_name] = label
         result = self._dispatch(command_name, spec.on_click, values)
@@ -1627,6 +1637,60 @@ class TkApp:
                 description=options.get("description"),
                 on_update=fn,
                 extras=extras,
+            ))
+            return fn
+        return decorator
+
+    def filepicker(
+        self,
+        name: str,
+        **options: Unpack[FilepickerOptions],
+    ) -> Callable[[Callable[[Any], dict[str, Any]]], Callable[[Any], dict[str, Any]]]:
+        """Register a file picker button.
+
+        Clicking the button opens a tkinter file dialog. The selected path(s)
+        are passed to the decorated callback, which returns a state update
+        dict. ``mode`` selects the dialog type:
+
+        - ``"open"`` (default): single file open via ``askopenfilename``.
+        - ``"open_multiple"``: multiple files via ``askopenfilenames``.
+        - ``"save"``: save file via ``asksaveasfilename``.
+        - ``"directory"``: directory via ``askdirectory``.
+
+        ``title``, ``initialdir``, ``initialfile``, ``filetypes``, and
+        ``defaultextension`` are forwarded to the underlying dialog. For
+        ``filetypes`` use a sequence of ``("label", "*.ext")`` or
+        ``("label", "*.ext1 *.ext2")`` tuples.
+
+        The callback receives the selected path string, a list of strings for
+        ``"open_multiple"``, or ``None`` when the user cancels.
+
+        Example::
+
+            @app.filepicker("open_path", mode="open", title="Open file")
+            def pick_open_path(path: str | None) -> dict[str, Any]:
+                return {"open_path": path}
+        """
+        def decorator(fn: Callable[[Any], dict[str, Any]]) -> Callable[[Any], dict[str, Any]]:
+            mode = options.get("mode", "open")
+            label = options.get("label", "")
+            description = options.get("description")
+            enabled_if = options.get("enabled_if")
+            takefocus = options.get("takefocus")
+            primary = options.get("primary", False)
+            font = options.get("font")
+            extras: dict[str, Any] = {
+                "mode": mode,
+                "style": "Primary.TButton" if primary else "Secondary.TButton",
+            }
+            for opt in ("title", "initialdir", "initialfile", "filetypes", "defaultextension"):
+                value = options.get(opt)
+                if value is not None:
+                    extras[opt] = value
+            self._add_spec(WidgetSpec(
+                name=name, kind="filepicker", label_text=label, role="button",
+                description=description, on_click=fn, enabled_if=enabled_if,
+                extras=self._widget_extras(extras, takefocus=takefocus),
             ))
             return fn
         return decorator
@@ -2461,7 +2525,9 @@ class TkApp:
                         value = result
                     elif isinstance(result, dict):
                         value = result.get(spec.name, value)
-                tk_w.configure(text=str(value))  # type: ignore[call-arg]
+                target = str(value)
+                if str(tk_w.cget("text")) != target:
+                    tk_w.configure(text=target)  # type: ignore[call-arg]
             elif spec.kind == "text":
                 self._sync_text_widget(spec)
             elif spec.kind == "listbox" and spec.extras.get("items_key") is not None:
@@ -2535,7 +2601,9 @@ class TkApp:
                 tk_w = self._tk_widgets.get(spec.name)
                 if tk_w is None:
                     continue
-                tk_w.configure(text=str(update[spec.name]))  # type: ignore[call-arg]
+                target = str(update[spec.name])
+                if str(tk_w.cget("text")) != target:
+                    tk_w.configure(text=target)  # type: ignore[call-arg]
             elif spec.kind == "text" and spec.name in update:
                 self._sync_text_widget(spec)
 
@@ -2816,6 +2884,7 @@ class TkApp:
             "label": self._build_label,
             "message": self._build_message,
             "button": self._build_button,
+            "filepicker": self._build_filepicker,
             "entry": self._build_entry,
             "checkbutton": self._build_checkbutton,
             "radiobutton": self._build_radiobutton,
@@ -2956,11 +3025,28 @@ class TkApp:
             if text_a is None or text_b is None:
                 continue
 
-            def _sync_from_a(*_args: Any, source: tk.Text = text_a, target: tk.Text = text_b) -> None:
-                target.yview_moveto(source.yview()[0])
+            sb_a = self._text_scrollbars.get(name_a)
+            sb_b = self._text_scrollbars.get(name_b)
 
-            def _sync_from_b(*_args: Any, source: tk.Text = text_b, target: tk.Text = text_a) -> None:
+            def _sync_from_a(
+                *args: Any,
+                source: tk.Text = text_a,
+                target: tk.Text = text_b,
+                sb: ttk.Scrollbar | None = sb_a,
+            ) -> None:
                 target.yview_moveto(source.yview()[0])
+                if sb is not None:
+                    sb.set(*args)
+
+            def _sync_from_b(
+                *args: Any,
+                source: tk.Text = text_b,
+                target: tk.Text = text_a,
+                sb: ttk.Scrollbar | None = sb_b,
+            ) -> None:
+                target.yview_moveto(source.yview()[0])
+                if sb is not None:
+                    sb.set(*args)
 
             text_a.configure(yscrollcommand=_sync_from_a)
             text_b.configure(yscrollcommand=_sync_from_b)
@@ -3176,6 +3262,51 @@ class TkApp:
             fn = spec.on_click
             w.configure(command=lambda s=spec, f=fn: self._on_button_click(s, f))
 
+    def _invoke_filepicker(self, spec: WidgetSpec) -> None:
+        """Open the file dialog for a filepicker spec and dispatch the result."""
+        import tkinter.filedialog as fd
+
+        mode = spec.extras.get("mode", "open")
+        dialog_kw: dict[str, Any] = {}
+        for opt in ("title", "initialdir", "initialfile", "filetypes", "defaultextension"):
+            if opt in spec.extras:
+                dialog_kw[opt] = spec.extras[opt]
+
+        if mode == "open":
+            result = fd.askopenfilename(**dialog_kw)
+        elif mode == "open_multiple":
+            result = fd.askopenfilenames(**dialog_kw)
+        elif mode == "save":
+            result = fd.asksaveasfilename(**dialog_kw)
+        elif mode == "directory":
+            result = fd.askdirectory(**dialog_kw)
+        else:
+            raise ValueError(f"unknown filepicker mode {mode!r}")
+        if result == "" or result == () or result is None:
+            result = None
+        fn = spec.on_click
+        if fn is None:
+            return
+        out = self._dispatch(spec.name, fn, result)
+        if isinstance(out, dict) and out:
+            self._apply_state(out)
+
+    def _build_filepicker(self, spec: WidgetSpec, master: tk.Misc) -> None:
+        """Build a button that opens a file dialog when clicked."""
+        style = spec.extras.get("style", "Secondary.TButton")
+        overrides: dict[str, Any] = {}
+        if "font" in spec.extras:
+            overrides["font"] = spec.extras["font"]
+        if overrides:
+            style = self._derive_ttk_style(
+                style, f"Unique.{style}.{spec.name}", overrides
+            )
+        w = ttk.Button(master, text=spec.label_text or spec.name, style=style)
+        if "state" in spec.extras:
+            w.configure(state=spec.extras["state"])
+        self._tk_widgets[spec.name] = w
+        w.configure(command=lambda s=spec: self._invoke_filepicker(s))
+
     def _build_entry(self, spec: WidgetSpec, master: tk.Misc) -> None:
         e = spec.extras
         var = tk.StringVar(value="")
@@ -3301,6 +3432,7 @@ class TkApp:
         scroll.grid(row=0, column=1, sticky="ns")
         self._tk_widgets[spec.name] = container
         self._text_inner[spec.name] = w
+        self._text_scrollbars[spec.name] = scroll
 
         tags: dict[str, dict[str, Any]] | None = e.get("tags")
         if tags:
@@ -3972,6 +4104,11 @@ class TkApp:
                 d["value"] = self._state.get(sk, 0)
             if w.kind == "entry":
                 d["placeholder_as_hint"] = w.placeholder_as_hint
+            if w.kind == "filepicker":
+                d["mode"] = w.extras.get("mode", "open")
+                for opt in ("title", "initialdir", "initialfile", "filetypes", "defaultextension"):
+                    if opt in w.extras:
+                        d[opt] = w.extras[opt]
             if w.kind == "menubar":
                 d["items"] = [
                     {"label": i.get("label"), "command": i.get("command"),
