@@ -299,6 +299,9 @@ class TkApp:
         self._text_scrollbars: dict[str, ttk.Scrollbar] = {}
         self._text_hscrollbars: dict[str, ttk.Scrollbar] = {}
         self._text_scroll_sync: dict[str, str] = {}
+        # Callables invoked after a text widget's content is replaced, keyed by
+        # text widget name. Used by paired line-number gutters to stay in sync.
+        self._text_set_hooks: dict[str, list[Callable[[], None]]] = {}
         self._paned_inner: dict[str, ttk.Panedwindow] = {}
         self._pane_frames: dict[str, tk.Widget] = {}
         self._layout_paned_opts: dict[str, dict[str, Any]] = {}
@@ -666,6 +669,20 @@ class TkApp:
             return
         inner.delete("1.0", "end")
         inner.insert("1.0", content)
+        # Notify paired gutters so they re-sync their line numbers.
+        for hook in self._text_set_hooks.get(name, []):
+            try:
+                hook()
+            except tk.TclError:
+                pass
+
+    def on_text_set(self, name: str, hook: Callable[[], None]) -> None:
+        """Register a callback to run after a text widget's content is replaced.
+
+        Used by layout features (e.g. paired line-number gutters) that must
+        stay in sync with a text widget's content. ``hook`` receives no args.
+        """
+        self._text_set_hooks.setdefault(name, []).append(hook)
 
     def text_tag_add(self, name: str, tag: str, start: str, end: str) -> None:
         """Apply a tag to a text range, even when read-only."""

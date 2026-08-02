@@ -458,12 +458,18 @@ layout = (
 | `fill` | `"x"` | フレームの `pack fill` |
 | `expand` | `False` | フレームの `pack expand` |
 | `sync_yscroll` | `False` | 2つのウィジェットの y-scroll コマンドを相互接続 |
+| `line_numbers` | `False` | 両側に読み取り専用の行番号ガターを追加 |
 | `side`, `padx`, `pady`, `anchor` | — | 通常の Layout ブロック配置オプション |
 
 `sync_yscroll=True` で、両方が `@app.text` ウィジェットの場合、どちらかを
 スクロールするともう一方も追従します。同じ効果はウィジェットごとに
 `@app.text(..., sync_yscroll_with="other")` で得られますが、paired レイアウトは
 ウィジェット宣言を変更せずにレイアウトレベルでその接続を提供します。
+
+`line_numbers=True` にすると、各側に読み取り専用の行番号ガターが付きます。
+両ペインと両ガターが**単一の垂直スクロールバー**を共有するため、ガターは
+コンテンツと常に同期します（ずれません）。論理行番号（`1..n`）はペインの
+内容に追従し、右ペインを編集すると番号も更新されます。
 
 ### Cluster レイアウト
 
@@ -644,6 +650,8 @@ def log(value): return {}
 実行時アクセス: `app.text_widget(name)` は実体の `tk.Text` を返します。
 `app.widget_container(name)` はウィジェットを所有するレイアウト section フレームを
 返します（手動 grid/pack 配置や再ペアレント用）。
+`app.on_text_set(name, hook)` は、テキストウィジェットの内容が置き換えられた
+後に実行するコールバックを登録します（paired の行番号ガターで使用）。
 
 enum 系のオプション（`wrap`, `state`, `orient`, `selectmode`, `mode`）は
 登録時に検証されます。不正な値は、ウィジェット構築時の `TclError` ではなく

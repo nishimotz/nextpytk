@@ -457,6 +457,7 @@ Options:
 | `fill` | `"x"` | Frame `fill` passed to `pack` |
 | `expand` | `False` | Frame `expand` passed to `pack` |
 | `sync_yscroll` | `False` | Wire the two widgets' y-scroll commands together |
+| `line_numbers` | `False` | Add read-only line-number gutters to both sides |
 | `side`, `padx`, `pady`, `anchor` | — | Standard `Layout` block placement options |
 
 When `sync_yscroll=True` and both widgets are `@app.text` widgets, scrolling
@@ -464,6 +465,12 @@ either pane moves the other.  For text widgets the same effect can also be
 achieved per-widget with `@app.text(..., sync_yscroll_with="other")`; paired
 layout provides a layout-level switch that works without editing widget
 declarations.
+
+With `line_numbers=True` each side gains a read-only line-number gutter. Both
+panes and both gutters share a **single vertical scrollbar**, so the gutters
+stay in lock-step with the content (no drift). Logical line numbers
+(`1..n`) follow the pane content; the right pane's numbers update as you edit.
+
 
 ### Cluster layout
 
@@ -646,6 +653,8 @@ def log(value): return {}
 Runtime access: `app.text_widget(name)` returns the real `tk.Text`;
 `app.widget_container(name)` returns the layout section frame that owns a
 widget (for manual grid/pack placement or re-parenting).
+`app.on_text_set(name, hook)` registers a callback to run after a text
+widget's content is replaced (used by paired line-number gutters).
 
 Enum-like options (`wrap`, `state`, `orient`, `selectmode`, `mode`) are
 validated at registration time: an invalid value raises a clear `ValueError`

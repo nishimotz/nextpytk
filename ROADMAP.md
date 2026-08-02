@@ -182,13 +182,23 @@ PyPI: Trusted Publishing on `v*` tag push (`.github/workflows/publish.yml`).
   - `progressbar`: `mode` (`determinate`/`indeterminate`)
 - A mistyped value (e.g. `wrap="wrap"`) now raises a clear `ValueError` naming the option, widget, and allowed values — instead of a cryptic `_tkinter.TclError` at runtime.
 
+### Paired line-number gutters
+
+- Added `line_numbers=True` to `Layout.paired(...)`.
+- Each side gains a read-only line-number gutter (`disabled` tk.Text, `takefocus=0`, arrow cursor).
+- **Reliable sync via a single shared vertical scrollbar**: both panes and both gutters drive one shared scrollbar. Each widget's `yscrollcommand` is chained so scrolling any widget moves the other three, and the shared scrollbar's `command` drives all four. This avoids the `yview_moveto` drift that plagued per-widget gutter chaining.
+- Gutters stay in sync when content changes via `app.text_set()` (a new `app.on_text_set()` hook) and when the editable right pane is typed into (`<KeyRelease>`).
+- Added `examples/paired_demo.py` demonstrating `line_numbers=True`.
+- The new `app.on_text_set(name, hook)` public helper lets layout features react to programmatic text replacement.
+
 ### Tests
 
 - Added `tests/test_widget_public_api.py` covering `widget_container` and `widget_kwargs` (applied, ignored-invalid).
 - Added `tests/test_decorator_validation.py` covering invalid-option rejection for every validated widget.
 - Added wrap/h-scroll tests to `tests/test_text.py`.
 - Added `double_click` tests to `tests/test_state.py`.
-- Suite grew from 181 to 200 passing; pyright clean.
+- Added paired line-number gutter tests to `tests/test_paired.py` (creation, population, shared-scrollbar sync).
+- Suite grew from 181 to 203 passing; pyright clean.
 
 ---
 
@@ -222,6 +232,7 @@ PyPI: Trusted Publishing on `v*` tag push (`.github/workflows/publish.yml`).
 - [x] Nested frames (`Layout` inside `Layout`) via `Layout.frame(...)`
 - [x] Global default for `padx`/`pady` via `Layout(spacing=...)`
 - [x] `Layout.cluster(...)` wrapping flow; `Layout.paired(..., sync_yscroll=)`
+- [x] `Layout.paired(..., line_numbers=True)` read-only line-number gutters (v0.4.4)
 
 ### Agent / LLM integration
 
