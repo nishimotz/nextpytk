@@ -496,6 +496,36 @@ rows automatically when the window is resized. Pass `gap=...` to override the
 spacing default, and `side`/`fill`/`expand` to control how the cluster frame is
 packed.
 
+### Dynamic region switching (swap targets)
+
+`Layout.target()` reserves a region whose contents change at runtime, mirroring
+HTMX `hx-target` / `hx-swap`. Surrounding sections (toolbar, status) stay fixed
+while only the target region swaps:
+
+```python
+layout = Layout().cluster("go_dir", "go_file", "info").target("main_area")
+
+@app.swap(
+    "main_area",
+    variants={
+        "dir":  [Layout().section("dir_tree")],
+        "file": [Layout().paired("left_text", "right_text",
+                                 fill=Fill.BOTH, expand=True)],
+    },
+    default="dir",
+)
+def main_area():
+    pass
+
+# Switch imperatively at runtime:
+app.swap_view("main_area", "file")
+```
+
+`@app.swap` variants are mounted up-front and shown/hidden via pack, so widget
+state (e.g. a treeview selection or scroll position) survives switching. Each
+variant is a `Layout` or a list of widget names. See
+`examples/swap_demo.py`.
+
 ### Fluent DSL
 
 **Pack sections:**
@@ -751,6 +781,7 @@ uv run python examples/menubar_demo.py        # menubar
 uv run python examples/filepicker_demo.py     # file picker
 uv run python examples/disk_usage_flat_async.py       # ncdu-style viewer (async)
 uv run python examples/paired_demo.py           # side-by-side paired layout with y-scroll sync
+uv run python examples/swap_demo.py             # dynamic region switching (Layout.target + @app.swap)
 ```
 
 ---

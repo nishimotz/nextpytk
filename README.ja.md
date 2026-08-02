@@ -493,6 +493,36 @@ Cluster はタグクラウド、ツールバー、フィルター UI などに�
 ウィンドウをリサイズすると行が自動的に再計算されます。`gap=...` で間隔を上書き、
 `side`/`fill`/`expand` で cluster フレームの pack 動作を制御できます。
 
+### 動的領域切り替え（swap target）
+
+`Layout.target()` は実行時に中身を差し替えられる領域を予約します（HTMX の
+`hx-target` / `hx-swap` に相当）。周囲の section（ツールバーやステータス）は
+固定したまま、target 領域だけを入れ替えます:
+
+```python
+layout = Layout().cluster("go_dir", "go_file", "info").target("main_area")
+
+@app.swap(
+    "main_area",
+    variants={
+        "dir":  [Layout().section("dir_tree")],
+        "file": [Layout().paired("left_text", "right_text",
+                                 fill=Fill.BOTH, expand=True)],
+    },
+    default="dir",
+)
+def main_area():
+    pass
+
+# 実行時に命令的に切り替え:
+app.swap_view("main_area", "file")
+```
+
+`@app.swap` の variants は起動時にマウントされ、pack の表示/非表示で切り替わります。
+そのためツリービューの選択やスクロール位置などのウィジェット状態は切替をまたいで
+保持されます。各 variant は `Layout` またはウィジェット名のリストです。
+`examples/swap_demo.py` を参照してください。
+
 ### Fluent DSL
 
 **Pack セクション:**
@@ -747,6 +777,7 @@ uv run python examples/menubar_demo.py        # メニューバー
 uv run python examples/filepicker_demo.py     # ファイルピッカー
 uv run python examples/disk_usage_flat_async.py       # ncdu風ビューア（非同期）
 uv run python examples/paired_demo.py           # 左右ペアレイアウト + y-scroll 同期
+uv run python examples/swap_demo.py             # 動的領域切り替え（Layout.target + @app.swap）
 ```
 
 ---

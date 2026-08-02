@@ -191,6 +191,13 @@ PyPI: Trusted Publishing on `v*` tag push (`.github/workflows/publish.yml`).
 - Added `examples/paired_demo.py` demonstrating `line_numbers=True`.
 - The new `app.on_text_set(name, hook)` public helper lets layout features react to programmatic text replacement.
 
+### Dynamic layout switching (swap targets)
+
+- Added `Layout.target(name)` to reserve a swap region whose contents change at runtime (mirrors HTMX `hx-target`).
+- Added `@app.swap(name, variants=..., default=...)` to declare the layouts that can fill a target (mirrors HTMX `hx-swap`), and `app.swap_view(name, variant)` to switch imperatively.
+- Variants are mounted up-front and shown/hidden via `pack`/`pack_forget`, so widget state (treeview selection, scroll position) survives switching. Surrounding `Layout.section` blocks (toolbar, status) stay fixed.
+- Added `examples/swap_demo.py` (folder view <-> paired diff view).
+
 ### Tests
 
 - Added `tests/test_widget_public_api.py` covering `widget_container` and `widget_kwargs` (applied, ignored-invalid).
@@ -198,7 +205,8 @@ PyPI: Trusted Publishing on `v*` tag push (`.github/workflows/publish.yml`).
 - Added wrap/h-scroll tests to `tests/test_text.py`.
 - Added `double_click` tests to `tests/test_state.py`.
 - Added paired line-number gutter tests to `tests/test_paired.py` (creation, population, shared-scrollbar sync).
-- Suite grew from 181 to 203 passing; pyright clean.
+- Added swap tests to `tests/test_swap.py` (variant registration, build, switching, back-and-forth, pre-build intent).
+- Suite grew from 181 to 208 passing; pyright clean.
 
 ---
 
@@ -233,6 +241,7 @@ PyPI: Trusted Publishing on `v*` tag push (`.github/workflows/publish.yml`).
 - [x] Global default for `padx`/`pady` via `Layout(spacing=...)`
 - [x] `Layout.cluster(...)` wrapping flow; `Layout.paired(..., sync_yscroll=)`
 - [x] `Layout.paired(..., line_numbers=True)` read-only line-number gutters (v0.4.4)
+- [x] `Layout.target(...)` + `@app.swap(...)` dynamic region switching (v0.4.4)
 
 ### Agent / LLM integration
 

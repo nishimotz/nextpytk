@@ -98,6 +98,22 @@ class _Nested:
 
 
 @dataclass
+class _Target:
+    """Internal: a reserved swap region whose contents can be swapped at runtime.
+
+    Mirrors HTMX ``hx-target``: the region is a persistent frame, and its
+    inner variants are mounted as hidden sub-frames that ``app.swap()``
+    shows/hides.
+    """
+    name: str
+    side: SideLike = "top"
+    fill: FillLike = "both"
+    expand: ExpandLike = True
+    padx: int | None = _PAD
+    pady: int | None = _PAD
+
+
+@dataclass
 class _Cluster:
     """Internal: a cluster block that packs widgets without stretching widths."""
     widgets: list[str]
@@ -124,7 +140,8 @@ class _Paired:
     pady: int | None = _PAD
 
 
-_Block = _Row | _Grid | _Paned | _Nested | _Cluster | _Paired
+_Block = _Row | _Grid | _Paned | _Nested | _Cluster | _Paired | _Target
+
 
 
 def _wire_cluster_tab_order(
@@ -739,6 +756,46 @@ class Layout:
             layout.section(name, **kw)
         return layout
 
+    def target(
+        self,
+        name: str,
+        *,
+        side: SideLike = "top",
+        fill: FillLike = "both",
+        expand: ExpandLike = True,
+        padx: int | None = None,
+        pady: int | None = None,
+    ) -> Layout:
+        """Reserve a swap target: a region whose contents are swapped at runtime.
+
+        Mirrors HTMX ``hx-target``: the region is a persistent frame, and
+        variant layouts (declared with ``@app.swap``) are mounted inside it
+        as hidden sub-frames. ``app.swap(name, variant)`` shows the chosen
+        variant and hides the others, keeping surrounding sections fixed.
+
+        Example::
+
+            app.swap(
+                "main",
+                variants={
+                    "dir":  [Layout().section("dir_tree")],
+                    "file": [Layout().paired("left", "right", fill=Fill.BOTH,
+                                             expand=True)],
+                },
+                default="dir",
+            )
+            layout = Layout().section("toolbar").target("main").section("status")
+        """
+        self._blocks.append(_Target(
+            name=name,
+            side=side,
+            fill=fill,
+            expand=expand,
+            padx=padx if padx is not None else self.padx,
+            pady=pady if pady is not None else self.pady,
+        ))
+        return self
+
     # ── grid ──
 
     def grid(
@@ -1050,6 +1107,23 @@ class Layout:
                 # Store the pair metadata for pack_children_for.
                 frame._paired_block = block  # type: ignore[attr-defined]
                 grid_jobs.append((frame, _Grid(cells={}, padx=0, pady=0)))
+            elif isinstance(block, _Target):
+                # Reserve a swap region: create and pack the target frame, and
+                # register it on the app so @app.swap variants can mount into
+                # it. The frame itself is persistent; its variants are swapped.
+                frame = tk.Frame(body)
+                frame.pack(
+                    side=block.side, fill=block.fill, expand=block.expand,
+                    padx=block.padx if block.padx is not None else 0,
+                    pady=block.pady if block.pady is not None else 0,
+                )
+                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                frame._swap_target = block.name  # type: ignore[attr-defined]
+                app.register_swap_target(block.name, frame)
+                row_jobs.append((frame, _Row(
+                    widgets=[],
+                    side="top", fill=block.fill, expand=block.expand,
+                )))
             elif isinstance(block, _Nested):
                 # Mount a new Frame, then recursively mount the nested Layout
                 # inside it. The nested Layout manages its own frame hierarchy.

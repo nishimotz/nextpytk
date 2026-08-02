@@ -287,6 +287,12 @@ class TkApp:
         self._view_layouts: dict[str, Layout] = {}
         self._multiviews: dict[str, dict[str, Any]] = {}
         self._current_view: str | None = None
+        # Swap targets (Layout.target) → their persistent frames.
+        self._swap_targets: dict[str, tk.Frame] = {}
+        # Swap targets → variant name → (variant frame, layout).
+        self._swap_variants: dict[str, dict[str, Any]] = {}
+        self._swap_frames: dict[str, dict[str, tk.Frame]] = {}
+        self._swap_current: dict[str, str] = {}
         self._stages: dict[str, dict[str, Any]] = {}
         self._current_stage: str | None = None
         self._stage_container: tk.Frame | None = None
@@ -353,6 +359,9 @@ class TkApp:
         self._a11y_last_toggle.clear()
         self._current_view = None
         self._current_stage = None
+        self._swap_targets.clear()
+        self._swap_frames.clear()
+        self._swap_current.clear()
         self._first_focusable = None
 
     def pane(self, pane_id: str) -> _PaneContext:
@@ -547,8 +556,165 @@ class TkApp:
     def set_widget_master(self, widget_name: str, master: tk.Misc) -> None:
         self._widget_masters[widget_name] = master
 
+    def register_swap_target(self, name: str, frame: tk.Frame) -> None:
+        """Register a swap-target frame (called by ``Layout.target``)."""
+        self._swap_targets[name] = frame
+
+    def swap(
+        self,
+        name: str,
+        *,
+        variants: dict[str, object],
+        default: str | None = None,
+        key: str | None = None,
+    ) -> Callable[[F], F]:
+        """Declare runtime-swappable variants for a ``Layout.target`` region.
+
+        Mirrors HTMX ``hx-swap``: the named target (declared via
+        ``Layout().target(name)``) shows exactly one of ``variants`` at a
+        time. Variants are mounted up-front and shown/hidden on demand, so
+        widget state (e.g. a treeview selection or scroll position) survives
+        switching.
+
+        ``variants``: ``{name: layout_or_list}`` where each value is a
+        ``Layout`` or a list of widget names (``Layout.from_list``).
+        ``default``: variant shown first; ``variants.keys()`` in order
+        otherwise.
+        ``key``: optional state key. When ``apply_state`` updates this key,
+        the target swaps to the matching variant (state-driven swap).
+
+        Use ``app.swap(name, variant)`` to switch imperatively at runtime.
+
+        Example::
+
+            @app.swap(
+                "main",
+                variants={
+                    "dir":  [Layout().section("dir_tree")],
+                    "file": [Layout().paired("left", "right")],
+                },
+                default="dir",
+                key="mode",
+            )
+            def main_area():
+                pass
+        """
+        from nextpytk.layout import Layout as LayoutCls
+
+        normalized: dict[str, Any] = {}
+        for vname, value in variants.items():
+            if isinstance(value, list):
+                # A list is either [Layout] (a ready-made variant layout) or
+                # [widget1, widget2, ...] (converted via Layout.from_list).
+                if value and all(hasattr(x, "_blocks") for x in value):
+                    combined = LayoutCls()
+                    for layout in value:
+                        combined._blocks.extend(layout._blocks)
+                    normalized[vname] = combined
+                else:
+                    normalized[vname] = LayoutCls.from_list(value)
+            else:
+                normalized[vname] = value
+        if default is None:
+            default = next(iter(normalized), None)
+        self._swap_variants[name] = {
+            "variants": normalized,
+            "default": default,
+            "key": key,
+        }
+
+        def decorator(fn: F) -> F:
+            return fn
+
+        return decorator
+
+    def swap_view(self, name: str, variant: str) -> None:
+        """Switch the ``Layout.target`` region ``name`` to the given variant."""
+        self._swap_current[name] = variant
+        if self._swap_targets.get(name) is None:
+            # Not yet mounted (layout not built); the variant will be shown at
+            # build time.
+            return
+        self._render_swap(name, variant)
+
+    def _build_swap_variants(self) -> None:
+        """Mount variant frames into each swap target (called before widgets).
+
+        Creates the persistent variant sub-frames, mounts each variant's
+        section frames inside it, and registers the widget→frame mapping so
+        ``build_widgets`` places each widget into its own variant section
+        (not the root). The pack jobs are stored for ``_pack_swap_variants``.
+        """
+        self._swap_pack_jobs: dict[str, dict[str, Any]] = {}
+        for name, cfg in self._swap_variants.items():
+            target = self._swap_targets.get(name)
+            if target is None:
+                continue
+            variants = cfg["variants"]
+            frames: dict[str, tk.Frame] = {}
+            pack_jobs: dict[str, Any] = {}
+            for vname, layout in variants.items():
+                vframe = tk.Frame(target, name=f"swapvar_{vname}",
+                                  bg=t.BG, bd=0, highlightthickness=0)
+                vframe.pack(fill="both", expand=True)
+                allowed = set(layout.widget_names())
+                row_jobs, grid_jobs = layout.mount_frames_into(
+                    self, vframe, allowed_widgets=allowed
+                )
+                frames[vname] = vframe
+                pack_jobs[vname] = (row_jobs, grid_jobs)
+            self._swap_frames[name] = frames
+            self._swap_pack_jobs[name] = pack_jobs
+            default = cfg["default"]
+            self._swap_current.setdefault(name, default)
+
+    def _pack_swap_variants(self) -> None:
+        """Pack/grid variant children into their frames (called after widgets).
+
+        ``build_widgets`` has now constructed every widget under its variant
+        section frame (via the mapping set by ``_build_swap_variants``).
+        This packs the section children and shows the default variant.
+        """
+        for name, cfg in self._swap_variants.items():
+            pack_jobs = self._swap_pack_jobs.get(name)
+            if not pack_jobs:
+                continue
+            for vname, layout in cfg["variants"].items():
+                row_jobs, grid_jobs = pack_jobs[vname]
+                layout.pack_children_for(self, row_jobs, grid_jobs)
+            default = cfg["default"]
+            current = self._swap_current.get(name)
+            target_variant = current if current in cfg["variants"] else default
+            if target_variant is not None:
+                self._render_swap(name, target_variant)
+
+    def _render_swap(self, name: str, variant: str) -> None:
+        """Show the requested variant frame; hide all others.
+
+        ``pack_forget`` on a hidden variant frame unmaps its whole subtree, so
+        we only pack/unpack the variant frames themselves. Children stay put
+        and reappear automatically when the variant frame is packed again.
+        """
+        frames = self._swap_frames.get(name)
+        if not frames:
+            return
+        target = self._swap_targets.get(name)
+        if target is None:
+            return
+        for vname, vframe in frames.items():
+            if vname == variant:
+                vframe.pack(fill="both", expand=True)
+            else:
+                vframe.pack_forget()
+        self._swap_current[name] = variant
+        try:
+            target.update_idletasks()
+        except tk.TclError:
+            pass
+
     def view_widget_names(self, view_name: str) -> list[str]:
         return list(self._view_widgets.get(view_name, []))
+
 
     def view_layout(self, view_name: str) -> Layout | None:
         return self._view_layouts.get(view_name)
@@ -4115,10 +4281,17 @@ class TkApp:
                 layout = Layout.from_list(layout)
             layout.mount_frames(self)
 
+        # Mount swap-target variant frames before widgets are built so each
+        # variant's widgets land in their own section frame, not the root.
+        self._build_swap_variants()
+
         self._build_widgets()
 
         if layout is not None:
             layout.pack_children(self)
+
+        # Pack/grid each variant's section children now that widgets exist.
+        self._pack_swap_variants()
 
         # Mark intermediate layout frames as grouping containers so they
         # don't block MSAA focus tracking (Tk 9.1+ / TIP 733).
