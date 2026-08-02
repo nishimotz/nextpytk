@@ -151,6 +151,24 @@ class Justify:
 JustifyLike = Literal["left", "right", "center"]
 
 
+# ── wrap (text widgets) ──
+
+class Wrap:
+    """Text ``wrap`` option. ``Wrap.WORD`` (default), ``Wrap.NONE`` (logical
+    lines + horizontal scroll), or ``Wrap.CHAR``.
+
+    ``Wrap.NONE`` disables line wrapping so each line stays on a single
+    (logical) row; the widget then exposes a horizontal scrollbar when the
+    content is wider than the viewport.
+    """
+
+    WORD: Literal["word"] = "word"
+    NONE: Literal["none"] = "none"
+    CHAR: Literal["char"] = "char"
+
+WrapLike = Literal["word", "none", "char"]
+
+
 # ── selectmode ──
 
 class SelectMode:
@@ -447,6 +465,10 @@ class CommonWidgetOptions(TypedDict, total=False):
     description: str | None
     takefocus: TakeFocusLike | None
     enabled_if: Callable[[dict[str, Any]], bool] | None
+    # Per-widget design-token/style overrides, applied after construction.
+    # Keys are widget-native tk/ttk options (``padx``, ``pady``, ``bg``,
+    # ``fg``, ``font``, …); values are the native values.
+    widget_kwargs: dict[str, Any]
 
 
 class MenubarItem(TypedDict, total=False):
@@ -527,6 +549,8 @@ class TextOptions(CommonWidgetOptions, total=False):
     tags: dict[str, dict[str, Any]]
     sync_yscroll_with: str
     font: tuple[str, int] | tuple[str, int, str]
+    wrap: WrapLike
+    h_scroll: bool
 
 
 class ScaleOptions(CommonWidgetOptions, total=False):
@@ -578,6 +602,7 @@ class TreeviewOptions(CommonWidgetOptions, total=False):
     selectmode: SelectModeLike
     height: int
     activate: Callable[[int, list[Any]], dict[str, Any]]
+    double_click: bool
 
 
 class PanedOptions(CommonWidgetOptions, total=False):
@@ -683,4 +708,6 @@ __all__ = [
     "TreeviewColumn",
     "TreeviewOptions",
     "TreeviewSelectCallback",
+    "Wrap",
+    "WrapLike",
 ]

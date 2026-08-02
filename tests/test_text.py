@@ -99,3 +99,61 @@ def test_on_text_change_receives_actual_text(build):
     app._on_text_change(spec, body)
 
     assert received == ["typed contents"]
+
+
+def test_text_wrap_defaults_to_word(build):
+    app = TkApp(title="t")
+
+    @app.text("body")
+    def body(value: str) -> dict[str, str]:
+        return {}
+
+    build(app, layout=["body"])
+    real = app.text_widget("body")
+    assert real is not None
+    assert real.cget("wrap") == "word"
+
+
+def test_text_wrap_none_logical_lines(build):
+    app = TkApp(title="t")
+
+    @app.text("body", wrap="none")
+    def body(value: str) -> dict[str, str]:
+        return {}
+
+    build(app, layout=["body"])
+    real = app.text_widget("body")
+    assert real is not None
+    assert real.cget("wrap") == "none"
+
+
+def test_text_h_scroll_adds_horizontal_scrollbar(build):
+    app = TkApp(title="t")
+
+    @app.text("body", wrap="none", h_scroll=True)
+    def body(value: str) -> dict[str, str]:
+        return {}
+
+    build(app, layout=["body"])
+    real = app.text_widget("body")
+    assert real is not None
+    assert real.cget("wrap") == "none"
+    # A horizontal scrollbar was created and wired to the text xview.
+    hsb = app._text_hscrollbars.get("body")
+    assert hsb is not None
+    assert real.cget("xscrollcommand")
+
+
+def test_text_without_h_scroll_has_no_hscrollbar(build):
+    app = TkApp(title="t")
+
+    @app.text("body")
+    def body(value: str) -> dict[str, str]:
+        return {}
+
+    build(app, layout=["body"])
+    assert "body" not in app._text_hscrollbars
+    real = app.text_widget("body")
+    assert real is not None
+    assert real.cget("xscrollcommand") == ""
+

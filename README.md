@@ -188,6 +188,7 @@ Layout().section("msg", side=Side.LEFT, fill=Fill.X)
 | `Orient` | `Orient.HORIZONTAL/VERTICAL` | scale / paned orientation |
 | `Relief` | `Relief.FLAT/RAISED/SUNKEN/...` | border style |
 | `Justify` | `Justify.LEFT/RIGHT/CENTER` | text alignment |
+| `Wrap` | `Wrap.WORD/NONE/CHAR` | text wrap mode |
 | `SelectMode` | `SelectMode.SINGLE/BROWSE/MULTIPLE/EXTENDED` | listbox mode |
 | `EventSeq` | `EventSeq.RETURN/ESCAPE/BACKSPACE/DELETE/TAB/...` | event sequences for bindings |
 | `EventSeq` (mouse) | `EventSeq.BUTTON_1/2/3`, `DOUBLE_BUTTON_1/2/3`, `PRIMARY_DOUBLE_CLICK` | mouse event sequences |
@@ -576,7 +577,7 @@ app.run(layout=b.build())
 | `@app.combobox(name, values=..., values_key=..., readonly=..., font=...)` | ttk.Combobox | selected value `str` | `dict` |
 | `@app.menubar(name)` | tk.Menu (window menubar) | — | menu item list |
 | `@app.filepicker(name, mode=..., label=..., title=..., filetypes=..., ...)` | ttk.Button → tkinter.filedialog | selected path(s) `str`, `list[str]`, or `None` | `dict` |
-| `@app.text(name, width=..., height=..., font=...)` | tk.Text | full content `str` | `dict` |
+| `@app.text(name, width=..., height=..., font=..., wrap=..., h_scroll=...)` | tk.Text | full content `str` | `dict` |
 | `@app.scale(name, from_=..., to=..., orient=...)` | ttk.Scale | value `str` | `dict` |
 | `@app.spinbox(name, from_=..., to=..., values=..., font=...)` | ttk.Spinbox | value `str` | `dict` |
 | `@app.listbox(name, items=..., items_key=..., selectmode=..., font=..., events=...)` | tk.Listbox | selected index `int` (`-1` if none) | `dict` |
@@ -626,6 +627,30 @@ Entry options: `placeholder`, `show`, `font`, `padding`, `width`, `state`.
 
 Button, checkbutton, radiobutton, spinbox, combobox, listbox, text options:
 - `font` is accepted uniformly. Under the hood, ttk widgets use a derived style so the rest of the theme (colors, maps, layout) is inherited.
+
+Text options (continued):
+- `wrap`: `Wrap.WORD` (default) / `Wrap.NONE` / `Wrap.CHAR`. `Wrap.NONE` keeps each logical line on a single row.
+- `h_scroll`: when `True`, a horizontal scrollbar is added (and wired to `xscrollcommand`) so long lines are reachable, typically used with `wrap=Wrap.NONE`.
+
+Every widget decorator also accepts `widget_kwargs: dict` for per-widget
+design-token overrides applied after construction. Keys are widget-native
+tk/ttk options (`padx`, `pady`, `bg`, `fg`, `font`, …). An invalid/unknown
+key is ignored rather than aborting the build:
+
+```python
+@app.text("log", wrap="none", h_scroll=True,
+          widget_kwargs={"bg": "#1e1e1e", "fg": "#dcdcdc"})
+def log(value): return {}
+```
+
+Runtime access: `app.text_widget(name)` returns the real `tk.Text`;
+`app.widget_container(name)` returns the layout section frame that owns a
+widget (for manual grid/pack placement or re-parenting).
+
+Enum-like options (`wrap`, `state`, `orient`, `selectmode`, `mode`) are
+validated at registration time: an invalid value raises a clear `ValueError`
+naming the option and the allowed values, instead of failing later with a
+`TclError` when the widget is built.
 
 `@app.message` creates an auto-wrapping label. `width` sets initial pixel width; `auto_width=True` (default) tracks parent container resize.
 

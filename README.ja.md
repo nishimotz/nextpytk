@@ -188,6 +188,7 @@ Layout().section("msg", side=Side.LEFT, fill=Fill.X)
 | `Orient` | `Orient.HORIZONTAL/VERTICAL` | scale / paned orientation |
 | `Relief` | `Relief.FLAT/RAISED/SUNKEN/...` | border style |
 | `Justify` | `Justify.LEFT/RIGHT/CENTER` | text alignment |
+| `Wrap` | `Wrap.WORD/NONE/CHAR` | text wrap mode |
 | `SelectMode` | `SelectMode.SINGLE/BROWSE/MULTIPLE/EXTENDED` | listbox mode |
 | `EventSeq` | `EventSeq.RETURN/ESCAPE/BACKSPACE/DELETE/TAB/...` | binding 用イベントシーケンス |
 | `EventSeq` (マウス) | `EventSeq.BUTTON_1/2/3`, `DOUBLE_BUTTON_1/2/3`, `PRIMARY_DOUBLE_CLICK` | マウスイベント |
@@ -575,7 +576,7 @@ app.run(layout=b.build())
 | `@app.combobox(name, values=..., values_key=..., readonly=..., font=...)` | ttk.Combobox | 選択値 `str` | `dict` |
 | `@app.menubar(name)` | tk.Menu（ウィンドウメニューバー） | — | メニュー項目リスト |
 | `@app.filepicker(name, mode=..., label=..., title=..., filetypes=..., ...)` | ttk.Button → tkinter.filedialog | 選択パス `str`, `list[str]`, または `None` | `dict` |
-| `@app.text(name, width=..., height=..., font=...)` | tk.Text | 全内容 `str` | `dict` |
+| `@app.text(name, width=..., height=..., font=..., wrap=..., h_scroll=...)` | tk.Text | 全内容 `str` | `dict` |
 | `@app.scale(name, from_=..., to=..., orient=...)` | ttk.Scale | 値 `str` | `dict` |
 | `@app.spinbox(name, from_=..., to=..., values=..., font=...)` | ttk.Spinbox | 値 `str` | `dict` |
 | `@app.listbox(name, items=..., items_key=..., selectmode=..., font=..., events=...)` | tk.Listbox | 選択 index `int`（未選択は `-1`） | `dict` |
@@ -625,6 +626,29 @@ entry のオプション: `placeholder`, `show`, `font`, `padding`, `width`, `st
 button / checkbutton / radiobutton / spinbox / combobox / listbox / text:
 - `font` を統一して受け付けます。ttk 系はテーマを継承した派生 style を内部で作成するため、色やマップ・レイアウトなど他のテーマ属性は維持されます。
 
+text の追加オプション:
+- `wrap`: `Wrap.WORD`（デフォルト）/ `Wrap.NONE` / `Wrap.CHAR`。`Wrap.NONE` は各論理行を1行に保ちます。
+- `h_scroll`: `True` にすると水平スクロールバーを追加します（`xscrollcommand` に接続）。通常は `wrap=Wrap.NONE` と組み合わせて長い行にアクセスします。
+
+すべてのウィジェットデコレータは `widget_kwargs: dict` も受け付け、構築後に
+ウィジェット単位でデザイントークンを上書きできます。キーはウィジェット
+ネイティブの tk/ttk オプション（`padx`, `pady`, `bg`, `fg`, `font`, …）です。
+無効・未知のキーはビルドを中断せず無視されます。
+
+```python
+@app.text("log", wrap="none", h_scroll=True,
+          widget_kwargs={"bg": "#1e1e1e", "fg": "#dcdcdc"})
+def log(value): return {}
+```
+
+実行時アクセス: `app.text_widget(name)` は実体の `tk.Text` を返します。
+`app.widget_container(name)` はウィジェットを所有するレイアウト section フレームを
+返します（手動 grid/pack 配置や再ペアレント用）。
+
+enum 系のオプション（`wrap`, `state`, `orient`, `selectmode`, `mode`）は
+登録時に検証されます。不正な値は、ウィジェット構築時の `TclError` ではなく
+明確な `ValueError`（オプション名と許可値を明記）を即座に発生させます。
+
 `@app.message` は自動ラップのラベルです。`width` は初期ピクセル幅、`auto_width=True`（デフォルト）は親コンテナのリサイズに追従します。
 
 ---
@@ -648,6 +672,7 @@ Layout().section("msg", side=Side.LEFT, fill=Fill.X)
 | `Orient` | `Orient.HORIZONTAL/VERTICAL` | scale orientation |
 | `Relief` | `Relief.FLAT/RAISED/SUNKEN/GROOVE/RIDGE/SOLID` | border style |
 | `Justify` | `Justify.LEFT/RIGHT/CENTER` | text alignment |
+| `Wrap` | `Wrap.WORD/NONE/CHAR` | text wrap mode |
 | `SelectMode` | `SelectMode.SINGLE/BROWSE/MULTIPLE/EXTENDED` | listbox mode |
 | `EventSeq` | `EventSeq.RETURN/ESCAPE/BACKSPACE/DELETE/TAB/...` | binding 用イベントシーケンス |
 | `EventSeq` (マウス) | `EventSeq.BUTTON_1/2/3`, `DOUBLE_BUTTON_1/2/3`, `PRIMARY_DOUBLE_CLICK` | マウスイベント |

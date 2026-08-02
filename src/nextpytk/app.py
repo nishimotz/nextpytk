@@ -22,7 +22,7 @@ import tkinter.ttk as ttk
 import traceback
 import unicodedata
 import warnings
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
 ProgressModeLike = Literal["determinate", "indeterminate"]
@@ -61,6 +61,7 @@ from nextpytk.types import (
     TextOptions,
     TreeviewOptions,
     Unpack,
+    WrapLike,
 )
 from nextpytk.widgets import WidgetSpec
 
@@ -117,6 +118,48 @@ TreeviewActivateCallback = TreeviewSelectCallback
 
 # checkbutton: receives bool, returns state dict
 BoolCallback = Callable[[bool], dict[str, Any]]
+
+
+# ── decorator argument validation ──
+
+def _validate_choice(
+    options: Mapping[str, Any],
+    key: str,
+    *,
+    allowed: tuple[str, ...],
+    default: str,
+    widget: str,
+) -> Any:
+    """Validate that ``options[key]`` is one of ``allowed``; else raise.
+
+    Catches invalid enum-like arguments at registration time (before any Tk
+    widget is built), so a mistyped value like ``wrap="wrap"`` or
+    ``state="disabled"`` fails with a clear message instead of a cryptic
+    ``_tkinter.TclError`` at runtime.
+    """
+    value = options.get(key, default)
+    if value not in allowed:
+        raise ValueError(
+            f"invalid {key}={value!r} for {widget!r}: expected one of "
+            f"{', '.join(repr(a) for a in allowed)}"
+        )
+    return value
+
+
+def _validate_positive_int(
+    options: Mapping[str, Any],
+    key: str,
+    *,
+    default: int,
+    widget: str,
+) -> int:
+    """Validate that ``options[key]`` is a positive int; else raise."""
+    value = options.get(key, default)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise ValueError(
+            f"invalid {key}={value!r} for {widget!r}: expected a positive int"
+        )
+    return value
 
 
 def _normalize_treeview_columns(
@@ -254,6 +297,7 @@ class TkApp:
         self._treeview_row_cache: dict[str, tuple[Any, ...]] = {}
         self._text_inner: dict[str, tk.Text] = {}
         self._text_scrollbars: dict[str, ttk.Scrollbar] = {}
+        self._text_hscrollbars: dict[str, ttk.Scrollbar] = {}
         self._text_scroll_sync: dict[str, str] = {}
         self._paned_inner: dict[str, ttk.Panedwindow] = {}
         self._pane_frames: dict[str, tk.Widget] = {}
@@ -382,11 +426,14 @@ class TkApp:
         extras: dict[str, Any] | None = None,
         *,
         takefocus: TakeFocusLike | None = None,
+        widget_kwargs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Merge layout pane id and optional ``takefocus`` into widget extras."""
         out = dict(extras or {})
         if takefocus is not None:
             out["takefocus"] = takefocus
+        if widget_kwargs:
+            out["widget_kwargs"] = widget_kwargs
         return self._merge_widget_extras(out)
 
     @staticmethod
@@ -418,6 +465,26 @@ class TkApp:
                 w.configure({"takefocus": tf})
             except tk.TclError:
                 pass
+
+    def _apply_widget_overrides(self, spec: WidgetSpec) -> None:
+        """Apply per-widget ``widget_kwargs`` design-token overrides.
+
+        ``widget_kwargs`` lets apps override individual design tokens (color,
+        padding, font, …) on a single widget without monkey-patching the
+        shared ``tokens`` module. Keys must be options the widget accepts.
+        """
+        overrides = spec.extras.get("widget_kwargs")
+        if not overrides:
+            return
+        w = self._takefocus_widget(spec)
+        if w is None:
+            return
+        try:
+            w.configure(overrides)
+        except tk.TclError:
+            # A bad option/name is surfaced only when the widget rejects it;
+            # ignore TclError so one invalid key does not abort the build.
+            pass
 
     def view(self, name: str, *, layout: Layout | None = None) -> ViewContext:
         """Context manager for grouping widgets (e.g., a tab).
@@ -622,6 +689,19 @@ class TkApp:
         if kind is None:
             return list(self._widgets)
         return [w for w in self._widgets if w.kind == kind]
+
+    def widget_container(self, name: str) -> tk.Misc | None:
+        """Return the layout container frame that owns the named widget.
+
+        This is the parent frame a ``Layout`` section assigned to the widget
+        (the same frame returned by ``app._widget_masters``). Use it to place
+        widgets with grid/pack manually inside a section, or to re-parent a
+        widget when switching layouts at runtime.
+
+        Returns ``None`` when the widget has not been built yet.
+        """
+        return self._widget_masters.get(name)
+
 
     def debug_layout(self) -> dict[str, Any]:
         """Collect runtime geometry/state for every registered widget.
@@ -1288,7 +1368,11 @@ class TkApp:
                 role=options.get("role"),
                 description=options.get("description"),
                 on_update=fn,
-                extras=self._widget_extras(extras, takefocus=options.get("takefocus")),
+                extras=self._widget_extras(
+                    extras,
+                    takefocus=options.get("takefocus"),
+                    widget_kwargs=options.get("widget_kwargs"),
+                ),
             ))
             return fn
         return decorator
@@ -1361,7 +1445,11 @@ class TkApp:
                 role=options.get("role"),
                 description=options.get("description"),
                 on_update=fn,
-                extras=self._widget_extras(extras, takefocus=options.get("takefocus")),
+                extras=self._widget_extras(
+                    extras,
+                    takefocus=options.get("takefocus"),
+                    widget_kwargs=options.get("widget_kwargs"),
+                ),
             ))
             return fn
         return decorator
@@ -1672,7 +1760,11 @@ class TkApp:
                 return {"open_path": path}
         """
         def decorator(fn: Callable[[Any], dict[str, Any]]) -> Callable[[Any], dict[str, Any]]:
-            mode = options.get("mode", "open")
+            mode = _validate_choice(
+                options, "mode",
+                allowed=("open", "open_multiple", "save", "directory"),
+                default="open", widget=f"filepicker:{name}",
+            )
             label = options.get("label", "")
             description = options.get("description")
             enabled_if = options.get("enabled_if")
@@ -1690,7 +1782,11 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="filepicker", label_text=label, role="button",
                 description=description, on_click=fn, enabled_if=enabled_if,
-                extras=self._widget_extras(extras, takefocus=takefocus),
+                extras=self._widget_extras(
+                    extras,
+                    takefocus=takefocus,
+                    widget_kwargs=options.get("widget_kwargs"),
+                ),
             ))
             return fn
         return decorator
@@ -1728,7 +1824,11 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="button", label_text=label, role=role,
                 description=description, on_click=fn, enabled_if=enabled_if,
-                extras=self._widget_extras(extras, takefocus=takefocus),
+                extras=self._widget_extras(
+                    extras,
+                    takefocus=takefocus,
+                    widget_kwargs=options.get("widget_kwargs"),
+                ),
             ))
             return fn
         return decorator
@@ -1780,7 +1880,11 @@ class TkApp:
                 name=name, kind="entry", placeholder=placeholder,
                 placeholder_as_hint=placeholder_as_hint,
                 role=role, description=description, on_update=fn,
-                extras=self._widget_extras(extras, takefocus=takefocus),
+                extras=self._widget_extras(
+                    extras,
+                    takefocus=takefocus,
+                    widget_kwargs=options.get("widget_kwargs"),
+                ),
             ))
             return fn
         return decorator
@@ -1806,7 +1910,11 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="checkbutton", label_text=text,
                 description=description, on_update=fn,
-                extras=self._widget_extras(extras, takefocus=takefocus),
+                extras=self._widget_extras(
+                    extras,
+                    takefocus=takefocus,
+                    widget_kwargs=options.get("widget_kwargs"),
+                ),
             ))
             return fn
         return decorator
@@ -1833,7 +1941,11 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="radiobutton", label_text=text,
                 description=description, on_update=fn,
-                extras=self._widget_extras(extras, takefocus=takefocus),
+                extras=self._widget_extras(
+                    extras,
+                    takefocus=takefocus,
+                    widget_kwargs=options.get("widget_kwargs"),
+                ),
             ))
             return fn
         return decorator
@@ -1853,13 +1965,21 @@ class TkApp:
         width = options.get("width", 50)
         height = options.get("height", 8)
         description = options.get("description")
-        state = options.get("state", "normal")
+        state = _validate_choice(
+            options, "state", allowed=("normal", "disabled", "active"),
+            default="normal", widget=f"text:{name}",
+        )
         tab_inserts = options.get("tab_inserts", False)
         readonly = options.get("readonly", False)
         tags = options.get("tags")
         sync_yscroll_with = options.get("sync_yscroll_with")
         takefocus = options.get("takefocus", True)
         font = options.get("font")
+        wrap = _validate_choice(
+            options, "wrap", allowed=("word", "none", "char"),
+            default="word", widget=f"text:{name}",
+        )
+        h_scroll = options.get("h_scroll", False)
         def decorator(fn: ValueCallback) -> ValueCallback:
             extras: dict[str, Any] = {"width": width, "height": height, "tab_inserts": tab_inserts}
             if state != "normal":
@@ -1872,10 +1992,18 @@ class TkApp:
                 extras["sync_yscroll_with"] = sync_yscroll_with
             if font is not None:
                 extras["font"] = font
+            if wrap != "word":
+                extras["wrap"] = wrap
+            if h_scroll:
+                extras["h_scroll"] = True
             self._add_spec(WidgetSpec(
                 name=name, kind="text", description=description,
                 on_update=fn,
-                extras=self._widget_extras(extras, takefocus=takefocus),
+                extras=self._widget_extras(
+                    extras,
+                    takefocus=takefocus,
+                    widget_kwargs=options.get("widget_kwargs"),
+                ),
             ))
             return fn
         return decorator
@@ -1892,7 +2020,10 @@ class TkApp:
         actual_key = options.get("key") or name
         from_ = options.get("from_", 0)
         to = options.get("to", 100)
-        orient = options.get("orient", "horizontal")
+        orient = _validate_choice(
+            options, "orient", allowed=("horizontal", "vertical"),
+            default="horizontal", widget=f"scale:{name}",
+        )
         description = options.get("description")
         takefocus = options.get("takefocus")
         def decorator(fn: ValueCallback) -> ValueCallback:
@@ -1902,7 +2033,7 @@ class TkApp:
                 extras=self._widget_extras({
                     "state_key": actual_key, "from": from_,
                     "to": to, "orient": orient,
-                }, takefocus=takefocus),
+                }, takefocus=takefocus, widget_kwargs=options.get("widget_kwargs")),
             ))
             return fn
         return decorator
@@ -1937,7 +2068,11 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="spinbox", description=description,
                 on_update=fn,
-                extras=self._widget_extras(extras, takefocus=takefocus),
+                extras=self._widget_extras(
+                    extras,
+                    takefocus=takefocus,
+                    widget_kwargs=options.get("widget_kwargs"),
+                ),
             ))
             return fn
         return decorator
@@ -1991,7 +2126,11 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="combobox", description=description,
                 on_update=fn,
-                extras=self._widget_extras(extras, takefocus=takefocus),
+                extras=self._widget_extras(
+                    extras,
+                    takefocus=takefocus,
+                    widget_kwargs=options.get("widget_kwargs"),
+                ),
             ))
             return fn
         return decorator
@@ -2036,7 +2175,10 @@ class TkApp:
         """
         items = options.get("items")
         items_key = options.get("items_key")
-        selectmode = options.get("selectmode", "browse")
+        selectmode = _validate_choice(
+            options, "selectmode", allowed=("single", "browse", "multiple", "extended"),
+            default="browse", widget=f"listbox:{name}",
+        )
         height = options.get("height")
         description = options.get("description")
         enabled_if = options.get("enabled_if")
@@ -2056,7 +2198,11 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="listbox", description=description,
                 on_update=fn,
-                extras=self._widget_extras(extras, takefocus=takefocus),
+                extras=self._widget_extras(
+                    extras,
+                    takefocus=takefocus,
+                    widget_kwargs=options.get("widget_kwargs"),
+                ),
                 enabled_if=enabled_if,
             ))
             return fn
@@ -2079,13 +2225,19 @@ class TkApp:
         ``state[name]``: selected row index (``int``, ``-1`` if none).
 
         ``activate``: optional double-click handler (same signature as select).
+        ``double_click``: when True (default), the ``activate`` handler is bound
+        to double-click. When False, it is bound to single-click instead.
         """
         columns = options["columns"]
         rows_key = options.get("rows_key")
-        selectmode = options.get("selectmode", "browse")
+        selectmode = _validate_choice(
+            options, "selectmode", allowed=("single", "browse", "multiple", "extended"),
+            default="browse", widget=f"treeview:{name}",
+        )
         height = options.get("height", 8)
         description = options.get("description")
         activate = options.get("activate")
+        double_click = options.get("double_click", True)
         takefocus = options.get("takefocus")
         col_ids, col_configs = _normalize_treeview_columns(columns)
         actual_rows_key = rows_key or f"{name}_rows"
@@ -2097,11 +2249,16 @@ class TkApp:
                 "rows_key": actual_rows_key,
                 "selectmode": selectmode,
                 "height": height,
+                "double_click": bool(double_click),
             }
             self._add_spec(WidgetSpec(
                 name=name, kind="treeview", description=description,
                 on_update=fn, on_click=activate,
-                extras=self._widget_extras(extras, takefocus=takefocus),
+                extras=self._widget_extras(
+                    extras,
+                    takefocus=takefocus,
+                    widget_kwargs=options.get("widget_kwargs"),
+                ),
             ))
             return fn
         return decorator
@@ -2132,7 +2289,10 @@ class TkApp:
         inside their pane frame (``with app.pane(...)``).
         """
         panes = options["panes"]
-        orient = options.get("orient", "horizontal")
+        orient = _validate_choice(
+            options, "orient", allowed=("horizontal", "vertical"),
+            default="horizontal", widget=f"paned:{name}",
+        )
         weights = options.get("weights")
         sashwidth = options.get("sashwidth", 4)
         description = options.get("description")
@@ -2164,9 +2324,15 @@ class TkApp:
         """
         actual_key = options.get("key") or name
         maximum = options.get("maximum", 100.0)
-        mode = options.get("mode", "determinate")
+        mode = _validate_choice(
+            options, "mode", allowed=("determinate", "indeterminate"),
+            default="determinate", widget=f"progressbar:{name}",
+        )
         length = options.get("length", 200)
-        orient = options.get("orient", "horizontal")
+        orient = _validate_choice(
+            options, "orient", allowed=("horizontal", "vertical"),
+            default="horizontal", widget=f"progressbar:{name}",
+        )
         description = options.get("description")
         self._add_spec(WidgetSpec(
             name=name, kind="progressbar", description=description,
@@ -2200,7 +2366,11 @@ class TkApp:
                 extras["items"] = items
             self._add_spec(WidgetSpec(
                 name=name, kind="canvas", description=description,
-                extras=self._widget_extras(extras, takefocus=takefocus),
+                extras=self._widget_extras(
+                    extras,
+                    takefocus=takefocus,
+                    widget_kwargs=options.get("widget_kwargs"),
+                ),
             ))
             return fn  # type: ignore[return-value]
         return decorator
@@ -2946,6 +3116,7 @@ class TkApp:
             builder(spec, self._widget_master(spec))
             if spec.extras.get("pane"):
                 self._pack_pane_child(spec)
+            self._apply_widget_overrides(spec)
             self._apply_a11y(spec)
             if self._first_focusable is None:
                 w = self._takefocus_widget(spec)
@@ -3408,6 +3579,7 @@ class TkApp:
         container = ttk.Frame(master)
         container.rowconfigure(0, weight=1)
         container.columnconfigure(0, weight=1)
+        wrap: WrapLike = e.get("wrap", "word")
         w = tk.Text(
             container,
             width=e.get("width", 50),
@@ -3422,7 +3594,7 @@ class TkApp:
             bd=1,
             highlightthickness=0,
             font=t.font("body"),
-            wrap="word",
+            wrap=wrap,
         )
         if e.get("font") is not None:
             w.configure(font=e["font"])
@@ -3430,6 +3602,16 @@ class TkApp:
         w.configure(yscrollcommand=scroll.set)
         w.grid(row=0, column=0, sticky="nsew")
         scroll.grid(row=0, column=1, sticky="ns")
+        h_scroll = e.get("h_scroll", False)
+        if h_scroll:
+            # Logical-line mode: add a horizontal scrollbar so long lines can
+            # be reached. Disabling wrap (Wrap.NONE) also makes the widget
+            # report its content width to xscrollcommand.
+            hsb = ttk.Scrollbar(container, orient=tk.HORIZONTAL, command=w.xview)
+            w.configure(xscrollcommand=hsb.set)
+            hsb.grid(row=1, column=0, columnspan=2, sticky="ew")
+            container.rowconfigure(1, weight=0)
+            self._text_hscrollbars[spec.name] = hsb
         self._tk_widgets[spec.name] = container
         self._text_inner[spec.name] = w
         self._text_scrollbars[spec.name] = scroll
@@ -3644,10 +3826,16 @@ class TkApp:
             )
         if spec.on_click is not None:
             fn_activate = spec.on_click
-            tree.bind(
-                "<Double-1>",
-                lambda _e, s=spec, f=fn_activate: self._on_treeview_activate(s, f),
-            )
+            if e.get("double_click", True):
+                tree.bind(
+                    "<Double-1>",
+                    lambda _e, s=spec, f=fn_activate: self._on_treeview_activate(s, f),
+                )
+            else:
+                tree.bind(
+                    "<ButtonRelease-1>",
+                    lambda ev, s=spec, f=fn_activate: self._on_treeview_activate(s, f, ev),
+                )
         self._populate_treeview(spec)
 
     def _build_canvas(self, spec: WidgetSpec, master: tk.Misc) -> None:
@@ -3805,7 +3993,9 @@ class TkApp:
             tree.focus(iid)
         self._apply_treeview_select(spec, fn, idx)
 
-    def _on_treeview_activate(self, spec: WidgetSpec, fn: Any) -> None:
+    def _on_treeview_activate(
+        self, spec: WidgetSpec, fn: Any, event: tk.Event[tk.Misc] | None = None
+    ) -> None:
         idx = self._treeview_selected_index(spec)
         if idx < 0:
             return

@@ -141,7 +141,58 @@ PyPI: Trusted Publishing on `v*` tag push (`.github/workflows/publish.yml`).
 
 ---
 
-## Near term (post-0.4.3)
+## Snapshot (v0.4.4) — text wrap/h-scroll, public runtime API
+
+### Text widget ergonomics (continued)
+
+- Added `wrap=` option to `@app.text` for logical-line display control:
+  - `Wrap.WORD` (default) — wrap at word boundaries.
+  - `Wrap.NONE` — keep each logical line on one row (requires horizontal scrolling).
+  - `Wrap.CHAR` — wrap at any character boundary.
+- Added a new `nextpytk.types.Wrap` typed-constant class and `WrapLike` union.
+- Added `h_scroll=` option to `@app.text`: when True, a horizontal scrollbar is added (and wired to `xscrollcommand`) so long lines are reachable in `Wrap.NONE` mode. The horizontal scrollbar is tracked in `app._text_hscrollbars`.
+
+### Decorator type-definition sync
+
+- `TreeviewOptions.double_click` is now typed and honored by `@app.treeview`.
+  - Defaults to `True`: the `activate` handler fires on double-click (previous behavior).
+  - When `False`, `activate` fires on a single `ButtonRelease-1` instead.
+- `_on_treeview_activate` accepts an optional `event` argument so the single-click binding can reuse it.
+
+### Public runtime API
+
+- Added `app.widget_container(name)` — returns the layout container frame that owns a widget (the section frame), so applications can place/re-parent widgets with grid/pack without reaching into the private `_widget_masters`.
+- This is the public replacement for the internal `_widget_masters` access that previously forced applications to depend on private state.
+
+### Per-widget design-token overrides
+
+- All widget decorators now accept `widget_kwargs: dict[str, Any]` (on `CommonWidgetOptions`).
+- Keys are widget-native tk/ttk options (`padx`, `pady`, `bg`, `fg`, `font`, …); values are the native values.
+- Overrides are applied after construction by `_apply_widget_overrides()`. An invalid/unknown key raises no error: a `TclError` is swallowed so one bad key does not abort the build.
+- This removes the need to monkey-patch the shared `tokens` module to tweak a single widget's appearance.
+
+### Decorator argument validation
+
+- Added `_validate_choice()` / `_validate_positive_int()` helpers used by the decorators to reject invalid enum-like and non-positive-int options at **registration time** (before any Tk widget is built).
+- Validated options:
+  - `text`: `state` (`normal`/`disabled`/`active`), `wrap` (`word`/`none`/`char`)
+  - `scale`, `progressbar`, `paned`: `orient` (`horizontal`/`vertical`)
+  - `listbox`, `treeview`: `selectmode` (`single`/`browse`/`multiple`/`extended`)
+  - `filepicker`: `mode` (`open`/`open_multiple`/`save`/`directory`)
+  - `progressbar`: `mode` (`determinate`/`indeterminate`)
+- A mistyped value (e.g. `wrap="wrap"`) now raises a clear `ValueError` naming the option, widget, and allowed values — instead of a cryptic `_tkinter.TclError` at runtime.
+
+### Tests
+
+- Added `tests/test_widget_public_api.py` covering `widget_container` and `widget_kwargs` (applied, ignored-invalid).
+- Added `tests/test_decorator_validation.py` covering invalid-option rejection for every validated widget.
+- Added wrap/h-scroll tests to `tests/test_text.py`.
+- Added `double_click` tests to `tests/test_state.py`.
+- Suite grew from 181 to 200 passing; pyright clean.
+
+---
+
+## Near term (post-0.4.4)
 
 ### A11y
 
@@ -158,9 +209,11 @@ PyPI: Trusted Publishing on `v*` tag push (`.github/workflows/publish.yml`).
 ### Widget expansion
 
 - [x] Per-widget `bind` for entry and listbox (`events=` on `@app.entry` and `@app.listbox`)
+- [x] Per-widget `bind` for other widgets via `widget_kwargs` / widget-level options
 - [ ] Per-widget `bind` for other widgets (`text`, `combobox`, `treeview`, `button`, etc.)
 - [x] listbox callback value design: keep selection index (unify with `treeview`)
 - [x] `@app.filepicker` — `filedialog` wrapper (schema/tool naming still open)
+- [x] Text `wrap=` / `h_scroll=` options (v0.4.4)
 
 ### Layout DSL
 
