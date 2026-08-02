@@ -188,6 +188,7 @@ Layout().section("msg", side=Side.LEFT, fill=Fill.X)
 | `Orient` | `Orient.HORIZONTAL/VERTICAL` | scale / paned orientation |
 | `Relief` | `Relief.FLAT/RAISED/SUNKEN/...` | border style |
 | `Justify` | `Justify.LEFT/RIGHT/CENTER` | text alignment |
+| `Wrap` | `Wrap.WORD/NONE/CHAR` | text wrap mode |
 | `SelectMode` | `SelectMode.SINGLE/BROWSE/MULTIPLE/EXTENDED` | listbox mode |
 | `EventSeq` | `EventSeq.RETURN/ESCAPE/BACKSPACE/DELETE/TAB/...` | event sequences for bindings |
 | `EventSeq` (mouse) | `EventSeq.BUTTON_1/2/3`, `DOUBLE_BUTTON_1/2/3`, `PRIMARY_DOUBLE_CLICK` | mouse event sequences |
@@ -456,6 +457,7 @@ Options:
 | `fill` | `"x"` | Frame `fill` passed to `pack` |
 | `expand` | `False` | Frame `expand` passed to `pack` |
 | `sync_yscroll` | `False` | Wire the two widgets' y-scroll commands together |
+| `line_numbers` | `False` | Add read-only line-number gutters to both sides |
 | `side`, `padx`, `pady`, `anchor` | — | Standard `Layout` block placement options |
 
 When `sync_yscroll=True` and both widgets are `@app.text` widgets, scrolling
@@ -463,6 +465,12 @@ either pane moves the other.  For text widgets the same effect can also be
 achieved per-widget with `@app.text(..., sync_yscroll_with="other")`; paired
 layout provides a layout-level switch that works without editing widget
 declarations.
+
+With `line_numbers=True` each side gains a read-only line-number gutter. Both
+panes and both gutters share a **single vertical scrollbar**, so the gutters
+stay in lock-step with the content (no drift). Logical line numbers
+(`1..n`) follow the pane content; the right pane's numbers update as you edit.
+
 
 ### Cluster layout
 
@@ -487,6 +495,36 @@ Cluster is ideal for tag clouds, toolbars, and filter UIs. The layout recomputes
 rows automatically when the window is resized. Pass `gap=...` to override the
 spacing default, and `side`/`fill`/`expand` to control how the cluster frame is
 packed.
+
+### Dynamic region switching (swap targets)
+
+`Layout.target()` reserves a region whose contents change at runtime, mirroring
+HTMX `hx-target` / `hx-swap`. Surrounding sections (toolbar, status) stay fixed
+while only the target region swaps:
+
+```python
+layout = Layout().cluster("go_dir", "go_file", "info").target("main_area")
+
+@app.swap(
+    "main_area",
+    variants={
+        "dir":  [Layout().section("dir_tree")],
+        "file": [Layout().paired("left_text", "right_text",
+                                 fill=Fill.BOTH, expand=True)],
+    },
+    default="dir",
+)
+def main_area():
+    pass
+
+# Switch imperatively at runtime:
+app.swap_view("main_area", "file")
+```
+
+`@app.swap` variants are mounted up-front and shown/hidden via pack, so widget
+state (e.g. a treeview selection or scroll position) survives switching. Each
+variant is a `Layout` or a list of widget names. See
+`examples/swap_demo.py`.
 
 ### Fluent DSL
 
@@ -576,7 +614,7 @@ app.run(layout=b.build())
 | `@app.combobox(name, values=..., values_key=..., readonly=..., font=...)` | ttk.Combobox | selected value `str` | `dict` |
 | `@app.menubar(name)` | tk.Menu (window menubar) | — | menu item list |
 | `@app.filepicker(name, mode=..., label=..., title=..., filetypes=..., ...)` | ttk.Button → tkinter.filedialog | selected path(s) `str`, `list[str]`, or `None` | `dict` |
-| `@app.text(name, width=..., height=..., font=...)` | tk.Text | full content `str` | `dict` |
+| `@app.text(name, width=..., height=..., font=..., wrap=..., h_scroll=...)` | tk.Text | full content `str` | `dict` |
 | `@app.scale(name, from_=..., to=..., orient=...)` | ttk.Scale | value `str` | `dict` |
 | `@app.spinbox(name, from_=..., to=..., values=..., font=...)` | ttk.Spinbox | value `str` | `dict` |
 | `@app.listbox(name, items=..., items_key=..., selectmode=..., font=..., events=...)` | tk.Listbox | selected index `int` (`-1` if none) | `dict` |
@@ -626,6 +664,32 @@ Entry options: `placeholder`, `show`, `font`, `padding`, `width`, `state`.
 
 Button, checkbutton, radiobutton, spinbox, combobox, listbox, text options:
 - `font` is accepted uniformly. Under the hood, ttk widgets use a derived style so the rest of the theme (colors, maps, layout) is inherited.
+
+Text options (continued):
+- `wrap`: `Wrap.WORD` (default) / `Wrap.NONE` / `Wrap.CHAR`. `Wrap.NONE` keeps each logical line on a single row.
+- `h_scroll`: when `True`, a horizontal scrollbar is added (and wired to `xscrollcommand`) so long lines are reachable, typically used with `wrap=Wrap.NONE`.
+
+Every widget decorator also accepts `widget_kwargs: dict` for per-widget
+design-token overrides applied after construction. Keys are widget-native
+tk/ttk options (`padx`, `pady`, `bg`, `fg`, `font`, …). An invalid/unknown
+key is ignored rather than aborting the build:
+
+```python
+@app.text("log", wrap="none", h_scroll=True,
+          widget_kwargs={"bg": "#1e1e1e", "fg": "#dcdcdc"})
+def log(value): return {}
+```
+
+Runtime access: `app.text_widget(name)` returns the real `tk.Text`;
+`app.layout_frame(name)` returns the layout section frame that owns a
+widget (for manual grid/pack placement or re-parenting).
+`app.on_text_set(name, hook)` registers a callback to run after a text
+widget's content is replaced (used by paired line-number gutters).
+
+Enum-like options (`wrap`, `state`, `orient`, `selectmode`, `mode`) are
+validated at registration time: an invalid value raises a clear `ValueError`
+naming the option and the allowed values, instead of failing later with a
+`TclError` when the widget is built.
 
 `@app.message` creates an auto-wrapping label. `width` sets initial pixel width; `auto_width=True` (default) tracks parent container resize.
 
@@ -717,6 +781,7 @@ uv run python examples/menubar_demo.py        # menubar
 uv run python examples/filepicker_demo.py     # file picker
 uv run python examples/disk_usage_flat_async.py       # ncdu-style viewer (async)
 uv run python examples/paired_demo.py           # side-by-side paired layout with y-scroll sync
+uv run python examples/swap_demo.py             # dynamic region switching (Layout.target + @app.swap)
 ```
 
 ---

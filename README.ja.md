@@ -188,6 +188,7 @@ Layout().section("msg", side=Side.LEFT, fill=Fill.X)
 | `Orient` | `Orient.HORIZONTAL/VERTICAL` | scale / paned orientation |
 | `Relief` | `Relief.FLAT/RAISED/SUNKEN/...` | border style |
 | `Justify` | `Justify.LEFT/RIGHT/CENTER` | text alignment |
+| `Wrap` | `Wrap.WORD/NONE/CHAR` | text wrap mode |
 | `SelectMode` | `SelectMode.SINGLE/BROWSE/MULTIPLE/EXTENDED` | listbox mode |
 | `EventSeq` | `EventSeq.RETURN/ESCAPE/BACKSPACE/DELETE/TAB/...` | binding 用イベントシーケンス |
 | `EventSeq` (マウス) | `EventSeq.BUTTON_1/2/3`, `DOUBLE_BUTTON_1/2/3`, `PRIMARY_DOUBLE_CLICK` | マウスイベント |
@@ -457,12 +458,18 @@ layout = (
 | `fill` | `"x"` | フレームの `pack fill` |
 | `expand` | `False` | フレームの `pack expand` |
 | `sync_yscroll` | `False` | 2つのウィジェットの y-scroll コマンドを相互接続 |
+| `line_numbers` | `False` | 両側に読み取り専用の行番号ガターを追加 |
 | `side`, `padx`, `pady`, `anchor` | — | 通常の Layout ブロック配置オプション |
 
 `sync_yscroll=True` で、両方が `@app.text` ウィジェットの場合、どちらかを
 スクロールするともう一方も追従します。同じ効果はウィジェットごとに
 `@app.text(..., sync_yscroll_with="other")` で得られますが、paired レイアウトは
 ウィジェット宣言を変更せずにレイアウトレベルでその接続を提供します。
+
+`line_numbers=True` にすると、各側に読み取り専用の行番号ガターが付きます。
+両ペインと両ガターが**単一の垂直スクロールバー**を共有するため、ガターは
+コンテンツと常に同期します（ずれません）。論理行番号（`1..n`）はペインの
+内容に追従し、右ペインを編集すると番号も更新されます。
 
 ### Cluster レイアウト
 
@@ -485,6 +492,36 @@ app.run(layout=Layout(spacing=2).status("msg").cluster(*TAGS))
 Cluster はタグクラウド、ツールバー、フィルター UI などに向いています。
 ウィンドウをリサイズすると行が自動的に再計算されます。`gap=...` で間隔を上書き、
 `side`/`fill`/`expand` で cluster フレームの pack 動作を制御できます。
+
+### 動的領域切り替え（swap target）
+
+`Layout.target()` は実行時に中身を差し替えられる領域を予約します（HTMX の
+`hx-target` / `hx-swap` に相当）。周囲の section（ツールバーやステータス）は
+固定したまま、target 領域だけを入れ替えます:
+
+```python
+layout = Layout().cluster("go_dir", "go_file", "info").target("main_area")
+
+@app.swap(
+    "main_area",
+    variants={
+        "dir":  [Layout().section("dir_tree")],
+        "file": [Layout().paired("left_text", "right_text",
+                                 fill=Fill.BOTH, expand=True)],
+    },
+    default="dir",
+)
+def main_area():
+    pass
+
+# 実行時に命令的に切り替え:
+app.swap_view("main_area", "file")
+```
+
+`@app.swap` の variants は起動時にマウントされ、pack の表示/非表示で切り替わります。
+そのためツリービューの選択やスクロール位置などのウィジェット状態は切替をまたいで
+保持されます。各 variant は `Layout` またはウィジェット名のリストです。
+`examples/swap_demo.py` を参照してください。
 
 ### Fluent DSL
 
@@ -575,7 +612,7 @@ app.run(layout=b.build())
 | `@app.combobox(name, values=..., values_key=..., readonly=..., font=...)` | ttk.Combobox | 選択値 `str` | `dict` |
 | `@app.menubar(name)` | tk.Menu（ウィンドウメニューバー） | — | メニュー項目リスト |
 | `@app.filepicker(name, mode=..., label=..., title=..., filetypes=..., ...)` | ttk.Button → tkinter.filedialog | 選択パス `str`, `list[str]`, または `None` | `dict` |
-| `@app.text(name, width=..., height=..., font=...)` | tk.Text | 全内容 `str` | `dict` |
+| `@app.text(name, width=..., height=..., font=..., wrap=..., h_scroll=...)` | tk.Text | 全内容 `str` | `dict` |
 | `@app.scale(name, from_=..., to=..., orient=...)` | ttk.Scale | 値 `str` | `dict` |
 | `@app.spinbox(name, from_=..., to=..., values=..., font=...)` | ttk.Spinbox | 値 `str` | `dict` |
 | `@app.listbox(name, items=..., items_key=..., selectmode=..., font=..., events=...)` | tk.Listbox | 選択 index `int`（未選択は `-1`） | `dict` |
@@ -625,6 +662,31 @@ entry のオプション: `placeholder`, `show`, `font`, `padding`, `width`, `st
 button / checkbutton / radiobutton / spinbox / combobox / listbox / text:
 - `font` を統一して受け付けます。ttk 系はテーマを継承した派生 style を内部で作成するため、色やマップ・レイアウトなど他のテーマ属性は維持されます。
 
+text の追加オプション:
+- `wrap`: `Wrap.WORD`（デフォルト）/ `Wrap.NONE` / `Wrap.CHAR`。`Wrap.NONE` は各論理行を1行に保ちます。
+- `h_scroll`: `True` にすると水平スクロールバーを追加します（`xscrollcommand` に接続）。通常は `wrap=Wrap.NONE` と組み合わせて長い行にアクセスします。
+
+すべてのウィジェットデコレータは `widget_kwargs: dict` も受け付け、構築後に
+ウィジェット単位でデザイントークンを上書きできます。キーはウィジェット
+ネイティブの tk/ttk オプション（`padx`, `pady`, `bg`, `fg`, `font`, …）です。
+無効・未知のキーはビルドを中断せず無視されます。
+
+```python
+@app.text("log", wrap="none", h_scroll=True,
+          widget_kwargs={"bg": "#1e1e1e", "fg": "#dcdcdc"})
+def log(value): return {}
+```
+
+実行時アクセス: `app.text_widget(name)` は実体の `tk.Text` を返します。
+`app.layout_frame(name)` はウィジェットを所有するレイアウト section フレームを
+返します（手動 grid/pack 配置や再ペアレント用）。
+`app.on_text_set(name, hook)` は、テキストウィジェットの内容が置き換えられた
+後に実行するコールバックを登録します（paired の行番号ガターで使用）。
+
+enum 系のオプション（`wrap`, `state`, `orient`, `selectmode`, `mode`）は
+登録時に検証されます。不正な値は、ウィジェット構築時の `TclError` ではなく
+明確な `ValueError`（オプション名と許可値を明記）を即座に発生させます。
+
 `@app.message` は自動ラップのラベルです。`width` は初期ピクセル幅、`auto_width=True`（デフォルト）は親コンテナのリサイズに追従します。
 
 ---
@@ -648,6 +710,7 @@ Layout().section("msg", side=Side.LEFT, fill=Fill.X)
 | `Orient` | `Orient.HORIZONTAL/VERTICAL` | scale orientation |
 | `Relief` | `Relief.FLAT/RAISED/SUNKEN/GROOVE/RIDGE/SOLID` | border style |
 | `Justify` | `Justify.LEFT/RIGHT/CENTER` | text alignment |
+| `Wrap` | `Wrap.WORD/NONE/CHAR` | text wrap mode |
 | `SelectMode` | `SelectMode.SINGLE/BROWSE/MULTIPLE/EXTENDED` | listbox mode |
 | `EventSeq` | `EventSeq.RETURN/ESCAPE/BACKSPACE/DELETE/TAB/...` | binding 用イベントシーケンス |
 | `EventSeq` (マウス) | `EventSeq.BUTTON_1/2/3`, `DOUBLE_BUTTON_1/2/3`, `PRIMARY_DOUBLE_CLICK` | マウスイベント |
@@ -714,6 +777,7 @@ uv run python examples/menubar_demo.py        # メニューバー
 uv run python examples/filepicker_demo.py     # ファイルピッカー
 uv run python examples/disk_usage_flat_async.py       # ncdu風ビューア（非同期）
 uv run python examples/paired_demo.py           # 左右ペアレイアウト + y-scroll 同期
+uv run python examples/swap_demo.py             # 動的領域切り替え（Layout.target + @app.swap）
 ```
 
 ---

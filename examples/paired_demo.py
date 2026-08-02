@@ -4,6 +4,10 @@ Two text widgets share a single paired frame.  The left pane is read-only and
 highlights "DIFF" lines; the right pane is editable.  Scrolling either pane
 moves the other because ``Layout().paired(..., sync_yscroll=True)`` wires
 their y-views together.
+
+With ``line_numbers=True`` each side gains a read-only line-number gutter.
+Both panes and both gutters share a single vertical scrollbar, so the gutters
+stay in lock-step with the content (no drift).
 """
 
 from __future__ import annotations
@@ -56,6 +60,7 @@ layout = (
         fill=Fill.BOTH,
         expand=True,
         sync_yscroll=True,
+        line_numbers=True,
     )
 )
 

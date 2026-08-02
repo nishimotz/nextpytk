@@ -16,6 +16,7 @@ from __future__ import annotations
 import tkinter as tk
 import tkinter.ttk as ttk
 import warnings
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -97,6 +98,22 @@ class _Nested:
 
 
 @dataclass
+class _Target:
+    """Internal: a reserved swap region whose contents can be swapped at runtime.
+
+    Mirrors HTMX ``hx-target``: the region is a persistent frame, and its
+    inner variants are mounted as hidden sub-frames that ``app.swap()``
+    shows/hides.
+    """
+    name: str
+    side: SideLike = "top"
+    fill: FillLike = "both"
+    expand: ExpandLike = True
+    padx: int | None = _PAD
+    pady: int | None = _PAD
+
+
+@dataclass
 class _Cluster:
     """Internal: a cluster block that packs widgets without stretching widths."""
     widgets: list[str]
@@ -115,6 +132,7 @@ class _Paired:
     right: str
     weight: tuple[int, ...] = (1, 1)
     sync_yscroll: bool = True
+    line_numbers: bool = False
     side: SideLike = "top"
     fill: FillLike = "both"
     expand: ExpandLike = True
@@ -122,7 +140,8 @@ class _Paired:
     pady: int | None = _PAD
 
 
-_Block = _Row | _Grid | _Paned | _Nested | _Cluster | _Paired
+_Block = _Row | _Grid | _Paned | _Nested | _Cluster | _Paired | _Target
+
 
 
 def _wire_cluster_tab_order(
@@ -304,6 +323,12 @@ def _place_paired(app: TkApp, frame: tk.Frame, block: _Paired) -> None:
     ``sync_yscroll=True`` and both registered widgets expose a real
     ``tk.Text`` (via ``app._text_inner``), their ``yscrollcommand`` chains are
     linked so scrolling either text moves the other.
+
+    When ``line_numbers=True``, a read-only line-number gutter is added to each
+    side and both panes + both gutters share a single vertical scrollbar, so
+    the gutters stay in lock-step with the content. This is the only reliable
+    way to keep gutters synchronized (per-widget ``yview_moveto`` chaining
+    drifts), and it works even for ``disabled`` gutter widgets.
     """
     left = app._tk_widgets.get(block.left)
     right = app._tk_widgets.get(block.right)
@@ -314,14 +339,19 @@ def _place_paired(app: TkApp, frame: tk.Frame, block: _Paired) -> None:
     left.grid_forget()
     right.grid_forget()
 
+    text_a = app._text_inner.get(block.left)
+    text_b = app._text_inner.get(block.right)
+
+    if block.line_numbers:
+        _place_paired_with_gutters(app, frame, block, left, right, text_a, text_b)
+        return
+
     left.grid(in_=frame, row=0, column=0, sticky="nsew", padx=(0, _t.SPACE[1] // 2))
     right.grid(in_=frame, row=0, column=1, sticky="nsew", padx=(_t.SPACE[1] // 2, 0))
 
     if not block.sync_yscroll:
         return
 
-    text_a = app._text_inner.get(block.left)
-    text_b = app._text_inner.get(block.right)
     if text_a is None or text_b is None:
         return
 
@@ -357,6 +387,189 @@ def _place_paired(app: TkApp, frame: tk.Frame, block: _Paired) -> None:
 
     text_a.configure(yscrollcommand=_sync_from_a)
     text_b.configure(yscrollcommand=_sync_from_b)
+
+
+def _place_paired_with_gutters(
+    app: TkApp,
+    frame: tk.Frame,
+    block: _Paired,
+    left: tk.Widget,
+    right: tk.Widget,
+    text_a: tk.Text | None,
+    text_b: tk.Text | None,
+) -> None:
+    """Place paired panes with read-only line-number gutters.
+
+    Layout::
+
+        [gutter_a] [pane_a] [gutter_b] [pane_b] [shared Vscroll]
+
+    All four widgets share ONE vertical scrollbar. Each widget's
+    ``yscrollcommand`` is chained so that whenever any widget scrolls (mouse
+    wheel, arrow keys, drag, or programmatic ``yview_moveto``), the other
+    three follow to the same position, and the shared scrollbar's slider is
+    updated. The shared scrollbar's ``command`` drives all four too. This keeps
+    the ``disabled`` gutters in lock-step with the content (no drift).
+    """
+    # Gutter helpers (created once; stored on the frame for re-run safety).
+    gutter_a = getattr(frame, "_paired_gutter_a", None)
+    gutter_b = getattr(frame, "_paired_gutter_b", None)
+    shared_sb = getattr(frame, "_paired_shared_scroll", None)
+
+    if shared_sb is None:
+        shared_sb = ttk.Scrollbar(frame, orient=tk.VERTICAL)
+        shared_sb.grid(row=0, column=4, sticky="ns")
+        frame._paired_shared_scroll = shared_sb  # type: ignore[attr-defined]
+
+    if gutter_a is None:
+        gutter_a = _make_gutter(frame, f"{block.left}_gutter")
+        gutter_a.grid(row=0, column=0, sticky="nsew")
+        frame._paired_gutter_a = gutter_a  # type: ignore[attr-defined]
+    if gutter_b is None:
+        gutter_b = _make_gutter(frame, f"{block.right}_gutter")
+        gutter_b.grid(row=0, column=2, sticky="nsew")
+        frame._paired_gutter_b = gutter_b  # type: ignore[attr-defined]
+
+    left.grid(in_=frame, row=0, column=1, sticky="nsew")
+    right.grid(in_=frame, row=0, column=3, sticky="nsew")
+
+    # Column weights: gutter cols fixed, pane cols follow block.weight.
+    frame.columnconfigure(0, weight=0)
+    frame.columnconfigure(2, weight=0)
+    frame.columnconfigure(1, weight=block.weight[0])
+    frame.columnconfigure(3, weight=block.weight[1])
+
+    if text_a is None or text_b is None:
+        return
+
+    widgets = (text_a, text_b, gutter_a, gutter_b)
+    pairs = ((gutter_a, text_a), (gutter_b, text_b))
+
+    # Shared scrollbar command: scroll all four in one move.
+    def _shared_cmd(*args: str) -> None:
+        for w in widgets:
+            try:
+                w.yview(*args)
+            except tk.TclError:
+                pass
+
+    shared_sb.configure(command=_shared_cmd)
+
+    # Chain each widget's yscrollcommand so scrolling any one moves the rest.
+    for source in widgets:
+        source.configure(
+            yscrollcommand=lambda *a, src=source, pr=pairs: _chain_yview(
+                src, widgets, shared_sb, pr, *a
+            )
+        )
+
+    # Hide the per-widget scrollbars that @app.text created so only the
+    # shared one is visible.
+    for name in (block.left, block.right):
+        per_widget_sb = app._text_scrollbars.get(name)
+        if per_widget_sb is not None:
+            per_widget_sb.grid_remove()
+
+    # Populate logical line numbers (also reconciles on every scroll so a
+    # gutter always mirrors its pane's current line count).
+    _reconcile_gutter(gutter_a, text_a)
+    _reconcile_gutter(gutter_b, text_b)
+    # Keep gutters in sync when content is replaced via app.text_set().
+    app.on_text_set(block.left, lambda g=gutter_a, t=text_a: _reconcile_gutter(g, t))
+    app.on_text_set(block.right, lambda g=gutter_b, t=text_b: _reconcile_gutter(g, t))
+    # Keep the right gutter's line numbers in sync as the right pane edits.
+    _bind_gutter_edit_sync(app, text_b, gutter_b)
+
+
+def _reconcile_gutter(gutter: tk.Text, text: tk.Text) -> None:
+    """Fill a gutter with logical line numbers, matching the text line count.
+
+    If the text gained/lost rows (edit or programmatic ``text_set``), the
+    gutter is rewritten so its scroll range matches the pane. Idempotent:
+    rewriting only happens when the count differs.
+    """
+    n = int(text.index("end-1c").split(".")[0])
+    gutter_lines = int(gutter.index("end-1c").split(".")[0])
+    if gutter_lines == n:
+        return
+    lines = "\n".join(str(i) for i in range(1, n + 1))
+    gutter.configure(state="normal")
+    gutter.delete("1.0", "end")
+    gutter.insert("1.0", lines)
+    gutter.configure(state="disabled")
+    # Ensure the new content is reflected in the shared scrollbar range.
+    gutter.update_idletasks()
+
+
+def _chain_yview(
+    source: tk.Text,
+    widgets: tuple[tk.Text, ...],
+    shared_sb: ttk.Scrollbar,
+    gutter_pairs: tuple[tuple[tk.Text, tk.Text], ...],
+    *args: str,
+) -> None:
+    """Move all widgets to ``source``'s current y-position; update the slider.
+
+    Also reconciles each gutter with its pane's line count so gutters never
+    drift out of sync with the content they annotate.
+    """
+    try:
+        fraction = source.yview()[0]
+    except tk.TclError:
+        return
+    for gutter, pane in gutter_pairs:
+        _reconcile_gutter(gutter, pane)
+    for w in widgets:
+        if w is source:
+            continue
+        try:
+            w.yview_moveto(fraction)
+        except tk.TclError:
+            pass
+    try:
+        shared_sb.set(*args)
+    except tk.TclError:
+        pass
+
+
+def _make_gutter(parent: tk.Misc, name: str) -> tk.Text:
+    """Create a read-only line-number gutter."""
+    gutter = tk.Text(
+        parent,
+        width=5,
+        height=1,
+        name=name,
+        bg=_t.SURFACE,
+        fg=_t.TEXT_MUTED,
+        font=_t.font("body"),
+        relief="flat",
+        bd=0,
+        highlightthickness=0,
+        wrap="none",
+        cursor="arrow",
+        state="disabled",
+        takefocus=0,
+    )
+    return gutter
+
+
+def _populate_gutters(gutter: tk.Text, text: tk.Text) -> None:
+    """Fill a gutter with logical line numbers (1..n)."""
+    n = int(text.index("end-1c").split(".")[0])
+    lines = "\n".join(str(i) for i in range(1, n + 1))
+    gutter.configure(state="normal")
+    gutter.delete("1.0", "end")
+    gutter.insert("1.0", lines)
+    gutter.configure(state="disabled")
+    # Ensure the new content is reflected in the shared scrollbar range.
+    gutter.update_idletasks()
+
+
+def _bind_gutter_edit_sync(app: TkApp, text: tk.Text, gutter: tk.Text) -> None:
+    """Re-sync a gutter when its pane text content changes."""
+    def _on_key(_event: tk.Event[tk.Misc]) -> None:
+        _populate_gutters(gutter, text)
+    text.bind("<KeyRelease>", _on_key, add="+")
 
 
 def _section_anchor(block: _Row) -> AnchorLike | None:
@@ -543,6 +756,46 @@ class Layout:
             layout.section(name, **kw)
         return layout
 
+    def target(
+        self,
+        name: str,
+        *,
+        side: SideLike = "top",
+        fill: FillLike = "both",
+        expand: ExpandLike = True,
+        padx: int | None = None,
+        pady: int | None = None,
+    ) -> Layout:
+        """Reserve a swap target: a region whose contents are swapped at runtime.
+
+        Mirrors HTMX ``hx-target``: the region is a persistent frame, and
+        variant layouts (declared with ``@app.swap``) are mounted inside it
+        as hidden sub-frames. ``app.swap(name, variant)`` shows the chosen
+        variant and hides the others, keeping surrounding sections fixed.
+
+        Example::
+
+            app.swap(
+                "main",
+                variants={
+                    "dir":  [Layout().section("dir_tree")],
+                    "file": [Layout().paired("left", "right", fill=Fill.BOTH,
+                                             expand=True)],
+                },
+                default="dir",
+            )
+            layout = Layout().section("toolbar").target("main").section("status")
+        """
+        self._blocks.append(_Target(
+            name=name,
+            side=side,
+            fill=fill,
+            expand=expand,
+            padx=padx if padx is not None else self.padx,
+            pady=pady if pady is not None else self.pady,
+        ))
+        return self
+
     # ── grid ──
 
     def grid(
@@ -643,6 +896,7 @@ class Layout:
         *,
         weight: tuple[int, int] | list[int] = (1, 1),
         sync_yscroll: bool = True,
+        line_numbers: bool = False,
         side: SideLike = "top",
         fill: FillLike = "both",
         expand: ExpandLike = True,
@@ -657,11 +911,17 @@ class Layout:
         one widget follows the other (requires scrollable widgets such as
         ``@app.text``).
 
+        ``line_numbers=True`` adds a read-only line-number gutter to each side.
+        Both panes and both gutters then share a single vertical scrollbar, so
+        the gutters always stay in lock-step with the content (no drift). Line
+        numbers are logical rows of the text widget (``1..n``).
+
         Example::
 
             app.text("left", readonly=True, sync_yscroll_with="right")
             app.text("right", sync_yscroll_with="left")
-            Layout().paired("left", "right", weight=(1, 1), sync_yscroll=True)
+            Layout().paired("left", "right", weight=(1, 1),
+                            sync_yscroll=True, line_numbers=True)
 
         Scroll sync is a layout-level hint; each text widget should also
         declare the reciprocal ``sync_yscroll_with`` option so the underlying
@@ -674,6 +934,7 @@ class Layout:
             right=right,
             weight=tuple(weight),  # type: ignore[arg-type]
             sync_yscroll=sync_yscroll,
+            line_numbers=bool(line_numbers),
             side=side,
             fill=fill,
             expand=expand,
@@ -846,6 +1107,23 @@ class Layout:
                 # Store the pair metadata for pack_children_for.
                 frame._paired_block = block  # type: ignore[attr-defined]
                 grid_jobs.append((frame, _Grid(cells={}, padx=0, pady=0)))
+            elif isinstance(block, _Target):
+                # Reserve a swap region: create and pack the target frame, and
+                # register it on the app so @app.swap variants can mount into
+                # it. The frame itself is persistent; its variants are swapped.
+                frame = tk.Frame(body)
+                frame.pack(
+                    side=block.side, fill=block.fill, expand=block.expand,
+                    padx=block.padx if block.padx is not None else 0,
+                    pady=block.pady if block.pady is not None else 0,
+                )
+                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                frame._swap_target = block.name  # type: ignore[attr-defined]
+                app.register_swap_target(block.name, frame)
+                row_jobs.append((frame, _Row(
+                    widgets=[],
+                    side="top", fill=block.fill, expand=block.expand,
+                )))
             elif isinstance(block, _Nested):
                 # Mount a new Frame, then recursively mount the nested Layout
                 # inside it. The nested Layout manages its own frame hierarchy.

@@ -131,6 +131,40 @@ def test_treeview_rows_key_and_selection(build):
     assert tree.index(sel[0]) == 1
 
 
+def test_treeview_double_click_option_records_extras(build):
+    """``double_click=False`` is recorded in widget extras."""
+    app = TkApp(title="t")
+
+    @app.treeview(
+        "files",
+        columns=[("name", "Name")],
+        activate=lambda idx: {},
+        double_click=False,
+    )
+    def on_select(idx):
+        return {}
+
+    build(app, layout=["files"])
+    spec = next(s for s in app._widgets if s.name == "files")
+    assert spec.extras["double_click"] is False
+
+
+def test_treeview_double_click_defaults_true(build):
+    app = TkApp(title="t")
+
+    @app.treeview(
+        "files",
+        columns=[("name", "Name")],
+        activate=lambda idx: {},
+    )
+    def on_select(idx):
+        return {}
+
+    build(app, layout=["files"])
+    spec = next(s for s in app._widgets if s.name == "files")
+    assert spec.extras["double_click"] is True
+
+
 def test_apply_state_rejects_non_dict(build):
     app = TkApp(title="t")
 

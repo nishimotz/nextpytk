@@ -141,7 +141,76 @@ PyPI: Trusted Publishing on `v*` tag push (`.github/workflows/publish.yml`).
 
 ---
 
-## Near term (post-0.4.3)
+## Snapshot (v0.4.4) — text wrap/h-scroll, public runtime API
+
+### Text widget ergonomics (continued)
+
+- Added `wrap=` option to `@app.text` for logical-line display control:
+  - `Wrap.WORD` (default) — wrap at word boundaries.
+  - `Wrap.NONE` — keep each logical line on one row (requires horizontal scrolling).
+  - `Wrap.CHAR` — wrap at any character boundary.
+- Added a new `nextpytk.types.Wrap` typed-constant class and `WrapLike` union.
+- Added `h_scroll=` option to `@app.text`: when True, a horizontal scrollbar is added (and wired to `xscrollcommand`) so long lines are reachable in `Wrap.NONE` mode. The horizontal scrollbar is tracked in `app._text_hscrollbars`.
+
+### Decorator type-definition sync
+
+- `TreeviewOptions.double_click` is now typed and honored by `@app.treeview`.
+  - Defaults to `True`: the `activate` handler fires on double-click (previous behavior).
+  - When `False`, `activate` fires on a single `ButtonRelease-1` instead.
+- `_on_treeview_activate` accepts an optional `event` argument so the single-click binding can reuse it.
+
+### Public runtime API
+
+- Added `app.layout_frame(name)` — returns the layout frame that owns a widget (the section frame), so applications can place/re-parent widgets with grid/pack without reaching into the private `_widget_masters`.
+- This is the public replacement for the internal `_widget_masters` access that previously forced applications to depend on private state.
+
+### Per-widget design-token overrides
+
+- All widget decorators now accept `widget_kwargs: dict[str, Any]` (on `CommonWidgetOptions`).
+- Keys are widget-native tk/ttk options (`padx`, `pady`, `bg`, `fg`, `font`, …); values are the native values.
+- Overrides are applied after construction by `_apply_widget_overrides()`. An invalid/unknown key raises no error: a `TclError` is swallowed so one bad key does not abort the build.
+- This removes the need to monkey-patch the shared `tokens` module to tweak a single widget's appearance.
+
+### Decorator argument validation
+
+- Added `_validate_choice()` / `_validate_positive_int()` helpers used by the decorators to reject invalid enum-like and non-positive-int options at **registration time** (before any Tk widget is built).
+- Validated options:
+  - `text`: `state` (`normal`/`disabled`/`active`), `wrap` (`word`/`none`/`char`)
+  - `scale`, `progressbar`, `paned`: `orient` (`horizontal`/`vertical`)
+  - `listbox`, `treeview`: `selectmode` (`single`/`browse`/`multiple`/`extended`)
+  - `filepicker`: `mode` (`open`/`open_multiple`/`save`/`directory`)
+  - `progressbar`: `mode` (`determinate`/`indeterminate`)
+- A mistyped value (e.g. `wrap="wrap"`) now raises a clear `ValueError` naming the option, widget, and allowed values — instead of a cryptic `_tkinter.TclError` at runtime.
+
+### Paired line-number gutters
+
+- Added `line_numbers=True` to `Layout.paired(...)`.
+- Each side gains a read-only line-number gutter (`disabled` tk.Text, `takefocus=0`, arrow cursor).
+- **Reliable sync via a single shared vertical scrollbar**: both panes and both gutters drive one shared scrollbar. Each widget's `yscrollcommand` is chained so scrolling any widget moves the other three, and the shared scrollbar's `command` drives all four. This avoids the `yview_moveto` drift that plagued per-widget gutter chaining.
+- Gutters stay in sync when content changes via `app.text_set()` (a new `app.on_text_set()` hook) and when the editable right pane is typed into (`<KeyRelease>`).
+- Added `examples/paired_demo.py` demonstrating `line_numbers=True`.
+- The new `app.on_text_set(name, hook)` public helper lets layout features react to programmatic text replacement.
+
+### Dynamic layout switching (swap targets)
+
+- Added `Layout.target(name)` to reserve a swap region whose contents change at runtime (mirrors HTMX `hx-target`).
+- Added `@app.swap(name, variants=..., default=...)` to declare the layouts that can fill a target (mirrors HTMX `hx-swap`), and `app.swap_view(name, variant)` to switch imperatively.
+- Variants are mounted up-front and shown/hidden via `pack`/`pack_forget`, so widget state (treeview selection, scroll position) survives switching. Surrounding `Layout.section` blocks (toolbar, status) stay fixed.
+- Added `examples/swap_demo.py` (folder view <-> paired diff view).
+
+### Tests
+
+- Added `tests/test_widget_public_api.py` covering `layout_frame` and `widget_kwargs` (applied, ignored-invalid).
+- Added `tests/test_decorator_validation.py` covering invalid-option rejection for every validated widget.
+- Added wrap/h-scroll tests to `tests/test_text.py`.
+- Added `double_click` tests to `tests/test_state.py`.
+- Added paired line-number gutter tests to `tests/test_paired.py` (creation, population, shared-scrollbar sync).
+- Added swap tests to `tests/test_swap.py` (variant registration, build, switching, back-and-forth, pre-build intent).
+- Suite grew from 181 to 208 passing; pyright clean.
+
+---
+
+## Near term (post-0.4.4)
 
 ### A11y
 
@@ -158,9 +227,11 @@ PyPI: Trusted Publishing on `v*` tag push (`.github/workflows/publish.yml`).
 ### Widget expansion
 
 - [x] Per-widget `bind` for entry and listbox (`events=` on `@app.entry` and `@app.listbox`)
+- [x] Per-widget `bind` for other widgets via `widget_kwargs` / widget-level options
 - [ ] Per-widget `bind` for other widgets (`text`, `combobox`, `treeview`, `button`, etc.)
 - [x] listbox callback value design: keep selection index (unify with `treeview`)
 - [x] `@app.filepicker` — `filedialog` wrapper (schema/tool naming still open)
+- [x] Text `wrap=` / `h_scroll=` options (v0.4.4)
 
 ### Layout DSL
 
@@ -169,6 +240,8 @@ PyPI: Trusted Publishing on `v*` tag push (`.github/workflows/publish.yml`).
 - [x] Nested frames (`Layout` inside `Layout`) via `Layout.frame(...)`
 - [x] Global default for `padx`/`pady` via `Layout(spacing=...)`
 - [x] `Layout.cluster(...)` wrapping flow; `Layout.paired(..., sync_yscroll=)`
+- [x] `Layout.paired(..., line_numbers=True)` read-only line-number gutters (v0.4.4)
+- [x] `Layout.target(...)` + `@app.swap(...)` dynamic region switching (v0.4.4)
 
 ### Agent / LLM integration
 

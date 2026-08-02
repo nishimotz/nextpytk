@@ -119,9 +119,11 @@ class HeadlessHarness:
             if isinstance(layout, list):
                 layout = Layout.from_list(layout)
             layout.mount_frames(app)  # type: ignore[union-attr]
+        app._build_swap_variants()  # mount swap-target variants (before widgets)
         app.build_widgets()
         if layout is not None:
             layout.pack_children(app)  # type: ignore[union-attr]
+        app._pack_swap_variants()  # pack variant children + show default
         if initial_state:
             app._apply_initial_state(initial_state)  # same path as app.run()
         app.sync()

@@ -144,3 +144,75 @@ def test_paired_inherits_layout_spacing(build):
     info = frame.pack_info()  # type: ignore[union-attr]
     assert info["padx"] == t.SPACE[2]
     assert info["pady"] == t.SPACE[2]
+
+
+def test_paired_line_numbers_creates_gutters(build):
+    app = _paired_app()
+    build(app, layout=Layout().paired("left", "right", line_numbers=True))
+
+    frame = _paired_frame(app, "left")
+    gutter_a = getattr(frame, "_paired_gutter_a", None)
+    gutter_b = getattr(frame, "_paired_gutter_b", None)
+    shared_sb = getattr(frame, "_paired_shared_scroll", None)
+    assert gutter_a is not None
+    assert gutter_b is not None
+    assert shared_sb is not None
+
+
+def test_paired_line_numbers_populated(build):
+    app = _paired_app()
+    build(app, layout=Layout().paired("left", "right", line_numbers=True))
+
+    app.text_set("left", "\n".join(f"line {i}" for i in range(1, 6)))
+    app.text_set("right", "\n".join(f"line {i}" for i in range(1, 6)))
+
+    frame = _paired_frame(app, "left")
+    gutter_a = getattr(frame, "_paired_gutter_a", None)
+    gutter_b = getattr(frame, "_paired_gutter_b", None)
+    assert gutter_a is not None
+    assert gutter_b is not None
+    # Logical line numbers 1..5 on both gutters.
+    assert str(gutter_a.get("1.0", "end-1c")).splitlines() == [
+        "1", "2", "3", "4", "5"
+    ]
+    assert str(gutter_b.get("1.0", "end-1c")).splitlines() == [
+        "1", "2", "3", "4", "5"
+    ]
+
+
+def test_paired_line_numbers_shared_scrollbar(build):
+    """Both gutters and both panes share the single vertical scrollbar."""
+    app = _paired_app()
+    build(app, layout=Layout().paired("left", "right", line_numbers=True))
+
+    app.text_set("left", "\n".join(f"line {i}" for i in range(200)))
+    app.text_set("right", "\n".join(f"line {i}" for i in range(200)))
+
+    left = app.text_widget("left")
+    right = app.text_widget("right")
+    assert left is not None
+    assert right is not None
+    frame = _paired_frame(app, "left")
+    gutter_a = getattr(frame, "_paired_gutter_a", None)
+    gutter_b = getattr(frame, "_paired_gutter_b", None)
+    assert gutter_a is not None and gutter_b is not None
+
+    # All four widgets drive the same shared scrollbar via yscrollcommand.
+    sb_a = app._text_scrollbars.get("left")
+    # The per-widget scrollbars are hidden when gutters are active.
+    assert sb_a is not None and not sb_a.winfo_ismapped()
+
+    # Scrolling one widget must move all the others (shared command).
+    import tkinter as tk
+    root: tk.Tk = left.winfo_toplevel()  # type: ignore[assignment]
+    root.deiconify()
+    root.geometry("600x400")
+    root.update_idletasks()
+    root.withdraw()
+    root.update_idletasks()
+
+    left.yview_moveto(0.5)
+    root.update_idletasks()
+    assert abs(right.yview()[0] - left.yview()[0]) < 0.01
+    assert abs(gutter_a.yview()[0] - left.yview()[0]) < 0.01
+    assert abs(gutter_b.yview()[0] - left.yview()[0]) < 0.01
