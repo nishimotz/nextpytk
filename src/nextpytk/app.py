@@ -873,8 +873,8 @@ class TkApp:
             return list(self._widgets)
         return [w for w in self._widgets if w.kind == kind]
 
-    def widget_container(self, name: str) -> tk.Misc | None:
-        """Return the layout container frame that owns the named widget.
+    def layout_frame(self, name: str) -> tk.Misc | None:
+        """Return the layout frame that owns the named widget.
 
         This is the parent frame a ``Layout`` section assigned to the widget
         (the same frame returned by ``app._widget_masters``). Use it to place

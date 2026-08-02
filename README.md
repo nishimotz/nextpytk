@@ -681,7 +681,7 @@ def log(value): return {}
 ```
 
 Runtime access: `app.text_widget(name)` returns the real `tk.Text`;
-`app.widget_container(name)` returns the layout section frame that owns a
+`app.layout_frame(name)` returns the layout section frame that owns a
 widget (for manual grid/pack placement or re-parenting).
 `app.on_text_set(name, hook)` registers a callback to run after a text
 widget's content is replaced (used by paired line-number gutters).

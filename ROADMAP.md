@@ -161,7 +161,7 @@ PyPI: Trusted Publishing on `v*` tag push (`.github/workflows/publish.yml`).
 
 ### Public runtime API
 
-- Added `app.widget_container(name)` — returns the layout container frame that owns a widget (the section frame), so applications can place/re-parent widgets with grid/pack without reaching into the private `_widget_masters`.
+- Added `app.layout_frame(name)` — returns the layout frame that owns a widget (the section frame), so applications can place/re-parent widgets with grid/pack without reaching into the private `_widget_masters`.
 - This is the public replacement for the internal `_widget_masters` access that previously forced applications to depend on private state.
 
 ### Per-widget design-token overrides
@@ -200,7 +200,7 @@ PyPI: Trusted Publishing on `v*` tag push (`.github/workflows/publish.yml`).
 
 ### Tests
 
-- Added `tests/test_widget_public_api.py` covering `widget_container` and `widget_kwargs` (applied, ignored-invalid).
+- Added `tests/test_widget_public_api.py` covering `layout_frame` and `widget_kwargs` (applied, ignored-invalid).
 - Added `tests/test_decorator_validation.py` covering invalid-option rejection for every validated widget.
 - Added wrap/h-scroll tests to `tests/test_text.py`.
 - Added `double_click` tests to `tests/test_state.py`.

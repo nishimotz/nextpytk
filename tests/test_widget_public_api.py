@@ -1,7 +1,7 @@
-"""Public API additions for v0.4.4: widget_kwargs, widget_container.
+"""Public API additions for v0.4.4: widget_kwargs, layout_frame.
 
 Covers the per-widget design-token override (``widget_kwargs``) and the
-public layout-container accessor (``widget_container``).
+public layout-frame accessor (``layout_frame``).
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from .conftest import requires_display
 pytestmark = requires_display
 
 
-def test_widget_container_returns_section_frame(build):
+def test_layout_frame_returns_section_frame(build):
     app = TkApp(title="t")
 
     @app.button("ok", label="OK")
@@ -24,12 +24,12 @@ def test_widget_container_returns_section_frame(build):
         return {}
 
     build(app, layout=["ok"])
-    container = app.widget_container("ok")
-    assert isinstance(container, (tk.Frame, tk.Misc))
-    assert container is not None
+    frame = app.layout_frame("ok")
+    assert isinstance(frame, (tk.Frame, tk.Misc))
+    assert frame is not None
 
 
-def test_widget_container_unknown_returns_none(build):
+def test_layout_frame_unknown_returns_none(build):
     app = TkApp(title="t")
 
     @app.button("ok", label="OK")
@@ -37,7 +37,7 @@ def test_widget_container_unknown_returns_none(build):
         return {}
 
     build(app, layout=["ok"])
-    assert app.widget_container("nope") is None
+    assert app.layout_frame("nope") is None
 
 
 def test_widget_kwargs_button_font(build):

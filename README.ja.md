@@ -678,7 +678,7 @@ def log(value): return {}
 ```
 
 実行時アクセス: `app.text_widget(name)` は実体の `tk.Text` を返します。
-`app.widget_container(name)` はウィジェットを所有するレイアウト section フレームを
+`app.layout_frame(name)` はウィジェットを所有するレイアウト section フレームを
 返します（手動 grid/pack 配置や再ペアレント用）。
 `app.on_text_set(name, hook)` は、テキストウィジェットの内容が置き換えられた
 後に実行するコールバックを登録します（paired の行番号ガターで使用）。
