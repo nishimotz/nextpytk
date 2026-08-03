@@ -253,6 +253,35 @@ PyPI: Trusted Publishing on `v*` tag push (`.github/workflows/publish.yml`).
 
 ---
 
+## Snapshot (v0.4.6) — section placement fix + layout ergonomics
+
+### Bug fix: `section(..., side=...)` now controls the section frame placement
+
+- `_pack_section_frame` hardcoded `side="top"`, ignoring the requested
+  placement side. A `side="bottom"` section declared after an `expand=True`
+  block (e.g. a status bar under a growing body) was pushed off-view and
+  collapsed to 1x1.
+- Fixed by honoring `block.side` on the section frame pack call.
+
+### Child packing decoupled from frame placement
+
+- Added `_Row.child_side` to separate the section frame's placement side
+  (`side`) from the side used to pack children *inside* the frame. A
+  multi-widget section still lays its children out left-to-right (`"left"`)
+  regardless of where the frame itself is placed (`side="top"`/`"bottom"`/
+  `"left"`/`"right"`); a single-widget section packs its child with the
+  frame's own placement side.
+
+### Tests / example
+
+- Added `tests/test_layout_side.py` (regression coverage: frame side
+  honored, default `top` preserved, multi-widget child `"left"` + frame
+  `"top"`/`"bottom"`).
+- Added `examples/bottom_bar_demo.py` demonstrating a `side="bottom"` bar
+  pinned below an expandable body.
+
+---
+
 ## Near term (post-0.4.5)
 
 ### A11y

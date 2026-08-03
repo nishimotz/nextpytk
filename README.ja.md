@@ -819,6 +819,7 @@ uv run python examples/filepicker_demo.py     # ファイルピッカー
 uv run python examples/disk_usage_flat_async.py       # ncdu風ビューア（非同期）
 uv run python examples/paired_demo.py           # 左右ペアレイアウト + y-scroll 同期
 uv run python examples/swap_demo.py             # 動的領域切り替え（Layout.target + @app.swap）
+uv run python examples/bottom_bar_demo.py       # 下部固定バー（section side="bottom"）
 ```
 
 ---

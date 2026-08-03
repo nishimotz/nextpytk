@@ -828,6 +828,7 @@ uv run python examples/filepicker_demo.py     # file picker
 uv run python examples/disk_usage_flat_async.py       # ncdu-style viewer (async)
 uv run python examples/paired_demo.py           # side-by-side paired layout with y-scroll sync
 uv run python examples/swap_demo.py             # dynamic region switching (Layout.target + @app.swap)
+uv run python examples/bottom_bar_demo.py       # pinned bottom bar (section side="bottom")
 ```
 
 ---

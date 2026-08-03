@@ -47,6 +47,11 @@ class _Row:
     """Internal: pack-based section block."""
     widgets: list[str]
     side: SideLike = "top"
+    # Side used to pack children *inside* the section frame. ``section()``
+    # sets this to "left" when more than one widget is given (children laid
+    # out side-by-side), keeping ``side`` as the frame's own placement side
+    # in the parent. They diverge only in that multi-widget case.
+    child_side: SideLike = "top"
     fill: FillLike = "x"
     expand: ExpandLike = False
     padx: int | None = _PAD
@@ -889,7 +894,7 @@ def _section_anchor(block: _Row) -> AnchorLike | None:
 def _pack_section_frame(parent: tk.Misc, block: _Row) -> tk.Frame:
     """Pack a section frame, optionally enforcing ``block.minsize``."""
     pack_kw: dict[str, Any] = {
-        "side": "top", "fill": block.fill, "expand": block.expand,
+        "side": block.side, "fill": block.fill, "expand": block.expand,
         "padx": block.padx or 0, "pady": block.pady or 0,
     }
     anchor = _section_anchor(block)
@@ -986,11 +991,13 @@ class Layout:
         pass ``anchor=\"center\"`` to center it.
         """
         ws = list(widgets)
-        actual_side: SideLike = side
-        if len(ws) > 1 and side == "top":
-            actual_side = "left"
+        # Children of a multi-widget section lay out side-by-side regardless
+        # of where the section frame itself is packed (side= may be top,
+        # bottom, left, or right). A single-widget section packs its child
+        # with the frame's own placement side.
+        child_side: SideLike = "left" if len(ws) > 1 else "top"
         self._blocks.append(_Row(
-            widgets=ws, side=actual_side, fill=fill,
+            widgets=ws, side=side, child_side=child_side, fill=fill,
             expand=expand,
             padx=padx if padx is not None else self.padx,
             pady=pady if pady is not None else self.pady,
@@ -1595,12 +1602,13 @@ class Layout:
         """Pack/grid children for jobs returned by ``mount_frames_into``."""
         for _frame, row in row_jobs:
             n = len(row.widgets)
+            child_side = row.child_side if n > 1 else row.side
             for name in row.widgets:
                 tk_w = app._tk_widgets.get(name)
                 if tk_w is None:
                     continue
                 if n == 1:
-                    tk_w.pack(side=row.side, padx=0, pady=0,
+                    tk_w.pack(side=child_side, padx=0, pady=0,
                               fill=row.fill, expand=row.expand)
                 else:
                     # horizontal gap between siblings only (section frame
@@ -1609,7 +1617,7 @@ class Layout:
                     # expand=True.
                     is_last = name == row.widgets[-1]
                     tk_w.pack(
-                        side=row.side,
+                        side=child_side,
                         padx=(0, 0 if is_last else row.padx or 0), pady=0,
                         fill=row.fill,
                         expand=row.expand,
