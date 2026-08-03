@@ -356,6 +356,7 @@ class TkApp:
         self._text_inner.clear()
         self._text_scrollbars.clear()
         self._text_scroll_sync.clear()
+        self._text_set_hooks.clear()
         self._a11y_last_toggle.clear()
         self._current_view = None
         self._current_stage = None

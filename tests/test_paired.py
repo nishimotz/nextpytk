@@ -236,3 +236,52 @@ def test_paired_line_numbers_shared_scrollbar(build):
     assert abs(right.yview()[0] - left.yview()[0]) < 0.01
     assert abs(gutter_a.yview()[0] - left.yview()[0]) < 0.01
     assert abs(gutter_b.yview()[0] - left.yview()[0]) < 0.01
+
+
+def test_paired_gutter_sync_does_not_recursively_loop(build):
+    """Gutter rewrite + scroll sync must not recurse infinitely.
+
+    Rewriting a gutter calls ``update_idletasks()``, which fires the shared
+    scrollbar's ``yscrollcommand`` and re-enters the gutter helpers via
+    ``_chain_yview``. Without the per-gutter ``_syncing_gutter`` guard this
+    recurses forever. Regression guard for the re-entry fix.
+    """
+    app = _paired_app()
+    build(app, layout=Layout().paired("left", "right", line_numbers=True))
+
+    # Multiple programmatic content replacements, each of which rewrites the
+    # gutter and (via update_idletasks) fires yscrollcommand re-entrantly.
+    for i in range(1, 6):
+        content = "\n".join(f"line {j}" for j in range(1, i * 3 + 1))
+        app.text_set("left", content)
+        app.text_set("right", content)
+
+    frame = _paired_frame(app, "left")
+    gutter_a = getattr(frame, "_paired_gutter_a", None)
+    assert gutter_a is not None
+    # 5 * 3 = 15 logical lines on the left gutter.
+    assert str(gutter_a.get("1.0", "end-1c")).splitlines() == [
+        str(k) for k in range(1, 16)
+    ]
+
+
+def test_clear_runtime_clears_text_set_hooks():
+    """clear_runtime() drops registered on_text_set hooks to avoid leaks.
+
+    A paired gutter registers an ``on_text_set`` hook per build; without
+    clearing on ``clear_runtime()`` these hooks accumulate across re-runs
+    (e.g. swap variants rebuilt at runtime), running the gutter sync multiple
+    times. Regression guard for the hook-leak fix.
+    """
+    app = _paired_app()
+    app.clear_runtime()
+
+    def _hook():
+        return None
+
+    app.on_text_set("left", _hook)
+    app.on_text_set("left", _hook)
+    assert len(app._text_set_hooks.get("left", [])) == 2
+
+    app.clear_runtime()
+    assert app._text_set_hooks.get("left") is None or not app._text_set_hooks["left"]

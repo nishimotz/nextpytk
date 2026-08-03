@@ -320,10 +320,22 @@ visual row-major order). Planned to generalize for `side="bottom"` sections.
   surfaced once the gutter logic changed.
 - Added a per-gutter `_syncing_gutter` re-entry guard to both helpers.
 
+### Bug fix: `on_text_set` hook leak across re-runs
+
+- `app.on_text_set()` hooks were never cleared by `clear_runtime()`, so
+  hooks (e.g. gutter line-number sync) accumulated across re-runs — such as
+  swap variants rebuilt at runtime — causing the gutter sync to run multiple
+  times per `text_set`.
+- `clear_runtime()` now also clears `_text_set_hooks`.
+
 ### Tests
 
 - Added `test_paired_gutters_count_logical_lines_when_wrapped` (a long,
   wrapping line must not inflate the gutter line numbers).
+- Added `test_paired_gutter_sync_does_not_recursively_loop` (multiple
+  `text_set` calls do not recurse infinitely through the shared scrollbar).
+- Added `test_clear_runtime_clears_text_set_hooks` (hooks are dropped on
+  `clear_runtime()`).
 - `tests/test_paired.py` grew; full suite green.
 
 ---
