@@ -10,6 +10,12 @@ from tkinter import ttk
 
 from . import tokens as t
 
+# Shared internal padding for all ttk button variants (TButton, Primary, Secondary).
+# 16x12 + h5 (15px) keeps the requested height above MIN_TARGET (44px, WCAG 2.5.5)
+# across macOS/Windows default fonts without forcing every button section to
+# reserve 60+ px. Declared once here so the three button styles stay in lock-step.
+_BUTTON_PADDING = (t.SPACE[4], t.SPACE[3])  # (16, 12)
+
 
 def apply_theme(root):
     """Configure ttk styles from the Kizashi tokens. Call once on root."""
@@ -79,14 +85,19 @@ def apply_theme(root):
     # button section to reserve 60+ px.  borderwidth=SPACE[2] (8px) draws the
     # native ttk focus ring well inside the border so it does not sit on the
     # edge (WCAG 2.4.7 Focus Visible).
+    # ``width=0`` cancels clam's default ``width=-11`` (a minimum of 11 text
+    # characters ~182px) so button width tracks the label instead of being
+    # locked to a minimum. In a grid, ``col_weight`` provides uniform width;
+    # in a cluster, each button keeps its natural text width.
     style.configure(
         "TButton",
         font=t.font("h5", weight="bold"),
         borderwidth=t.SPACE[2],
         relief="solid",
-        padding=(t.SPACE[4], t.SPACE[3]),
+        padding=_BUTTON_PADDING,
         bordercolor=t.NEUTRAL[500],
         anchor="center",
+        width=0,
     )
     style.map(
         "TButton",
@@ -100,11 +111,12 @@ def apply_theme(root):
         "Primary.TButton",
         font=t.font("h5", weight="bold"),
         relief="solid",
-        padding=(t.SPACE[4], t.SPACE[3]),
+        padding=_BUTTON_PADDING,
         background=t.ACCENT, foreground=t.ON_ACCENT, bordercolor=t.ACCENT,
         borderwidth=t.SPACE[2],
         focuscolor=t.ON_ACCENT,
         anchor="center",
+        width=0,
     )
     style.map(
         "Primary.TButton",
@@ -118,10 +130,11 @@ def apply_theme(root):
         "Secondary.TButton",
         font=t.font("h5", weight="bold"),
         relief="solid",
-        padding=(t.SPACE[4], t.SPACE[3]),
+        padding=_BUTTON_PADDING,
         background=t.CARD, foreground=t.TEXT, bordercolor=t.ACCENT,
         borderwidth=t.SPACE[2],
         anchor="center",
+        width=0,
     )
     style.map(
         "Secondary.TButton",
@@ -165,9 +178,9 @@ def apply_theme(root):
     # effective click/tap target is larger and neighbouring controls don't feel
     # cramped. The indicator itself stays its native size; WCAG 2.5.5 is best met
     # by touch-friendly surrounding space rather than scaling the glyph.
-    # With the body font (Noto Sans JP -16) a 12px vertical pad yields 42px,
-    # so we use 14px to reach and slightly exceed MIN_TARGET=44px.
-    _check_radio_padding = (t.SPACE[2], t.SPACE[3] + 2)
+    # Use the same (16,12) as buttons so check/radio align visually with
+    # buttons in a cluster row.
+    _check_radio_padding = (t.SPACE[4], t.SPACE[3])  # (16, 12), matches buttons
     style.configure(
         "TCheckbutton",
         background=t.BG,
@@ -175,6 +188,11 @@ def apply_theme(root):
         font=t.font("body"),
         focuscolor=t.FOCUS,
         padding=_check_radio_padding,
+        # clam's checkbutton gap between indicator and label is driven by
+        # ``indicatormargin`` (default "0.75p 0.75p 3p 0.75p"; right=3px).
+        # ``indicatorpadding`` is ignored by clam, so widen the right margin
+        # to SPACE[2] (8px) for a cleaner indicator/text separation.
+        indicatormargin=(0, 0, t.SPACE[2], 0),
     )
     style.layout(
         "TCheckbutton",

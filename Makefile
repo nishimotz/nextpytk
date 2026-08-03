@@ -1,4 +1,4 @@
-.PHONY: sync test run run-header run-multiscreen run-task-panel run-gallery run-treeview run-paned run-progress run-tab-focus run-du-flat-async run-menubar
+.PHONY: sync test run run-header run-multiscreen run-task-panel run-gallery run-treeview run-paned run-progress run-tab-focus run-du-flat-async run-menubar run-wrap
 
 PYTHON ?= 3.14
 
@@ -7,6 +7,9 @@ sync:
 
 run: sync
 	uv run --python $(PYTHON) python examples/grid_temp.py
+
+run-wrap: sync
+	uv run --python $(PYTHON) python examples/wrap_demo.py
 
 run-multiscreen: sync
 	uv run --python $(PYTHON) python examples/multiscreen.py

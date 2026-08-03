@@ -904,6 +904,7 @@ class TkApp:
             sec_id = id(master)
             if sec_id not in seen_sections:
                 seen_sections[sec_id] = {
+                    "master": master,
                     "master_class": master.winfo_class(),
                     "master_geometry": master.winfo_geometry(),
                     "widgets": [],
@@ -939,7 +940,75 @@ class TkApp:
                 pass
             seen_sections[sec_id]["widgets"].append(info)
         out["sections"] = list(seen_sections.values())
+
+        # Detect geometry-manager conflicts. Tk forbids mixing pack/grid/place
+        # on the same master; a registered widget's master may also host
+        # manual widgets (e.g. an overlay placed with ``place``), which only
+        # surface by inspecting the live child tree via ``winfo_manager``.
+        conflicts: list[dict[str, Any]] = []
+        for sec in out["sections"]:
+            master = sec.get("master")
+            managers: set[str] = set()
+            widget_names: list[str] = []
+            for w in sec["widgets"]:
+                if w["manager"]:
+                    managers.add(w["manager"])
+                widget_names.append(w["name"])
+            if master is not None:
+                try:
+                    for child in master.winfo_children():
+                        mgr = child.winfo_manager()
+                        if mgr:
+                            managers.add(mgr)
+                        label = child.cget("text") if child.winfo_class() in (
+                            "Label", "TLabel"
+                        ) else child.winfo_class()
+                        widget_names.append(label or child.winfo_name())
+                except tk.TclError:
+                    pass
+            if len(managers) > 1:
+                conflicts.append({
+                    "master_class": sec["master_class"],
+                    "managers": sorted(managers),
+                    "widgets": widget_names,
+                })
+            sec.pop("master", None)
+        out["conflicts"] = conflicts
         return out
+
+    def check_layout_conflicts(self) -> list[dict[str, Any]]:
+        """Return a list of geometry-manager conflicts, warning on each.
+
+        Tcl/Tk raises ``TclError: conflicting geometry managers`` at runtime
+        when a widget is managed by a different manager than its siblings on
+        the same master. This helper surfaces the same condition without
+        waiting for a failure: it inspects the live widget tree and reports
+        any master whose children are split across multiple managers
+        (``pack``/``grid``/``place``).
+
+        Each returned item describes one conflicting master::
+
+            {
+                "master_class": "Frame",
+                "managers": ["grid", "pack"],
+                "widgets": ["left_pane", "location"],
+            }
+
+        A ``warnings.warn`` is emitted for every conflict found, so it can be
+        used as a debugging aid after ``build_widgets`` (or inside ``run``).
+        """
+        debug = self.debug_layout()
+        conflicts: list[dict[str, Any]] = []
+        for conflict in debug.get("conflicts", []):
+            conflicts.append(conflict)
+            warnings.warn(
+                "Conflicting geometry managers on same master: "
+                f"{conflict['managers']} for widgets "
+                f"{conflict['widgets']} ({conflict['master_class']}). "
+                "Pack/grid/place cannot be mixed on one widget.",
+                stacklevel=2,
+            )
+        return conflicts
 
     def _spec(self, name: str) -> WidgetSpec | None:
         for w in self._widgets:

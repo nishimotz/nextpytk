@@ -63,7 +63,7 @@ def right_text(value):
 
 layout = (
     Layout()
-    .cluster("go_dir", "go_file", "info")
+    .wrap("go_dir", "go_file", "info")
     .target("main_area")
 )
 
