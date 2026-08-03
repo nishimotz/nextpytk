@@ -338,6 +338,14 @@ visual row-major order). Planned to generalize for `side="bottom"` sections.
   `clear_runtime()`).
 - `tests/test_paired.py` grew; full suite green.
 
+### Docs: `line_numbers=True` takes precedence over `sync_yscroll`
+
+- Documented that enabling `line_numbers` installs a shared scrollbar that
+  always keeps both panes (and both gutters) in lock-step, so
+  `sync_yscroll=False` is ignored when `line_numbers=True`. Callers needing
+  independent pane scrolling must leave `line_numbers` off. Clarified in the
+  `Layout.paired` docstring and README (EN / JA).
+
 ---
 
 ## Near term (post-0.4.5)

@@ -1381,6 +1381,14 @@ class Layout:
         the gutters always stay in lock-step with the content (no drift). Line
         numbers are logical rows of the text widget (``1..n``).
 
+        .. note::
+           ``line_numbers=True`` takes precedence over ``sync_yscroll``: the
+           shared-scrollbar layout it installs always keeps the two panes (and
+           both gutters) scrolled in lock-step, so passing
+           ``sync_yscroll=False`` with ``line_numbers=True`` has no effect. If
+           you need the panes to scroll independently, do **not** enable
+           ``line_numbers``.
+
         Example::
 
             app.text("left", readonly=True, sync_yscroll_with="right")
