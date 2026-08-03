@@ -253,6 +253,52 @@ PyPI: Trusted Publishing on `v*` tag push (`.github/workflows/publish.yml`).
 
 ---
 
+## Snapshot (v0.4.6) — section placement fix + layout ergonomics
+
+### Bug fix: `section(..., side=...)` now controls the section frame placement
+
+- `_pack_section_frame` hardcoded `side="top"`, ignoring the requested
+  placement side. A `side="bottom"` section declared after an `expand=True`
+  block (e.g. a status bar under a growing body) was pushed off-view and
+  collapsed to 1x1.
+- Fixed by honoring `block.side` on the section frame pack call.
+
+### Child packing decoupled from frame placement
+
+- Added `_Row.child_side` to separate the section frame's placement side
+  (`side`) from the side used to pack children *inside* the frame. A
+  multi-widget section still lays its children out left-to-right (`"left"`)
+  regardless of where the frame itself is placed (`side="top"`/`"bottom"`/
+  `"left"`/`"right"`); a single-widget section packs its child with the
+  frame's own placement side.
+
+### Tests / example
+
+- Added `tests/test_layout_side.py` (regression coverage: frame side
+  honored, default `top` preserved, multi-widget child `"left"` + frame
+  `"top"`/`"bottom"`).
+- Added `examples/bottom_bar_demo.py` demonstrating a `side="bottom"` bar
+  pinned below an expandable body.
+
+### Known limitation: `side="bottom"` + focusable children
+
+`side="bottom"` controls only the pack **parcel** (visual placement). Tk's
+`tk_focusNext` / `tk_focusPrev` traverse the widget tree in *insertion order*
+(`winfo children`), which is independent of the pack parcel. Because a
+`side="bottom"` section must be declared early in the tree (so an
+`expand=True` sibling doesn't push it off-view), any focusable child in it
+(Entry, Button, …) lands **early** in the Tab order even though it is
+visually at the bottom.
+
+This is fine for non-focusable chrome (labels, a `status_bar`), but **not**
+for bottom-docked interactive widgets: visual order (top → bottom controls)
+and focus order (bottom controls first) diverge. The fix is to wire the
+visual tab order explicitly (the same `_wire_tab_order` used by `wrap` /
+`flow`, which intercepts `<Key-Tab>` / `<Shift-Key-Tab>` and moves focus in
+visual row-major order). Planned to generalize for `side="bottom"` sections.
+
+---
+
 ## Near term (post-0.4.5)
 
 ### A11y
