@@ -299,6 +299,35 @@ visual row-major order). Planned to generalize for `side="bottom"` sections.
 
 ---
 
+## Snapshot (v0.4.7) — paired gutter logical-line fix
+
+### Bug fix: line-number gutters count logical lines, not display lines
+
+- `Layout.paired(..., line_numbers=True)` gutters numbered **physical**
+  (wrapped) rows: `_reconcile_gutter` / `_populate_gutters` used
+  `text.index("end-1c")`, which counts display rows. With `wrap="word"` /
+  `"char"`, a long line that wrapped inflated the gutter count beyond the
+  real line count.
+- Added `_logical_line_count(text)`, which counts newline characters (a
+  wrapped row adds no newline), adjusted for whether the buffer ends in a
+  newline. The gutter now mirrors true logical lines regardless of wrapping.
+
+### Bug fix: re-entry recursion in gutter sync
+
+- Rewriting a gutter calls `update_idletasks()`, which fires the shared
+  scrollbar's `yscrollcommand` and re-enters `_reconcile_gutter` /
+  `_populate_gutters` through `_chain_yview` — an infinite recursion that
+  surfaced once the gutter logic changed.
+- Added a per-gutter `_syncing_gutter` re-entry guard to both helpers.
+
+### Tests
+
+- Added `test_paired_gutters_count_logical_lines_when_wrapped` (a long,
+  wrapping line must not inflate the gutter line numbers).
+- `tests/test_paired.py` grew; full suite green.
+
+---
+
 ## Near term (post-0.4.5)
 
 ### A11y

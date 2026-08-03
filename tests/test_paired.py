@@ -180,6 +180,26 @@ def test_paired_line_numbers_populated(build):
     ]
 
 
+def test_paired_gutters_count_logical_lines_when_wrapped(build):
+    """Gutters show logical line numbers even when long lines wrap.
+
+    A wrapped line must not inflate the gutter count: ``index("end-1c")``
+    counts display rows, so the old gutter logic numbered physical rows.
+    Regression guard for the logical-line fix.
+    """
+    app = _paired_app()
+    build(app, layout=Layout().paired("left", "right", line_numbers=True))
+
+    # 3 logical lines; the middle one is long enough to wrap.
+    app.text_set("left", "line one\n" + "x" * 120 + "\nline three")
+    app.text_set("right", "line one\n" + "x" * 120 + "\nline three")
+
+    frame = _paired_frame(app, "left")
+    gutter_a = getattr(frame, "_paired_gutter_a", None)
+    assert gutter_a is not None
+    assert str(gutter_a.get("1.0", "end-1c")).splitlines() == ["1", "2", "3"]
+
+
 def test_paired_line_numbers_shared_scrollbar(build):
     """Both gutters and both panes share the single vertical scrollbar."""
     app = _paired_app()
