@@ -280,6 +280,23 @@ PyPI: Trusted Publishing on `v*` tag push (`.github/workflows/publish.yml`).
 - Added `examples/bottom_bar_demo.py` demonstrating a `side="bottom"` bar
   pinned below an expandable body.
 
+### Known limitation: `side="bottom"` + focusable children
+
+`side="bottom"` controls only the pack **parcel** (visual placement). Tk's
+`tk_focusNext` / `tk_focusPrev` traverse the widget tree in *insertion order*
+(`winfo children`), which is independent of the pack parcel. Because a
+`side="bottom"` section must be declared early in the tree (so an
+`expand=True` sibling doesn't push it off-view), any focusable child in it
+(Entry, Button, …) lands **early** in the Tab order even though it is
+visually at the bottom.
+
+This is fine for non-focusable chrome (labels, a `status_bar`), but **not**
+for bottom-docked interactive widgets: visual order (top → bottom controls)
+and focus order (bottom controls first) diverge. The fix is to wire the
+visual tab order explicitly (the same `_wire_tab_order` used by `wrap` /
+`flow`, which intercepts `<Key-Tab>` / `<Shift-Key-Tab>` and moves focus in
+visual row-major order). Planned to generalize for `side="bottom"` sections.
+
 ---
 
 ## Near term (post-0.4.5)
