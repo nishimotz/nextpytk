@@ -210,7 +210,50 @@ PyPI: Trusted Publishing on `v*` tag push (`.github/workflows/publish.yml`).
 
 ---
 
-## Near term (post-0.4.4)
+## Snapshot (v0.4.5) — Flutter-style layout vocabulary
+
+### `cluster` → `wrap` rename
+
+- `Layout.cluster()` renamed to `Layout.wrap()`, matching Flutter's `Wrap`
+  widget. `cluster()` is kept as a deprecated alias (emits a
+  `DeprecationWarning`) and will be removed in v0.5.0.
+- `LayoutBuilder.cluster()` → `LayoutBuilder.wrap()` (same alias story).
+- `examples/cluster_demo.py` → `examples/wrap_demo.py`; `tests/test_cluster.py`
+  → `tests/test_wrap.py`.
+- `gap` keyword deprecated in favor of explicit `gapx`/`gapy` (SPACE tokens).
+
+### `Flex` — absorb leftover space (Flutter `Expanded` analog)
+
+- Added `nextpytk.types.Flex(name, flex=...)`; a `wrap` child wrapped in `Flex`
+  absorbs a share of its row's leftover horizontal space proportional to its
+  flex factor, instead of keeping natural content width.
+- `widget_names()` and `mount_frames_into` resolve `Flex`-wrapped names.
+
+### `FlowDelegate` / `Layout.flow` — custom flow (Flutter `Flow` analog)
+
+- Added `nextpytk.layout.Constraints` (width/height/min/max) and
+  `nextpytk.layout.FlowDelegate` (abstract `compute_positions` /
+  `compute_height`).
+- `Layout.flow(*widgets, delegate=...)` and `LayoutBuilder.flow(...)` position
+  children via the delegate using `place`; recomputed on `<Configure>` resize.
+- `_place_flow` / `_Flow` block dispatched in `mount_frames_into` /
+  `pack_children_for`.
+- `examples/wrap_demo.py` demonstrates `wrap`, `wrap`+`Flex`, and a
+  `GridDelegate` flow.
+
+### Theme / debug
+
+- Button styles use `width=0` (cancel clam's `width=-11` min ~182px) so button
+  width tracks label text.
+- `_check_radio_padding` unified to (16,12) to match buttons;
+  `indicatormargin=(0,0,SPACE[2],0)` adds 8px between indicator and label
+  (clam ignores `indicatorpadding`).
+- `debug_layout()` detects geometry-manager conflicts;
+  `check_layout_conflicts()` warns on each.
+
+---
+
+## Near term (post-0.4.5)
 
 ### A11y
 
@@ -240,6 +283,9 @@ PyPI: Trusted Publishing on `v*` tag push (`.github/workflows/publish.yml`).
 - [x] Nested frames (`Layout` inside `Layout`) via `Layout.frame(...)`
 - [x] Global default for `padx`/`pady` via `Layout(spacing=...)`
 - [x] `Layout.cluster(...)` wrapping flow; `Layout.paired(..., sync_yscroll=)`
+- [x] `Layout.cluster(...)` → `Layout.wrap(...)` rename with deprecated alias (v0.4.5)
+- [x] `Flex` (Flutter `Expanded` analog) for `wrap` (v0.4.5)
+- [x] `FlowDelegate` / `Layout.flow` custom flow (Flutter `Flow` analog) (v0.4.5)
 - [x] `Layout.paired(..., line_numbers=True)` read-only line-number gutters (v0.4.4)
 - [x] `Layout.target(...)` + `@app.swap(...)` dynamic region switching (v0.4.4)
 

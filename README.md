@@ -472,14 +472,15 @@ stay in lock-step with the content (no drift). Logical line numbers
 (`1..n`) follow the pane content; the right pane's numbers update as you edit.
 
 
-### Cluster layout
+### Wrap layout
 
-`Layout.cluster()` is a wrapping flow: widgets are not stretched to fill a
-column; each keeps the width implied by its content or `width=` and they lay
-out left to right, wrapping to the next row whenever the next widget no longer
-fits in the remaining frame width. Widgets in the same row are vertically
-centered on their midline, so a tall `entry` aligns cleanly with a shorter
-`button` or `checkbutton`. The gap inherits the layout spacing by default.
+`Layout.wrap()` is a wrapping flow (Flutter `Wrap` analog): widgets are not
+stretched to fill a column; each keeps the width implied by its content or
+`width=` and they lay out left to right, wrapping to the next row whenever the
+next widget no longer fits in the remaining frame width. Widgets in the same
+row are vertically centered on their midline, so a tall `entry` aligns cleanly
+with a shorter `button` or `checkbutton`. The gap inherits the layout spacing
+by default (`gapx`/`gapy` override it independently).
 
 ```python
 TAGS = ["python", "tkinter", "async", "uv", "type hints"]
@@ -488,13 +489,46 @@ for tag in TAGS:
     def on_tag(values, tag=tag):
         return {"msg": f"Selected: {tag}"}
 
-app.run(layout=Layout(spacing=2).status("msg").cluster(*TAGS))
+app.run(layout=Layout(spacing=2).status("msg").wrap(*TAGS))
 ```
 
-Cluster is ideal for tag clouds, toolbars, and filter UIs. The layout recomputes
-rows automatically when the window is resized. Pass `gap=...` to override the
-spacing default, and `side`/`fill`/`expand` to control how the cluster frame is
-packed.
+Wrap is ideal for tag clouds, toolbars, and filter UIs. The layout recomputes
+rows automatically when the window is resized. Pass `gapx`/`gapy` to override
+the spacing default, and `side`/`fill`/`expand` to control how the wrap frame
+is packed.
+
+Any wrap child wrapped in `Flex(name, flex=...)` absorbs leftover horizontal
+space in its row (Flutter `Expanded` analog):
+
+```python
+from nextpytk import Flex
+
+app.run(layout=Layout().wrap("filter", Flex("search", flex=2), "ok", gapx=2))
+```
+
+For custom positioning, `Layout.flow()` takes a `FlowDelegate` (Flutter `Flow`
+analog) that computes each child's `(x, y, width, height)` from the available
+`Constraints`. See `examples/wrap_demo.py` for both `Flex` and `Flow` usage.
+
+**How it works.** `wrap` and `flow` position children with `place` (absolute
+x/y) because `pack` cannot reflow onto new rows — with `pack -side left` an
+overflowing child simply falls off the edge. `place` therefore implies a few
+constraints:
+
+- All children share one parent frame and are `place`-managed; they cannot
+  also be `pack`/`grid`-managed on the same master (mixing geometry managers
+  raises `TclError: conflicting geometry managers`).
+- Widths come from `winfo_reqwidth()`; the frame uses `pack_propagate(False)`
+  and its height is explicit.
+- On resize the flow is recomputed so rows re-wrap to the new width.
+
+Because `place` bypasses Tk's native Tab traversal (which follows pack/grid
+insertion order), `wrap` intercepts `<Tab>`/`<Shift-Tab>` and moves focus in
+the visual row-major order instead. `Entry`/`Text` children are skipped (Tab
+stays for text input); focus wraps between the first and last wrap item.
+
+> **Note:** `Layout.cluster()` was renamed to `Layout.wrap()` in 0.5.0.
+> `cluster()` remains as a deprecated alias and will be removed in 0.5.0.
 
 ### Dynamic region switching (swap targets)
 
@@ -503,7 +537,7 @@ HTMX `hx-target` / `hx-swap`. Surrounding sections (toolbar, status) stay fixed
 while only the target region swaps:
 
 ```python
-layout = Layout().cluster("go_dir", "go_file", "info").target("main_area")
+layout = Layout().wrap("go_dir", "go_file", "info").target("main_area")
 
 @app.swap(
     "main_area",
@@ -748,6 +782,18 @@ and layout regressions).
 app.run(layout=["msg", "go"])  # or build via tests / custom runner
 print(app.debug_layout())
 # → {"title": "...", "sections": [{"widgets": [{"name": "msg", "geometry": ..., ...}, ...]}]}
+```
+
+**Detecting geometry-manager conflicts.** Mixing `pack`/`grid`/`place` on one
+master (e.g. manually `pack`/`grid`-ing into a `place`-managed `wrap`/`flow`
+frame) cannot be fully prevented by the DSL, so `app.check_layout_conflicts()`
+inspects the widget tree and reports any such mix without waiting for a
+`TclError: conflicting geometry managers`:
+
+```python
+print(app.check_layout_conflicts())
+# → [{"master_class": "Frame", "managers": ["pack", "place"], ...}] on conflict
+#    (a warning is also emitted for each conflict)
 ```
 
 ---

@@ -471,13 +471,14 @@ layout = (
 コンテンツと常に同期します（ずれません）。論理行番号（`1..n`）はペインの
 内容に追従し、右ペインを編集すると番号も更新されます。
 
-### Cluster レイアウト
+### Wrap レイアウト
 
-`Layout.cluster()` は折り返しフローです。各ウィジェットを列いっぱいに伸ばさず、
-内容や `width=` で決まる幅のまま左から右へ並べ、次のウィジェットが残り幅に
-収まらなくなったら自動的に次の行へ折り返します。同じ行に並ぶ widget は上下方向を
-中央揃えし、たとえば高い `entry` と低い `button` や `checkbutton` が midline で
-揃います。gap はレイアウトの spacing を既定値として継承します。
+`Layout.wrap()` は折り返しフローです（Flutter の `Wrap` に相当）。各ウィジェットを
+列いっぱいに伸ばさず、内容や `width=` で決まる幅のまま左から右へ並べ、次の
+ウィジェットが残り幅に収まらなくなったら自動的に次の行へ折り返します。同じ行に
+並ぶ widget は上下方向を中央揃えし、たとえば高い `entry` と低い `button` や
+`checkbutton` が midline で揃います。gap はレイアウトの spacing を既定値として
+継承します（`gapx`/`gapy` で個別に上書きできます）。
 
 ```python
 TAGS = ["python", "tkinter", "async", "uv", "type hints"]
@@ -486,12 +487,41 @@ for tag in TAGS:
     def on_tag(values, tag=tag):
         return {"msg": f"Selected: {tag}"}
 
-app.run(layout=Layout(spacing=2).status("msg").cluster(*TAGS))
+app.run(layout=Layout(spacing=2).status("msg").wrap(*TAGS))
 ```
 
-Cluster はタグクラウド、ツールバー、フィルター UI などに向いています。
-ウィンドウをリサイズすると行が自動的に再計算されます。`gap=...` で間隔を上書き、
-`side`/`fill`/`expand` で cluster フレームの pack 動作を制御できます。
+Wrap はタグクラウド、ツールバー、フィルター UI などに向いています。
+ウィンドウをリサイズすると行が自動的に再計算されます。`gapx`/`gapy` で間隔を
+上書き、`side`/`fill`/`expand` で wrap フレームの pack 動作を制御できます。
+
+`Flex(name, flex=...)` で包んだ子は、その行の余剰幅を吸収します
+（Flutter の `Expanded` に相当）:
+
+```python
+from nextpytk import Flex
+
+app.run(layout=Layout().wrap("filter", Flex("search", flex=2), "ok", gapx=2))
+```
+
+カスタム配置が必要なら `Layout.flow()` に `FlowDelegate`（Flutter の `Flow` に
+相当）を渡し、利用可能な `Constraints` から各子の `(x, y, width, height)` を計算
+させます。`Flex` と `Flow` の使い方は `examples/wrap_demo.py` を参照してください。
+
+**動作の仕組み。** `wrap` と `flow` は子を `place`（x/y 絶対指定）で配置します。
+`pack -side left` ではみ出した子が画面外に消えるだけのため、`pack` では次の行へ
+折り返せないからです。`place` である以上、以下の制約があります:
+
+- すべての子は 1 つの親フレームに `place` で配置されます。同じ親に対して
+  `pack`/`grid` と混在させることはできません（混ぜると `TclError: conflicting
+  geometry managers`）。
+- 幅は `winfo_reqwidth()` から算出し、フレームは `pack_propagate(False)` で
+  高さを明示します。
+- リサイズ時は再計算され、行が新しい幅に合わせて折り返します。
+
+`place` は Tk のネイティブな Tab 巡回（pack/grid の挿入順に基づく）を迂回するため、
+`wrap` は `<Tab>`/`<Shift-Tab>` を捕捉して視覚的な行優先順でフォーカスを移動
+させます。`Entry`/`Text` の子は Tab 入力を残すためスキップされ、先頭と末尾で
+折り返します。
 
 ### 動的領域切り替え（swap target）
 
@@ -500,7 +530,7 @@ Cluster はタグクラウド、ツールバー、フィルター UI などに�
 固定したまま、target 領域だけを入れ替えます:
 
 ```python
-layout = Layout().cluster("go_dir", "go_file", "info").target("main_area")
+layout = Layout().wrap("go_dir", "go_file", "info").target("main_area")
 
 @app.swap(
     "main_area",
@@ -744,6 +774,17 @@ geometry / pack・grid 情報を JSON 互換で返せます（クリップや mi
 app.run(layout=["msg", "go"])  # またはテスト / カスタム runner
 print(app.debug_layout())
 # → {"title": "...", "sections": [{"widgets": [{"name": "msg", "geometry": ..., ...}, ...]}]}
+```
+
+**ジオメトリマネージャー混在の検出。** `pack`/`grid`/`place` の混在（例: `wrap`/`flow`
+が使う `place` フレームに手動で `pack`/`grid` を混ぜる）は文法では完全に防げないため、
+`app.check_layout_conflicts()` がウィジェットツリーを検査して混在を報告します。
+`TclError: conflicting geometry managers` を待たずに検出できます:
+
+```python
+print(app.check_layout_conflicts())
+# → 混在があれば [{"master_class": "Frame", "managers": ["pack", "place"], ...}]
+#    （各混在に対して warning も発せられます）
 ```
 
 ---

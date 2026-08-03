@@ -147,3 +147,104 @@ def test_debug_layout_regression_listbox_section_preserved(build):
     assert up_btn["pack_info"]["fill"] in (None, "x", "both")
     assert bool(up_btn["pack_info"]["expand"]) is False
     assert up_btn["reqheight"] >= 44
+
+
+def test_debug_layout_no_conflicts_when_single_manager(build):
+    """A section whose widgets all share one manager reports no conflict."""
+    from nextpytk import Layout
+
+    app = TkApp(title="clean")
+
+    @app.label("a")
+    def a():
+        return "A"
+
+    @app.label("b")
+    def b():
+        return "B"
+
+    build(
+        app,
+        layout=Layout().section("a").section("b"),
+    )
+
+    debug = app.debug_layout()
+    assert debug["conflicts"] == []
+
+    conflicts = app.check_layout_conflicts()
+    assert conflicts == []
+
+
+def test_debug_layout_detects_pack_place_conflict(build):
+    """Mixing pack and place on the same master is reported as a conflict.
+
+    Unlike pack/grid (which Tk rejects immediately at runtime), ``place`` may
+    coexist with pack on one master, so the mixed state can actually exist.
+    This is the case debug_layout is meant to surface.
+    """
+    import tkinter as tk
+
+    from nextpytk import Layout
+
+    app = TkApp(title="conflict")
+
+    @app.label("packed")
+    def packed():
+        return "packed"
+
+    build(
+        app,
+        layout=Layout().section("packed"),
+    )
+
+    # The section frame hosts "packed" (pack-managed). Place a second widget
+    # into the same master with the place manager -- pack+place mix, which Tk
+    # permits, so the conflicting state actually materializes.
+    frame = app.layout_frame("packed")
+    assert frame is not None
+
+    from nextpytk import tokens as t
+
+    manual = tk.Label(frame, text="manual", bg=t.BG)
+    manual.place(x=5, y=5)
+
+    debug = app.debug_layout()
+    assert debug["conflicts"], "expected a pack/place conflict to be reported"
+    conflict = debug["conflicts"][0]
+    assert "place" in conflict["managers"]
+    assert "pack" in conflict["managers"]
+    assert "packed" in conflict["widgets"]
+    assert "manual" in conflict["widgets"]
+
+
+def test_check_layout_conflicts_warns_on_conflict(build):
+    """check_layout_conflicts emits a UserWarning for each conflict."""
+    import tkinter as tk
+    import warnings
+
+    from nextpytk import Layout
+
+    app = TkApp(title="warn-conflict")
+
+    @app.label("packed")
+    def packed():
+        return "packed"
+
+    build(
+        app,
+        layout=Layout().section("packed"),
+    )
+
+    frame = app.layout_frame("packed")
+    assert frame is not None
+
+    from nextpytk import tokens as t
+
+    tk.Label(frame, text="manual", bg=t.BG).place(x=5, y=5)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        conflicts = app.check_layout_conflicts()
+
+    assert len(conflicts) == 1
+    assert any("Conflicting geometry managers" in str(w.message) for w in caught)

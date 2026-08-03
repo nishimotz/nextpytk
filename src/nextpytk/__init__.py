@@ -3,7 +3,13 @@
 import importlib.metadata
 
 from nextpytk.app import TkApp
-from nextpytk.layout import Layout, LayoutBuilder
+from nextpytk.layout import (
+    Constraints,
+    FlowDelegate,
+    Layout,
+    LayoutBuilder,
+)
+from nextpytk.types import Flex
 from nextpytk import types
 from nextpytk.widgets import WidgetSpec
 from nextpytk.theme import (
@@ -31,6 +37,9 @@ __all__ = [
     "TkApp",
     "Layout",
     "LayoutBuilder",
+    "Constraints",
+    "FlowDelegate",
+    "Flex",
     "WidgetSpec",
     "types",
     "apply_theme",

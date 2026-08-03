@@ -15,6 +15,7 @@ from __future__ import annotations
 import sys
 import warnings
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Literal, Required, TypedDict, Unpack
 
@@ -48,6 +49,32 @@ FillLike = Literal["none", "x", "y", "both"]
 # ── expand ──
 
 ExpandLike = bool | Literal[0, 1]
+
+
+# ── flex (Flutter Expanded analog) ──
+
+@dataclass(frozen=True)
+class Flex:
+    """Wrap a widget name to assign it a flex factor in a ``wrap`` block.
+
+    Mirrors Flutter's ``Expanded``: within a row the widget absorbs a share
+    of the leftover horizontal space proportional to its ``flex`` factor,
+    instead of keeping its natural content width.
+
+    Example::
+
+        from nextpytk.types import Flex
+
+        Layout().wrap(
+            "label",
+            Flex("entry", flex=2),   # entry gets 2x the space of a flex=1 item
+            "search_btn",
+            gapx=2,
+        )
+    """
+
+    widget: str
+    flex: int = 1
 
 
 # ── anchor ──
@@ -668,6 +695,7 @@ __all__ = [
     "FilepickerOptions",
     "Fill",
     "FillLike",
+    "Flex",
     "Justify",
     "JustifyLike",
     "LabelCallback",
