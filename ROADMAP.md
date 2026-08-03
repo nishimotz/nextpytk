@@ -348,7 +348,7 @@ visual row-major order). Planned to generalize for `side="bottom"` sections.
 
 ---
 
-## Near term (post-0.4.5)
+## Near term (post-0.4.7)
 
 ### A11y
 
