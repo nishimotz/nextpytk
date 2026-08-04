@@ -299,7 +299,56 @@ visual row-major order). Planned to generalize for `side="bottom"` sections.
 
 ---
 
-## Near term (post-0.4.5)
+## Snapshot (v0.4.7) — paired gutter logical-line fix
+
+### Bug fix: line-number gutters count logical lines, not display lines
+
+- `Layout.paired(..., line_numbers=True)` gutters numbered **physical**
+  (wrapped) rows: `_reconcile_gutter` / `_populate_gutters` used
+  `text.index("end-1c")`, which counts display rows. With `wrap="word"` /
+  `"char"`, a long line that wrapped inflated the gutter count beyond the
+  real line count.
+- Added `_logical_line_count(text)`, which counts newline characters (a
+  wrapped row adds no newline), adjusted for whether the buffer ends in a
+  newline. The gutter now mirrors true logical lines regardless of wrapping.
+
+### Bug fix: re-entry recursion in gutter sync
+
+- Rewriting a gutter calls `update_idletasks()`, which fires the shared
+  scrollbar's `yscrollcommand` and re-enters `_reconcile_gutter` /
+  `_populate_gutters` through `_chain_yview` — an infinite recursion that
+  surfaced once the gutter logic changed.
+- Added a per-gutter `_syncing_gutter` re-entry guard to both helpers.
+
+### Bug fix: `on_text_set` hook leak across re-runs
+
+- `app.on_text_set()` hooks were never cleared by `clear_runtime()`, so
+  hooks (e.g. gutter line-number sync) accumulated across re-runs — such as
+  swap variants rebuilt at runtime — causing the gutter sync to run multiple
+  times per `text_set`.
+- `clear_runtime()` now also clears `_text_set_hooks`.
+
+### Tests
+
+- Added `test_paired_gutters_count_logical_lines_when_wrapped` (a long,
+  wrapping line must not inflate the gutter line numbers).
+- Added `test_paired_gutter_sync_does_not_recursively_loop` (multiple
+  `text_set` calls do not recurse infinitely through the shared scrollbar).
+- Added `test_clear_runtime_clears_text_set_hooks` (hooks are dropped on
+  `clear_runtime()`).
+- `tests/test_paired.py` grew; full suite green.
+
+### Docs: `line_numbers=True` takes precedence over `sync_yscroll`
+
+- Documented that enabling `line_numbers` installs a shared scrollbar that
+  always keeps both panes (and both gutters) in lock-step, so
+  `sync_yscroll=False` is ignored when `line_numbers=True`. Callers needing
+  independent pane scrolling must leave `line_numbers` off. Clarified in the
+  `Layout.paired` docstring and README (EN / JA).
+
+---
+
+## Near term (post-0.4.7)
 
 ### A11y
 

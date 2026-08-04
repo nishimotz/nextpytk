@@ -783,6 +783,25 @@ def _place_paired_with_gutters(
     _bind_gutter_edit_sync(app, text_b, gutter_b)
 
 
+def _logical_line_count(text: tk.Text) -> int:
+    """Return the number of logical (non-wrapped) lines in *text*.
+
+    ``index("end-1c")`` counts *display* lines: a long line that wraps to
+    several rows inflates the count when ``wrap`` is ``word``/``char``. We
+    count newline characters instead, which is wrap-independent. The last
+    logical line may or may not carry a trailing newline (``text_set`` omits
+    it; a hand-inserted buffer may keep it), so the count is adjusted by
+    whether the content ends with a newline.
+    """
+    try:
+        content = text.get("1.0", "end-1c")
+    except tk.TclError:
+        return 0
+    if not content:
+        return 0
+    return content.count("\n") + (0 if content.endswith("\n") else 1)
+
+
 def _reconcile_gutter(gutter: tk.Text, text: tk.Text) -> None:
     """Fill a gutter with logical line numbers, matching the text line count.
 
@@ -790,17 +809,26 @@ def _reconcile_gutter(gutter: tk.Text, text: tk.Text) -> None:
     gutter is rewritten so its scroll range matches the pane. Idempotent:
     rewriting only happens when the count differs.
     """
-    n = int(text.index("end-1c").split(".")[0])
+    # Re-entry guard: rewriting the gutter fires yscrollcommand on the shared
+    # scrollbar (via update_idletasks below), which re-enters this function
+    # through _chain_yview. Without a guard that recursion never terminates.
+    if getattr(gutter, "_syncing_gutter", False):
+        return
+    n = _logical_line_count(text)
     gutter_lines = int(gutter.index("end-1c").split(".")[0])
     if gutter_lines == n:
         return
     lines = "\n".join(str(i) for i in range(1, n + 1))
-    gutter.configure(state="normal")
-    gutter.delete("1.0", "end")
-    gutter.insert("1.0", lines)
-    gutter.configure(state="disabled")
-    # Ensure the new content is reflected in the shared scrollbar range.
-    gutter.update_idletasks()
+    gutter._syncing_gutter = True  # type: ignore[attr-defined]
+    try:
+        gutter.configure(state="normal")
+        gutter.delete("1.0", "end")
+        gutter.insert("1.0", lines)
+        gutter.configure(state="disabled")
+        # Ensure the new content is reflected in the shared scrollbar range.
+        gutter.update_idletasks()
+    finally:
+        gutter._syncing_gutter = False  # type: ignore[attr-defined]
 
 
 def _chain_yview(
@@ -857,14 +885,20 @@ def _make_gutter(parent: tk.Misc, name: str) -> tk.Text:
 
 def _populate_gutters(gutter: tk.Text, text: tk.Text) -> None:
     """Fill a gutter with logical line numbers (1..n)."""
-    n = int(text.index("end-1c").split(".")[0])
+    if getattr(gutter, "_syncing_gutter", False):
+        return
+    n = _logical_line_count(text)
     lines = "\n".join(str(i) for i in range(1, n + 1))
-    gutter.configure(state="normal")
-    gutter.delete("1.0", "end")
-    gutter.insert("1.0", lines)
-    gutter.configure(state="disabled")
-    # Ensure the new content is reflected in the shared scrollbar range.
-    gutter.update_idletasks()
+    gutter._syncing_gutter = True  # type: ignore[attr-defined]
+    try:
+        gutter.configure(state="normal")
+        gutter.delete("1.0", "end")
+        gutter.insert("1.0", lines)
+        gutter.configure(state="disabled")
+        # Ensure the new content is reflected in the shared scrollbar range.
+        gutter.update_idletasks()
+    finally:
+        gutter._syncing_gutter = False  # type: ignore[attr-defined]
 
 
 def _bind_gutter_edit_sync(app: TkApp, text: tk.Text, gutter: tk.Text) -> None:
@@ -1346,6 +1380,14 @@ class Layout:
         Both panes and both gutters then share a single vertical scrollbar, so
         the gutters always stay in lock-step with the content (no drift). Line
         numbers are logical rows of the text widget (``1..n``).
+
+        .. note::
+           ``line_numbers=True`` takes precedence over ``sync_yscroll``: the
+           shared-scrollbar layout it installs always keeps the two panes (and
+           both gutters) scrolled in lock-step, so passing
+           ``sync_yscroll=False`` with ``line_numbers=True`` has no effect. If
+           you need the panes to scroll independently, do **not** enable
+           ``line_numbers``.
 
         Example::
 

@@ -471,6 +471,11 @@ panes and both gutters share a **single vertical scrollbar**, so the gutters
 stay in lock-step with the content (no drift). Logical line numbers
 (`1..n`) follow the pane content; the right pane's numbers update as you edit.
 
+> **Note:** `line_numbers=True` takes precedence over `sync_yscroll`. The
+> shared-scrollbar layout it installs keeps both panes (and both gutters)
+> scrolled in lock-step, so passing `sync_yscroll=False` together with
+> `line_numbers=True` has no effect. If the panes must scroll independently,
+> leave `line_numbers` off.
 
 ### Wrap layout
 
