@@ -35,5 +35,4 @@ if __name__ == "__main__":
             .section("greet")
             .status("status_bar")
         ),
-        geometry="440x260",
     )

@@ -65,10 +65,10 @@ def test_theme_applied_by_default(build):
 
     build(app, layout=["msg"])
     style = tk.ttk.Style(app.root)
-    # Kizashi styles should be configured with our accent/surface tokens.
+    # Kizashi styles should be configured with our accent/bg tokens.
     from nextpytk import tokens
     assert style.lookup("Primary.TButton", "background") == tokens.ACCENT
-    assert style.lookup("TEntry", "fieldbackground") == tokens.SURFACE
+    assert style.lookup("TEntry", "fieldbackground") == tokens.BG
 
 
 def test_theme_disabled(build):

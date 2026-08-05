@@ -22,7 +22,7 @@ import tkinter.font as tkfont
 # Contrast pairs are regression-tested in tests/test_tokens.py
 # (WCAG 1.4.3 Contrast (Minimum), 1.4.11 Non-text Contrast).
 BG = "#faf8f4"            # Background (page ground)
-SURFACE = "#f1eae0"       # Surface (fields, panels)
+SURFACE = "#f1ece3"       # Surface (fields, panels) — Kizashi spec
 CARD = "#ffffff"          # Card background (design uses pure white on BG)
 TEXT = "#302b24"          # Text Primary
 TEXT_SECONDARY = "#4a4339"  # Paragraph text on cards/sections

@@ -60,7 +60,7 @@ def apply_theme(root):
     # --- entries ------------------------------------------------------------
     style.configure(
         "TEntry",
-        fieldbackground=t.SURFACE,
+        fieldbackground=t.BG,
         foreground=t.TEXT,
         bordercolor=t.DIVIDER,
         lightcolor=t.DIVIDER,
@@ -225,6 +225,11 @@ def apply_theme(root):
         font=t.font("body"),
         focuscolor=t.FOCUS,
         padding=_check_radio_padding,
+        # clam's radiobutton gap between indicator and label is driven by
+        # ``indicatormargin`` (indicatorpadding is ignored by clam). Widen the
+        # right margin to SPACE[2] (8px) to match TCheckbutton, so the symbol
+        # and label read as separate without crowding.
+        indicatormargin=(0, 0, t.SPACE[2], 0),
     )
     style.layout(
         "TRadiobutton",
@@ -252,20 +257,30 @@ def apply_theme(root):
     )
 
     # --- scale --------------------------------------------------------------
+    # "Card" thumb: page-ground (BG) fill with an ACCENT border. The border
+    # provides the non-text contrast needed to pick the thumb out of the
+    # SURFACE trough (~5.3:1, WCAG 1.4.11); the BG fill against the ACCENT
+    # border stays legible too (~5.9:1). Hover/pressed shift the border.
     style.configure(
         "TScale",
         background=t.BG,
         troughcolor=t.SURFACE,
-        bordercolor=t.DIVIDER,
-        lightcolor=t.DIVIDER,
-        darkcolor=t.DIVIDER,
+        bordercolor=t.ACCENT,
+        lightcolor=t.ACCENT,
+        darkcolor=t.ACCENT,
         padding=(t.SPACE[1], t.SPACE[2]),
+    )
+    style.map(
+        "TScale",
+        bordercolor=[("active", t.ACCENT_HOVER), ("pressed", t.ACCENT_PRESSED)],
+        lightcolor=[("active", t.ACCENT_HOVER), ("pressed", t.ACCENT_PRESSED)],
+        darkcolor=[("active", t.ACCENT_HOVER), ("pressed", t.ACCENT_PRESSED)],
     )
 
     # --- spinbox ------------------------------------------------------------
     style.configure(
         "TSpinbox",
-        fieldbackground=t.SURFACE,
+        fieldbackground=t.BG,
         foreground=t.TEXT,
         bordercolor=t.DIVIDER,
         lightcolor=t.DIVIDER,
@@ -287,7 +302,7 @@ def apply_theme(root):
     # --- combobox -----------------------------------------------------------
     style.configure(
         "TCombobox",
-        fieldbackground=t.SURFACE,
+        fieldbackground=t.BG,
         foreground=t.TEXT,
         bordercolor=t.DIVIDER,
         lightcolor=t.DIVIDER,
@@ -304,7 +319,7 @@ def apply_theme(root):
         lightcolor=[("focus", t.FOCUS)],
         darkcolor=[("focus", t.FOCUS)],
         arrowcolor=[("active", t.ACCENT_HOVER), ("pressed", t.ACCENT_PRESSED)],
-        fieldbackground=[("readonly", t.SURFACE), ("active", t.SURFACE)],
+        fieldbackground=[("readonly", t.BG), ("active", t.BG)],
         selectbackground=[("focus", t.ACCENT_RAMP[200])],
         selectforeground=[("focus", t.TEXT)],
     )
@@ -316,7 +331,7 @@ def apply_theme(root):
     # foreground so the current value stays readable.
     style.configure(
         "Readonly.TCombobox",
-        fieldbackground=t.NEUTRAL[100],
+        fieldbackground=t.BG,
         foreground=t.TEXT,
         bordercolor=t.DIVIDER,
         lightcolor=t.DIVIDER,
@@ -333,7 +348,7 @@ def apply_theme(root):
         lightcolor=[("focus", t.FOCUS)],
         darkcolor=[("focus", t.FOCUS)],
         arrowcolor=[("active", t.ACCENT_HOVER), ("pressed", t.ACCENT_PRESSED)],
-        fieldbackground=[("readonly", t.NEUTRAL[100]), ("active", t.NEUTRAL[100])],
+        fieldbackground=[("readonly", t.BG), ("active", t.BG)],
         selectbackground=[("focus", t.ACCENT_RAMP[300])],
         selectforeground=[("focus", t.TEXT)],
         foreground=[("readonly", t.TEXT), ("active", t.TEXT)],
@@ -355,18 +370,22 @@ def apply_theme(root):
     )
 
     # --- scrollbar ----------------------------------------------------------
+    # Thumb matches the scale thumb: BG fill with an ACCENT border on a
+    # SURFACE trough. The border gives the non-text contrast to pick the
+    # thumb out of the trough; hover/pressed shift the border accent ramp.
     style.configure(
         "TScrollbar",
-        background=t.NEUTRAL[300],
+        background=t.BG,
         troughcolor=t.SURFACE,
-        bordercolor=t.DIVIDER,
+        bordercolor=t.ACCENT,
         arrowcolor=t.TEXT,
         gripcount=0,
         borderwidth=0,
     )
     style.map(
         "TScrollbar",
-        background=[("active", t.NEUTRAL[400]), ("pressed", t.NEUTRAL[500])],
+        bordercolor=[("active", t.ACCENT_HOVER), ("pressed", t.ACCENT_PRESSED)],
+        background=[("active", t.NEUTRAL[100]), ("pressed", t.NEUTRAL[200])],
         arrowcolor=[("active", t.TEXT), ("pressed", t.TEXT)],
     )
 
@@ -538,23 +557,35 @@ def field_row(parent, row, label_text, textvariable, *, label_width=None, entry_
 
 def window_header(parent, title, subtitle=None):
     """Standard top-of-window block: left-aligned title, optional muted
-    subtitle, closed by a strong 2px rule. Replaces stacks of centered
-    gray label boxes — hierarchy comes from type scale, not from boxes.
+    subtitle. Hierarchy comes from type scale and spacing, not from boxes
+    or divider lines (Kizashi design principle).
 
     Returns (title_label, subtitle_label_or_None).
     """
-    title_lbl = tk.Label(parent, text=title, bg=t.BG, fg=t.TEXT,
+    header_bg = t.BG  # "#faf8f4" — same as page background
+    
+    # Title: Kizashi h4 with space-2 (16px) internal padding for consistent
+    # background coverage. No bottom margin — spacing comes from subtitle.
+    title_lbl = tk.Label(parent, text=title, bg=header_bg, fg=t.TEXT,
                          font=t.font("h4"), anchor="w",
-                         bd=0, highlightthickness=0)
+                         bd=0, highlightthickness=0,
+                         padx=t.SPACE[2], pady=t.SPACE[2])
     title_lbl.pack(fill="x")
+    
     sub_lbl = None
     if subtitle is not None:
-        sub_lbl = tk.Label(parent, text=subtitle, bg=t.BG, fg=t.TEXT_MUTED,
+        # Kizashi small text with space-2 padding.
+        # Top margin space-2 (16px) creates the gap from title.
+        sub_lbl = tk.Label(parent, text=subtitle, bg=header_bg, fg=t.TEXT_MUTED,
                            font=t.font("small"), anchor="w",
-                           bd=0, highlightthickness=0)
-        sub_lbl.pack(fill="x", pady=(t.SPACE[1], 0))
-    rule = tk.Frame(parent, height=2, bg=t.DIVIDER, bd=0, highlightthickness=0)
-    rule.pack(fill="x", pady=(t.SPACE[3], t.SPACE[4]))
+                           bd=0, highlightthickness=0,
+                           padx=t.SPACE[2], pady=t.SPACE[2])
+        sub_lbl.pack(fill="x")
+    
+    # Add space-4 (32px) below the header to separate from the first section
+    # (Kizashi section spacing principle).
+    tk.Frame(parent, height=t.SPACE[4], bg=header_bg).pack(fill="x")
+    
     return title_lbl, sub_lbl
 
 
@@ -581,7 +612,7 @@ def data_list(parent, columns, height=12, selectmode: str = "browse"):
         else:
             tree.column(key, width=width, minwidth=width, anchor=anchor, stretch=False)
 
-    tree.tag_configure("odd", background=t.NEUTRAL[100])
+    tree.tag_configure("odd", background=t.BG)
     tree.tag_configure("even", background=t.BG)
 
     sb = ttk.Scrollbar(container, orient="vertical", command=tree.yview)
@@ -605,17 +636,16 @@ def clear_rows(tree):
 
 
 def status_bar(root, textvariable=None, text=""):
-    """Bottom status bar: a 2px rule, then a left-aligned muted line.
+    """Bottom status bar: a left-aligned muted line.
 
     Use for hints and state instead of centered label boxes.
+    Hierarchy comes from spacing and typography (Kizashi principle).
     Returns the label.
     """
     bar = tk.Frame(root, bg=t.BG, bd=0, highlightthickness=0)
     bar.pack(side="bottom", fill="x")
-    rule = tk.Frame(bar, height=2, bg=t.DIVIDER, bd=0, highlightthickness=0)
-    rule.pack(fill="x")
     lbl = tk.Label(bar, bg=t.BG, fg=t.TEXT_MUTED, font=t.font("small"),
-                   anchor="w", padx=t.SPACE[6], pady=t.SPACE[2],
+                   anchor="w", padx=t.SPACE[2], pady=t.SPACE[2],
                    bd=0, highlightthickness=0)
     if textvariable is not None:
         lbl.configure(textvariable=textvariable)

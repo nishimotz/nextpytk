@@ -52,6 +52,21 @@ UI_PAIRS = [
     (t.ACCENT, t.BG, 3.0, "accent as interactive boundary"),
     (t.FOCUS, t.BG, 3.0, "focus ring on ground"),
     (t.FOCUS, t.SURFACE, 3.0, "focus ring on fields"),
+    # Scale thumb: BG fill on an ACCENT border, sitting on the SURFACE
+    # trough. The ACCENT border gives the non-text contrast needed to pick the
+    # thumb out of the trough (WCAG 1.4.11); the BG fill stays legible
+    # against the border so the thumb reads as a single control.
+    (t.ACCENT, t.SURFACE, 3.0, "scale thumb border on trough"),
+    (t.BG, t.ACCENT, 3.0, "scale thumb fill on its border"),
+    # Hover/pressed border states stay visible on the trough too.
+    (t.ACCENT_HOVER, t.SURFACE, 3.0, "scale thumb border hover on trough"),
+    (t.ACCENT_PRESSED, t.SURFACE, 3.0, "scale thumb border pressed on trough"),
+    # Scrollbar thumb shares the scale thumb palette: BG fill, ACCENT border
+    # on the SURFACE trough, so it stays visible the same way.
+    (t.ACCENT, t.SURFACE, 3.0, "scrollbar thumb border on trough"),
+    (t.BG, t.ACCENT, 3.0, "scrollbar thumb fill on its border"),
+    (t.ACCENT_HOVER, t.SURFACE, 3.0, "scrollbar thumb border hover on trough"),
+    (t.ACCENT_PRESSED, t.SURFACE, 3.0, "scrollbar thumb border pressed on trough"),
 ]
 
 
