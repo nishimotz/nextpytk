@@ -348,7 +348,126 @@ visual row-major order). Planned to generalize for `side="bottom"` sections.
 
 ---
 
-## Near term (post-0.4.7)
+## Snapshot (v0.4.8) — Tcl-var trace ingest + batched state sync
+
+### Background
+
+Python `state` is the single source of truth (React/Redux model), and Tcl
+`Variable`s (`StringVar`/`IntVar` in `_tk_vars`) are its sync mirror.
+The Python → Tcl direction is wired: `apply_state` updates `_state` then
+calls `var.set(s)` and `_sync_widgets()`. The reverse path (a user types
+into an entry → the Tcl var changes → `_state` goes stale) was handled
+lazily by `_entry_values_dict()` reading vars on demand.
+
+This snapshot makes the loop explicit and complete, without changing the
+public API contract:
+
+- **Ingest trace (Tcl → Python):** every registered `_tk_vars` entry gets a
+  `trace_add("write", ...)` (installed by the new `_register_var` helper)
+  that feeds `var.get()` back into `_state`. The framework becomes the
+  single point that learns of user edits, so state is never stale even
+  before a button callback runs.
+- **Batched flush (React-style):** instead of re-syncing widgets on every
+  trace fire (which would be a re-render storm while typing), trace events
+  are queued into `_pending_ingest` and flushed at the next idle opportunity
+  via a `root.after_idle` flush (`_flush_ingest`). Multiple rapid changes
+  coalesce into one `_apply_state_dict` pass.
+- **Loop guard:** writes *from* `apply_state` must not re-trigger ingest, so
+  the trace callback (`_on_var_ingest`) ignores writes that originate from
+  the framework's own `var.set` (tracked in `_syncing_var_keys`). Writes
+  during widget build (`_building` guard, e.g. placeholders) are also
+  skipped.
+
+### Rationale
+
+- Keeps Python `state` as the single source of truth (React/Redux), so
+  `enabled_if`, menubar `enabled_if`, `_entry_values_dict()`, and schema
+  stay coherent.
+- Makes "user edits an entry" a first-class state transition instead of a
+  lazy special case, so `apply_state`-driven features (menubar enablement,
+  swap/stage conditions, a11y selection-change emit) react to typing too.
+- Batching keeps the per-keystroke cost constant even as widget count grows.
+
+### Design constraints
+
+- Backward compatible: `_entry_values_dict()`, `apply_state`, and existing
+  callbacks keep working unchanged.
+- Optional off-by-default ingest flag (`ingest_trace=True`) so adopters can
+  opt in; default preserves today's lazy-read behavior for the transition.
+- Non-string vars (`IntVar` for scale, "1"/"0" for checkbutton) keep their
+  Python-typed value in `_state`; the trace only re-reads the Tcl string and
+  casts back via the existing per-widget key semantics.
+
+### Implementation
+
+- `TkApp(..., ingest_trace: bool = False)` constructor flag.
+- `_register_var(key, var)` centralizes var registration and installs the
+  ingest trace; all six previous direct `_tk_vars[...] = var` sites now go
+  through it (entry, checkbutton, radiobutton group, scale, spinbox,
+  combobox).
+- `_on_var_ingest` / `_flush_ingest` / `_pending_ingest` /
+  `_syncing_var_keys` / `_building` guard, with `clear_runtime()` reset.
+- `_build_widgets` split into `_build_widgets` + `_build_widgets_inner` so
+  the whole build runs inside the `_building` guard.
+
+### Example
+
+- `examples/live_validation.py` — an entry with **no** on-change logic whose
+  keystrokes still drive `enabled_if`, a live match-count label, and a status
+  label via the ingest path. Requires `ingest_trace=True`.
+
+### Tests
+
+- Added `tests/test_ingest_trace.py`:
+  - typing into an entry updates `state` without pressing a button;
+  - multiple rapid changes batch into one sync pass;
+  - framework-originated writes do not loop back into ingest;
+  - default (no flag) preserves lazy-read behavior;
+  - `IntVar` scale keys keep Python ints.
+
+### Docs
+
+- [ ] Document the React/Redux comparison in README (EN / JA): "Python
+      `state` is the store; Tcl vars are the DOM; `apply_state` is
+      `dispatch`; trace+batch is the render loop."
+
+---
+
+## Kizashi design-system polish (v0.4.8)
+
+### Chrome consistency
+
+- `window_header()` title/subtitle labels now share the page ground
+  (`BG`) background and use `SPACE[2]` internal padding, so there is no
+  differently-colored box between the title and subtitle. A `SPACE[4]`
+  spacer separates the header block from the first section.
+- `status_bar()` uses the same `SPACE[2]` horizontal padding as the
+  header so the left edges align.
+
+### Field backgrounds unified
+
+- Entries, listboxes, comboboxes, spinboxes, and treeviews all use
+  `BG` field background instead of the platform `#ececec` default.
+
+### Hard-coded values removed
+
+- `pack_view_widgets` callers used `pady=2`; now `t.SPACE[1]`.
+- `@app.canvas` default `bg="#f0f0f0"` → `t.SURFACE`.
+
+### Scale / scrollbar thumb contrast (WCAG 1.4.11)
+
+- Scale thumb was `BG` on a `SURFACE` trough (1.1:1, below the 3:1
+  non-text requirement). Now a "card" thumb: page-ground fill with an
+  `ACCENT` border (`ACCENT` vs trough = 5.3:1; fill vs border = 5.9:1).
+  Hover/pressed shift the border to the accent ramp.
+- `TScrollbar` thumb shares the same palette as the scale thumb.
+- Radio buttons now use the same `indicatormargin` as check buttons so
+  the symbol and label spacing matches.
+- New `UI_PAIRS` regressions in `tests/test_tokens.py` pin these
+  contrast pairs; header/status/canvas token use is pinned in
+  `tests/test_disk_usage_helpers.py` and `tests/test_widget_public_api.py`.
+
+### Tests
 
 ### A11y
 

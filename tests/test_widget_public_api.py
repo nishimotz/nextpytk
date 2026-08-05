@@ -78,3 +78,32 @@ def test_widget_kwargs_invalid_key_ignored(build):
     build(app, layout=["ok"])
     w = app.widget("ok")
     assert w is not None
+
+
+def test_canvas_default_bg_uses_surface_token(build):
+    """The canvas default background follows the Kizashi SURFACE token
+    (not a hard-coded color), so it matches the panel ground."""
+    app = TkApp(title="t")
+
+    @app.canvas("plot")
+    def plot() -> None:
+        return None
+
+    build(app, layout=["plot"])
+    w = app.widget("plot")
+    assert isinstance(w, tk.Canvas)
+    assert w.cget("bg") == t.SURFACE
+
+
+def test_canvas_custom_bg_override(build):
+    """An explicit bg still wins over the SURFACE default."""
+    app = TkApp(title="t")
+
+    @app.canvas("plot", bg="#112233")
+    def plot() -> None:
+        return None
+
+    build(app, layout=["plot"])
+    w = app.widget("plot")
+    assert isinstance(w, tk.Canvas)
+    assert w.cget("bg") == "#112233"

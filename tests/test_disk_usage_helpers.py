@@ -46,6 +46,23 @@ def test_window_header_returns_labels_and_rule(themed_root):
     assert sub_lbl.cget("fg") == t.TEXT_MUTED
 
 
+def test_window_header_background_matches_page_ground(themed_root):
+    """Title and subtitle labels sit on the same ground as the page --
+    hierarchy comes from type/spacing, not from a differently-colored box."""
+    body = content_frame(themed_root)
+    title_lbl, sub_lbl = window_header(body, "Title", "Subtitle")
+    assert title_lbl.cget("bg") == t.BG
+    assert sub_lbl.cget("bg") == t.BG
+
+
+def test_window_header_padding_uses_space_tokens(themed_root):
+    """Internal title/subtitle padding follows the SPACE scale (space-2)."""
+    body = content_frame(themed_root)
+    title_lbl, _ = window_header(body, "Title", "Subtitle")
+    assert title_lbl.cget("padx") == t.SPACE[2]
+    assert title_lbl.cget("pady") == t.SPACE[2]
+
+
 def test_data_list_builds_treeview_with_columns(themed_root):
     body = content_frame(themed_root)
     container, tree = data_list(
@@ -88,6 +105,17 @@ def test_status_bar_status_label(themed_root):
     lbl = status_bar(themed_root, textvariable=status_var)
     assert lbl.cget("text") == "ready"
     assert lbl.cget("fg") == t.TEXT_MUTED
+
+
+def test_status_bar_background_and_padding_use_tokens(themed_root):
+    """Status bar sits on the page ground and its horizontal padding matches
+    the header (space-2) so the left edges align."""
+    themed_root.pack_propagate(False)
+    status_var = tk.StringVar(value="ready")
+    lbl = status_bar(themed_root, textvariable=status_var)
+    assert lbl.cget("bg") == t.BG
+    assert lbl.cget("padx") == t.SPACE[2]
+    assert lbl.cget("pady") == t.SPACE[2]
 
 
 def test_button_styles(themed_root):

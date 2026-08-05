@@ -268,11 +268,17 @@ class TkApp:
         *,
         debug: bool = False,
         theme: bool | str = "kizashi",
+        ingest_trace: bool = False,
     ):
         self._title = title
         self._debug = debug
         self._theme = self._normalize_theme(theme)
         self._kizashi = self._theme == "kizashi"
+        # When True, a ``trace_add("write", ...)`` is installed on every
+        # registered Tcl variable. User edits (e.g. typing into an entry)
+        # are ingested back into ``state`` (kept as the single source of
+        # truth) and batched into a single sync pass at the next idle event.
+        self._ingest_trace = ingest_trace
         self._acc_supported: bool | None = None
         self._a11y_last_toggle: dict[str, str] = {}
         self._widgets: list[WidgetSpec] = []
@@ -280,6 +286,15 @@ class TkApp:
         self._root: tk.Tk | None = None
         self._tk_widgets: dict[str, tk.Widget] = {}
         self._tk_vars: dict[str, tk.Variable] = {}
+        # Re-entrancy guard: while the framework itself calls ``var.set``
+        # (from apply_state), a write trace must NOT re-ingest that value.
+        self._syncing_var_keys: set[str] = set()
+        # Keys whose Tcl var changed from a user edit, awaiting a batched flush.
+        self._pending_ingest: set[str] = set()
+        self._ingest_flush_job: str | None = None
+        # True while widgets are being built; build-time ``var.set`` calls
+        # (e.g. placeholders) must not be ingested into state.
+        self._building = False
         self._widget_masters: dict[str, tk.Misc] = {}
         self._row_pack_jobs: list[tuple[tk.Frame, Any]] = []
         self._grid_pack_jobs: list[tuple[tk.Frame, Any]] = []
@@ -358,6 +373,9 @@ class TkApp:
         self._text_scroll_sync.clear()
         self._text_set_hooks.clear()
         self._a11y_last_toggle.clear()
+        self._pending_ingest.clear()
+        self._ingest_flush_job = None
+        self._syncing_var_keys.clear()
         self._current_view = None
         self._current_stage = None
         self._swap_targets.clear()
@@ -1290,7 +1308,7 @@ class TkApp:
                 layout, row_jobs, grid_jobs = jobs_by_view[view]
                 layout.pack_children_for(self, row_jobs, grid_jobs)
             else:
-                self.pack_view_widgets(view, center_kinds=centered, fill="x", pady=2)
+                self.pack_view_widgets(view, center_kinds=centered, fill="x", pady=t.SPACE[1])
 
         def _on_tab_changed(_event: tk.Event[tk.Misc] | None = None) -> None:
             current = nb.select()
@@ -1462,7 +1480,7 @@ class TkApp:
                 layout, row_jobs, grid_jobs = jobs_by_stage[stage]
                 layout.pack_children_for(self, row_jobs, grid_jobs)
             else:
-                self.pack_view_widgets(stage, center_kinds=centered, fill="x", pady=2)
+                self.pack_view_widgets(stage, center_kinds=centered, fill="x", pady=t.SPACE[1])
 
         active = str(self._state.get(key, stages[0] if stages else ""))
         if active not in stages:
@@ -2609,7 +2627,7 @@ class TkApp:
         """
         width = options.get("width", 300)
         height = options.get("height", 200)
-        bg = options.get("bg", "#f0f0f0")
+        bg = options.get("bg", t.SURFACE)
         description = options.get("description")
         items = options.get("items")
         takefocus = options.get("takefocus")
@@ -2658,15 +2676,21 @@ class TkApp:
                     update_to_apply.pop(stage_key, None)
 
         self._state.update(update_to_apply)
-        for key, val in update_to_apply.items():
-            var = self._tk_vars.get(key)
-            if var is None:
-                continue
-            s = "" if val is None else str(val)
-            var.set(s)
-            w = self._tk_widgets.get(key)
-            if isinstance(w, (tk.Entry, ttk.Entry)):
-                self._apply_entry_value_after_state(key, w, var, s)
+        # Mark the keys being written by the framework so their write traces
+        # (if ingest_trace is on) do not loop the value back into state.
+        self._syncing_var_keys.update(update_to_apply)
+        try:
+            for key, val in update_to_apply.items():
+                var = self._tk_vars.get(key)
+                if var is None:
+                    continue
+                s = "" if val is None else str(val)
+                var.set(s)
+                w = self._tk_widgets.get(key)
+                if isinstance(w, (tk.Entry, ttk.Entry)):
+                    self._apply_entry_value_after_state(key, w, var, s)
+        finally:
+            self._syncing_var_keys.difference_update(update_to_apply)
         if full:
             self._sync_widgets()
         else:
@@ -2690,6 +2714,61 @@ class TkApp:
             self._render_stage(new_stage, key=key, centered=centered)
             # Keep state in sync with the rendered stage.
             self._state[key] = new_stage
+
+    def _register_var(self, key: str, var: tk.Variable) -> None:
+        """Register a Tcl variable under *key*, installing an ingest trace.
+
+        When ``ingest_trace=True``, a ``write`` trace feeds ``var.get()`` back
+        into ``state[key]`` so user edits (typing into an entry, toggling a
+        checkbutton, dragging a scale) become first-class state transitions.
+        Framework-originated writes (from ``apply_state``) are excluded via
+        ``_syncing_var_keys`` so they do not loop back. Multiple edits are
+        coalesced into one ``after_idle`` sync pass.
+        """
+        self._tk_vars[key] = var
+        if self._ingest_trace:
+            try:
+                var.trace_add(
+                    "write",
+                    lambda _n, _i, _op, k=key: self._on_var_ingest(k),
+                )
+            except tk.TclError:
+                # Variable may already be deleted; ingest is best-effort.
+                pass
+
+    def _on_var_ingest(self, key: str) -> None:
+        """Trace callback: a user edit changed ``var``; queue it for ingest."""
+        # Skip writes that the framework itself issued from apply_state, and
+        # any writes that happen while widgets are being built (placeholders).
+        if key in self._syncing_var_keys or self._building:
+            return
+        self._pending_ingest.add(key)
+        if self._root is None:
+            return
+        if self._ingest_flush_job is None:
+            try:
+                self._ingest_flush_job = self._root.after_idle(self._flush_ingest)
+            except tk.TclError:
+                self._ingest_flush_job = None
+
+    def _flush_ingest(self) -> None:
+        """Flush queued user edits into ``state`` in one batched pass."""
+        self._ingest_flush_job = None
+        if not self._pending_ingest:
+            return
+        pending = self._pending_ingest
+        self._pending_ingest = set()
+        update: dict[str, Any] = {}
+        for key in pending:
+            var = self._tk_vars.get(key)
+            if var is None:
+                continue
+            try:
+                update[key] = var.get()
+            except tk.TclError:
+                continue
+        if update:
+            self._apply_state_dict(update, full=False)
 
     def _known_state_keys(self) -> set[str]:
         """Return the set of state keys that have meaning in the app."""
@@ -3346,6 +3425,19 @@ class TkApp:
 
         self._first_focusable: tk.Widget | None = None
 
+        self._building = True
+        try:
+            self._build_widgets_inner()
+        finally:
+            self._building = False
+
+    def _build_widgets_inner(self) -> None:
+        """Create tkinter widgets from registered specs (inside build guard)."""
+        if self._root is None:
+            return
+
+        self._first_focusable: tk.Widget | None = None
+
         for spec in self._widgets:
             if spec.kind == "paned":
                 master = self._widget_masters.get(spec.name, self._root)
@@ -3746,7 +3838,7 @@ class TkApp:
             )
         w = ttk.Entry(master, textvariable=var, style=style)
         self._tk_widgets[spec.name] = w
-        self._tk_vars[spec.name] = var
+        self._register_var(spec.name, var)
         for opt in ("show", "width", "state"):
             if opt in e:
                 w.configure(**{opt: e[opt]})
@@ -3792,7 +3884,7 @@ class TkApp:
         # anchor is a ttk layout option (style.layout), not a constructor kwarg
         # for ttk.Checkbutton; left alignment is enforced by the Kizashi style.
         self._tk_widgets[spec.name] = w
-        self._tk_vars[key] = var
+        self._register_var(key, var)
         if spec.on_update is not None:
             fn = spec.on_update
             w.configure(command=lambda s=spec, f=fn, v=var, k=key:
@@ -3803,7 +3895,7 @@ class TkApp:
         gk = e.get("group_key", "radio")
         val = e.get("rb_value", "")
         if gk not in self._tk_vars:
-            self._tk_vars[gk] = tk.StringVar(value="")
+            self._register_var(gk, tk.StringVar(value=""))
         var = self._tk_vars[gk]
         # padding is owned by the theme style (44px min target size)
         style = "TRadiobutton"
@@ -3933,7 +4025,7 @@ class TkApp:
             length=e.get("length", 200 if orient_str == "horizontal" else 100),
         )  # type: ignore[arg-type]
         self._tk_widgets[spec.name] = w
-        self._tk_vars[key] = var
+        self._register_var(key, var)
         self._state[key] = str(var.get())
         if spec.on_update is not None:
             fn = spec.on_update
@@ -3964,7 +4056,7 @@ class TkApp:
             kwargs["font"] = e["font"]
         w = ttk.Spinbox(master, textvariable=var, **kwargs)
         self._tk_widgets[spec.name] = w
-        self._tk_vars[key] = var
+        self._register_var(key, var)
         if init_val:
             self._state[key] = init_val
         if spec.on_update is not None:
@@ -3990,7 +4082,7 @@ class TkApp:
             kwargs["font"] = e["font"]
         w = ttk.Combobox(master, **kwargs)
         self._tk_widgets[spec.name] = w
-        self._tk_vars[key] = var
+        self._register_var(key, var)
         if init_val:
             self._state[key] = init_val
         if spec.on_update is not None:
@@ -4001,7 +4093,7 @@ class TkApp:
     def _build_listbox(self, spec: WidgetSpec, master: tk.Misc) -> None:
         e = spec.extras
         kwargs_lb: dict[str, Any] = {
-            "bg": t.SURFACE,
+            "bg": t.BG,
             "fg": t.TEXT,
             "selectbackground": t.ACCENT_RAMP[200],
             "selectforeground": t.ACCENT_RAMP[700],
