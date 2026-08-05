@@ -826,6 +826,7 @@ uv run python examples/disk_usage_flat_async.py       # ncdu風ビューア（�
 uv run python examples/paired_demo.py           # 左右ペアレイアウト + y-scroll 同期
 uv run python examples/swap_demo.py             # 動的領域切り替え（Layout.target + @app.swap）
 uv run python examples/bottom_bar_demo.py       # 下部固定バー（section side="bottom"）
+uv run python examples/live_validation.py       # ライブ検証（Tcl変数 trace 取り込み / ingest_trace=True）
 ```
 
 ---
