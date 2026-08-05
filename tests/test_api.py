@@ -24,6 +24,65 @@ def test_button_state_disabled_is_applied(build):
     assert str(app.widget("go").cget("state")) == "disabled"
 
 
+def test_button_label_updates_from_state_dict(build):
+    """Returning {"<button>": text} from a callback refreshes the label."""
+    app = TkApp(title="t")
+
+    @app.button("hello", label="hello")
+    def on_hello(values):
+        return {"hello": "world"}
+
+    build(app, layout=["hello"])
+    assert str(app.widget("hello").cget("text")) == "hello"
+    app.widget("hello").invoke()
+    assert str(app.widget("hello").cget("text")) == "world"
+
+
+def test_button_label_updates_from_plain_string(build):
+    """Returning a plain string updates the button's own label (sugar)."""
+    app = TkApp(title="t")
+
+    @app.button("hello", label="hello")
+    def on_hello(values):
+        return "world"
+
+    build(app, layout=["hello"])
+    assert str(app.widget("hello").cget("text")) == "hello"
+    app.widget("hello").invoke()
+    assert str(app.widget("hello").cget("text")) == "world"
+
+
+def test_auto_layout_builds_single_column(build):
+    """_auto_layout arranges registered widgets when run() has no layout."""
+    app = TkApp(title="t")
+
+    @app.button("go", label="Go")
+    def go(values):
+        return {}
+
+    @app.entry("name", placeholder="your name")
+    def name(value):
+        return {}
+
+    layout = app._auto_layout()
+    assert layout is not None
+    # Widgets are arranged in registration order, one section per widget.
+    arranged = [n for b in layout._blocks for n in b.widgets]
+    assert arranged == ["go", "name"]
+
+    # Building with the auto layout renders every widget.
+    build(app, layout=layout)
+    assert app.widget("go") is not None
+    assert app.widget("name") is not None
+    assert str(app.widget("go").cget("text")) == "Go"
+
+
+def test_auto_layout_none_when_no_widgets():
+    """_auto_layout returns None when there is nothing to arrange."""
+    app = TkApp(title="t")
+    assert app._auto_layout() is None
+
+
 def test_entry_state_disabled_is_applied(build):
     app = TkApp(title="t")
 

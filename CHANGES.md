@@ -4,7 +4,33 @@ All notable changes to nextpytk are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.4.9] — 2026-08-06
+
+### Added
+
+- Button labels can be refreshed from state. Returning a state dict whose key
+  matches a button name (e.g. `{"hello": "world"}`) now updates that button's
+  text in both `_sync_widgets` and `_sync_widgets_for_keys`, matching how
+  `label`/`status`/`message` widgets already work. The declared `label=` text
+  is preserved unless a state value is explicitly set.
+- Button callback sugar: returning a plain string from a button callback
+  updates that button's own label — `return "world"` is sugar for
+  `return {"<button>": "world"}`.
+- Automatic layout: calling `run()` / `run_async()` without `layout=` now
+  arranges every registered widget into a single column in registration order
+  (via the new `_auto_layout()`). Chrome helpers that already mounted
+  themselves are skipped.
+
+### Changed
+
+- README Quick Start is now a minimal single-button example (label update via
+  plain-string return, `app.run()` with auto layout).
+
+### Tests
+
+- `tests/test_api.py`: `test_button_label_updates_from_state_dict`,
+  `test_button_label_updates_from_plain_string`,
+  `test_auto_layout_builds_single_column`, `test_auto_layout_none_when_no_widgets`.
 
 ## [0.4.8] — 2026-08-05
 

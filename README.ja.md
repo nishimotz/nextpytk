@@ -11,7 +11,7 @@ role / description を一箇所にまとめます。書き方は Flask 風のデ
 
 ## Quick Start
 
-まずは、ボタンを押すとメッセージが変わるアプリを作ります。
+まずは、ボタンが自分のラベルを書き換えるアプリを作ります。
 
 ```bash
 pip install nextpytk
@@ -22,58 +22,48 @@ from nextpytk import TkApp
 
 app = TkApp(title="Hello")
 
-@app.status("msg")
-def msg():
-    return "こんにちは"
+@app.button("hello")
+def on_hello():
+    return "world"
 
-@app.button("greet", label="あいさつ")
-def on_greet():
-    return {"msg": "ボタンが押されました！"}
-
-app.run(layout=["msg", "greet"])
+app.run()
 ```
+
+これだけで、`hello` と表示されたボタンのウィンドウが現れます。ボタンを押すと
+ラベルが `world` に変わります。
 
 ---
 
 ## 動作の考え方
 
-nextpytk では、ウィジェットを名前で登録し、レイアウトを別に宣言します。
-
-この例では、`msg` と `greet` という2つのウィジェットを登録しています。
+最小の例の中身を分解します。
 
 ```python
-@app.status("msg")
+@app.button("hello")
 ```
 
-`msg` はメッセージを表示するステータス領域です。
+`hello` という名前のボタンを登録します。`label=` を省略すると、ウィジェット名が
+そのままボタンの文字になります。
 
 ```python
-@app.button("greet", label="あいさつ")
+def on_hello():
+    return "world"
 ```
 
-`greet` は「あいさつ」と表示されるボタンです。
-
-最後に、表示する順番を名前で指定します。
+ボタンを押すとこのコールバックが動きます。素の文字列を返すと、そのボタン自身の
+ラベルが更新されます。これは `{"hello": "world"}` の糖衣構文です。
 
 ```python
-app.run(layout=["msg", "greet"])
+app.run()
 ```
 
-ボタンを押すと、コールバックが次の `dict` を返します。
+`layout=` を省略すると、登録済みのウィジェットが自動で1列に配置されるため、
+シンプルなアプリではレイアウト宣言が不要です。
 
-```python
-{"msg": "ボタンが押されました！"}
-```
-
-nextpytk はこの内容をアプリの `state` に反映します。
-
-`msg` は登録済みのステータス領域の名前なので、表示が「ボタンが押されました！」に更新されます。
-
-つまり、この例の基本的な流れは次のとおりです。
+基本的な流れは次のとおりです。
 
 * ウィジェットを名前で登録する
-* レイアウトに名前を並べる
-* コールバックから `dict` を返す
+* コールバックから `dict`（または素の文字列）を返す
 * `state` が更新され、対応するウィジェットへ反映される
 
 ---

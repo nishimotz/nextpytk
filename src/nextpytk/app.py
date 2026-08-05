@@ -3014,7 +3014,7 @@ class TkApp:
         w.after_idle(_update_width)
 
     def _sync_widgets(self) -> None:
-        """Push state to label, text, and listbox widgets."""
+        """Push state to label, button, text, and listbox widgets."""
         for spec in self._widgets:
             if spec.kind in ("label", "status", "message"):
                 tk_w = self._tk_widgets.get(spec.name)
@@ -3028,6 +3028,17 @@ class TkApp:
                     elif isinstance(result, dict):
                         value = result.get(spec.name, value)
                 target = str(value)
+                if str(tk_w.cget("text")) != target:
+                    tk_w.configure(text=target)  # type: ignore[call-arg]
+            elif spec.kind == "button":
+                # Buttons keep their declared label unless a state value is
+                # explicitly set (e.g. a callback returned {"<name>": text}).
+                if spec.name not in self._state:
+                    continue
+                tk_w = self._tk_widgets.get(spec.name)
+                if tk_w is None:
+                    continue
+                target = str(self._state[spec.name])
                 if str(tk_w.cget("text")) != target:
                     tk_w.configure(text=target)  # type: ignore[call-arg]
             elif spec.kind == "text":
@@ -3095,9 +3106,9 @@ class TkApp:
         return False
 
     def _sync_widgets_for_keys(self, update: dict[str, Any]) -> None:
-        """Update only label/status/message/text widgets named in *update*."""
+        """Update only label/status/message/button/text widgets named in *update*."""
         for spec in self._widgets:
-            if spec.kind in ("label", "status", "message"):
+            if spec.kind in ("label", "status", "message", "button"):
                 if spec.name not in update:
                     continue
                 tk_w = self._tk_widgets.get(spec.name)
@@ -4259,7 +4270,12 @@ class TkApp:
 
     def _on_button_click(self, spec: WidgetSpec, fn: Any) -> None:
         values = self._entry_values_dict()
-        self._apply_callback_result(self._dispatch(spec.name, fn, values))
+        result = self._dispatch(spec.name, fn, values)
+        # Sugar: returning a plain string from a button callback updates that
+        # button's own label, i.e. ``return "world"`` == ``return {"<name>": "world"}``.
+        if isinstance(result, str):
+            result = {spec.name: result}
+        self._apply_callback_result(result)
 
     def _on_entry_change(self, spec: WidgetSpec, fn: Any) -> None:
         value = self._entry_effective_value(spec.name)
@@ -4365,6 +4381,23 @@ class TkApp:
         from nextpytk.layout import LayoutBuilder
         return LayoutBuilder()
 
+    def _auto_layout(self) -> Any:
+        """Build a default single-column layout from registered widgets.
+
+        Used when ``run()`` is called without ``layout=``. Widgets appear in
+        registration order; chrome helpers (e.g. ``@app.status``) that already
+        mounted themselves into the root are skipped so they are not placed
+        twice. Returns ``None`` when there are no widgets to arrange.
+        """
+        from nextpytk.layout import Layout
+        names = [
+            w.name for w in self._widgets
+            if w.name not in self._tk_widgets
+        ]
+        if not names:
+            return None
+        return Layout.from_list(names)
+
     def run(
         self,
         *,
@@ -4437,10 +4470,15 @@ class TkApp:
         self._configure_theme(self._root)
         self.clear_runtime()
 
+        if layout is None:
+            # Sugar: with no layout, auto-arrange every registered widget into
+            # a single vertical column in registration order. Ideal for quick
+            # demos and beginner-friendly single-button apps.
+            layout = self._auto_layout()
+        if isinstance(layout, list):
+            from nextpytk.layout import Layout
+            layout = Layout.from_list(layout)
         if layout is not None:
-            if isinstance(layout, list):
-                from nextpytk.layout import Layout
-                layout = Layout.from_list(layout)
             layout.mount_frames(self)
 
         # Mount swap-target variant frames before widgets are built so each
@@ -4578,6 +4616,11 @@ class TkApp:
         self.clear_runtime()
         self._event_loop = asyncio.get_running_loop()
 
+        if layout is None:
+            layout = self._auto_layout()
+        if isinstance(layout, list):
+            from nextpytk.layout import Layout
+            layout = Layout.from_list(layout)
         if layout is not None:
             layout.mount_frames(self)
 

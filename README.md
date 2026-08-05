@@ -11,7 +11,7 @@ Uses ttk widgets where available.
 
 ## Quick Start
 
-Start with an app where a button updates a message.
+Start with an app where a button updates its own label.
 
 ```bash
 pip install nextpytk
@@ -22,59 +22,48 @@ from nextpytk import TkApp
 
 app = TkApp(title="Hello")
 
-@app.status("msg")
-def msg():
-    return "Hello, world!"
+@app.button("hello")
+def on_hello():
+    return "world"
 
-@app.button("greet", label="Greet")
-def on_greet():
-    return {"msg": "Button clicked!"}
-
-app.run(layout=["msg", "greet"])
+app.run()
 ```
+
+That's it: a window appears with a button labeled `hello`. Press it and the
+label becomes `world`.
 
 ---
 
 ## How it works
 
-In nextpytk you register widgets by name and declare layout separately.
-
-This example registers two widgets: `msg` and `greet`.
+The minimal example packs a lot in. Let's unpack it.
 
 ```python
-@app.status("msg")
+@app.button("hello")
 ```
 
-`msg` is a status area that shows a message.
+Registers a button named `hello`. When `label=` is omitted, the widget name is
+used as the button text.
 
 ```python
-@app.button("greet", label="Greet")
+def on_hello():
+    return "world"
 ```
 
-`greet` is a button labeled "Greet".
-
-Finally, name the display order:
+The callback runs when the button is pressed. Returning a plain string updates
+that button's own label — it's sugar for `{"hello": "world"}`.
 
 ```python
-app.run(layout=["msg", "greet"])
+app.run()
 ```
 
-When you press the button, the callback returns this `dict`:
+With no `layout=`, registered widgets are arranged automatically into a single
+column, so you don't have to declare one for a simple app.
 
-```python
-{"msg": "Button clicked!"}
-```
-
-nextpytk merges that into the app `state`.
-
-Because `msg` is the name of the registered status area, its text becomes
-"Button clicked!".
-
-So the basic flow is:
+The basic flow is:
 
 * Register widgets by name
-* List those names in the layout
-* Return a `dict` from a callback
+* Return a `dict` (or a plain string) from a callback
 * `state` updates and matching widgets refresh
 
 ---
