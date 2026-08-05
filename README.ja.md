@@ -848,6 +848,10 @@ uv run python examples/bottom_bar_demo.py       # 下部固定バー（section s
 - **`CustomTkinter`**: Canvas 描画によるモダンな見た目。nextpytk は逆にネイティブウィジェットと初期からの A11y を選びます。
 - **`TkRouter`** (israel-dryer, ttkbootstrap 作者): URL 風パス・アニメーション遷移・履歴スタックによる宣言的ルーティング。nextpytk の `multiview` と補完関係（画面遷移 vs ウィジェット構築）。
 
+## Changelog
+
+変更履歴は [CHANGES.md](./CHANGES.md) を参照してください。
+
 ## License
 
 MIT

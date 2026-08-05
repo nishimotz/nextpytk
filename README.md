@@ -856,6 +856,10 @@ uv run python examples/bottom_bar_demo.py       # pinned bottom bar (section sid
 - **`CustomTkinter`**: Modern look via Canvas rendering. nextpytk takes the opposite approach: use native widgets and embed A11y from the start.
 - **`TkRouter`** (israel-dryer, author of ttkbootstrap): Declarative view routing with URL-style paths, animated transitions, and history stack. Complements nextpytk's `multiview` — routing vs widget composition.
 
+## Changelog
+
+See [CHANGES.md](./CHANGES.md) for the full release history.
+
 ## License
 
 MIT
