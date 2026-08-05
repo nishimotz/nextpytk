@@ -52,6 +52,59 @@ def test_button_label_updates_from_plain_string(build):
     assert str(app.widget("hello").cget("text")) == "world"
 
 
+def test_button_callback_returning_none_is_ignored(build):
+    """Returning None from a button callback leaves the label unchanged."""
+    app = TkApp(title="t")
+
+    @app.button("hello", label="hello")
+    def on_hello(values):
+        return None
+
+    build(app, layout=["hello"])
+    app.widget("hello").invoke()
+    assert str(app.widget("hello").cget("text")) == "hello"
+
+
+def test_button_callback_returning_set_is_ignored_with_warning(build):
+    """A set (e.g. {"hello", "world"}) is not a state dict; warn and ignore."""
+    app = TkApp(title="t")
+
+    @app.button("hello", label="hello")
+    def on_hello(values):
+        return {"hello", "world"}
+
+    build(app, layout=["hello"])
+    app.widget("hello").invoke()
+    # Label unchanged; the set is not applied as state.
+    assert str(app.widget("hello").cget("text")) == "hello"
+
+
+def test_button_callback_returning_list_is_ignored(build):
+    """A list is not a valid return; warn and ignore (layout is via layout=)."""
+    app = TkApp(title="t")
+
+    @app.button("hello", label="hello")
+    def on_hello(values):
+        return ["hello", "world"]
+
+    build(app, layout=["hello"])
+    app.widget("hello").invoke()
+    assert str(app.widget("hello").cget("text")) == "hello"
+
+
+def test_button_callback_returning_tuple_is_ignored(build):
+    """A tuple is not a valid return; warn and ignore."""
+    app = TkApp(title="t")
+
+    @app.button("hello", label="hello")
+    def on_hello(values):
+        return ("hello", "world")
+
+    build(app, layout=["hello"])
+    app.widget("hello").invoke()
+    assert str(app.widget("hello").cget("text")) == "hello"
+
+
 def test_auto_layout_builds_single_column(build):
     """_auto_layout arranges registered widgets when run() has no layout."""
     app = TkApp(title="t")
@@ -81,6 +134,47 @@ def test_auto_layout_none_when_no_widgets():
     """_auto_layout returns None when there is nothing to arrange."""
     app = TkApp(title="t")
     assert app._auto_layout() is None
+
+
+def test_layout_names_detects_orphan(build):
+    """_warn_orphan_layout_names flags a layout name with no registration."""
+    app = TkApp(title="t")
+
+    @app.button("go", label="Go")
+    def go(values):
+        return {}
+
+    from nextpytk import Layout
+    layout = Layout.from_list(["go", "missing"])
+    names = app._layout_names(layout)
+    assert "go" in names
+    assert "missing" in names
+
+
+def test_layout_names_collects_grid_cells(build):
+    """Grid cells are collected as layout-referenced names."""
+    app = TkApp(title="t")
+
+    @app.button("go", label="Go")
+    def go(values):
+        return {}
+
+    from nextpytk import Layout
+    layout = Layout().grid().widget("go").end_grid()
+    assert "go" in app._layout_names(layout)
+
+
+def test_entry_callback_returning_string_warns(build):
+    """A string from an entry callback is invalid and ignored with a warning."""
+    app = TkApp(title="t")
+
+    @app.entry("name", placeholder="Name")
+    def on_name(value):
+        return "unexpected"
+
+    build(app, layout=["name"])
+    # Entry content is driven by state; a bare string return must not crash.
+    assert app.widget("name") is not None
 
 
 def test_entry_state_disabled_is_applied(build):

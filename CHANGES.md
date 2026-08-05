@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   arranges every registered widget into a single column in registration order
   (via the new `_auto_layout()`). Chrome helpers that already mounted
   themselves are skipped.
+- Button callbacks that return a `set`/`list`/`tuple` are now rejected with a
+  clear stderr warning instead of being silently ignored. `None` still means
+  "no update". Warnings are centralized in `_warn_invalid_callback_return()`
+  and also applied to `entry` callbacks (e.g. a stray string return).
+- Layout validation: `run()` / `run_async()` warn via
+  `_warn_orphan_layout_names()` when a `layout=` references a widget name that
+  is not registered (previously rendered an empty section silently).
 
 ### Changed
 
@@ -30,7 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `tests/test_api.py`: `test_button_label_updates_from_state_dict`,
   `test_button_label_updates_from_plain_string`,
-  `test_auto_layout_builds_single_column`, `test_auto_layout_none_when_no_widgets`.
+  `test_auto_layout_builds_single_column`, `test_auto_layout_none_when_no_widgets`,
+  `test_layout_names_detects_orphan`, `test_layout_names_collects_grid_cells`,
+  `test_entry_callback_returning_string_warns`,
+  `test_button_callback_returning_none_is_ignored`,
+  `test_button_callback_returning_set_is_ignored_with_warning`,
+  `test_button_callback_returning_list_is_ignored`,
+  `test_button_callback_returning_tuple_is_ignored`.
 
 ## [0.4.8] — 2026-08-05
 
