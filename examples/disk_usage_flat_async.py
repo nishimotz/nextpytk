@@ -299,12 +299,12 @@ if __name__ == "__main__":
     app.run_async(
         layout=(
             Layout()
+            .section("up_btn", side="bottom")
             .section("path_lbl")
             .section("status_lbl")
             .section("summary_lbl")
             .section("detail_lbl")
             .section("file_list", fill=Fill.BOTH, expand=True)
-            .section("up_btn")
         ),
         on_ready=_on_ready,
         geometry="620x800",

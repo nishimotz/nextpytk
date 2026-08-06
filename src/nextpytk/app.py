@@ -3707,6 +3707,62 @@ class TkApp:
         except tk.TclError:
             pass
 
+    def _relax_minsize(
+        self,
+        *,
+        explicit_geometry: str | None = None,
+        default_min: tuple[int, int] = (380, 260),
+    ) -> None:
+        """Lower the window minimum size when the content requests less.
+
+        ``configure_window`` applies a default ``minsize`` (380x260) so small
+        dialogs are still comfortably usable and accessible. But for a tiny
+        app — e.g. a single-button hello demo whose requested size is
+        ``146x123`` — that default forcibly stretches the window, wasting
+        vertical space.
+
+        This helper re-measures the layout's requested size after widgets are
+        built (``update_idletasks``) and clamps the minimum to
+        ``min(default, requested)`` per axis. The minimum is only ever
+        *lowered*, never raised, so it remains a lower bound: a window whose
+        content requests more than the default still grows to fit
+        (``minsize`` only sets a floor, it does not cap the size).
+
+        When the caller passes an explicit ``geometry`` (e.g.
+        ``"720x480"``) the window size is intentional, so the minimum is left
+        untouched.
+        """
+        root = self._root
+        if root is None or explicit_geometry:
+            return
+
+        def _apply() -> None:
+            try:
+                root.update_idletasks()
+                req_w, req_h = root.winfo_reqwidth(), root.winfo_reqheight()
+                min_w, min_h = root.wm_minsize()
+                if min_w <= 0 and min_h <= 0:
+                    return
+                new_w = max(1, min(req_w, min_w))
+                new_h = max(1, min(req_h, min_h))
+                if (new_w, new_h) != (min_w, min_h):
+                    # minsize is a floor, not a cap: lowering it does not
+                    # shrink a window already mapped at the larger default.
+                    root.minsize(new_w, new_h)
+                    # Deferring to after_idle lets the first map settle; then
+                    # we shrink the window to its requested size so a small
+                    # app does not open with wasted space.
+                    root.after_idle(
+                        lambda: root.geometry(f"{req_w}x{req_h}")
+                    )
+            except tk.TclError:
+                pass
+
+        try:
+            root.after_idle(_apply)
+        except tk.TclError:
+            pass
+
     # ── a11y choke point ──
 
     def _a11y_target(self, spec: WidgetSpec) -> tk.Widget | None:
@@ -4765,6 +4821,7 @@ class TkApp:
         self._sync_progressbars()
         self._sync_widget_states()
         self._set_initial_focus()
+        self._relax_minsize(explicit_geometry=geometry)
         self._root.mainloop()
 
     def run_async(
@@ -4900,6 +4957,7 @@ class TkApp:
         self._sync_progressbars()
         self._sync_widget_states()
         self._set_initial_focus()
+        self._relax_minsize(explicit_geometry=geometry)
         await self._async_mainloop()
 
     # ── schema export (for AI agents / LLM Function Calling) ──

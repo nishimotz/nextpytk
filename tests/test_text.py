@@ -325,3 +325,39 @@ def test_set_padding_gridded(build):
     assert info["padx"] == (5, 10)
     assert info["pady"] == 3
 
+
+def test_relax_minsize_lowers_min_to_requested(build):
+    """A tiny app should not be stretched to the 380x260 default minimum."""
+    app = TkApp(title="t")
+
+    @app.button("hello")
+    def on_hello():
+        return "world"
+
+    build(app, layout=["hello"])
+    app._relax_minsize()
+    root = app._root
+    root.update_idletasks()
+    req_w, req_h = root.winfo_reqwidth(), root.winfo_reqheight()
+    min_w, min_h = root.wm_minsize()
+    # Minimum must not exceed the requested size (it may be lowered to fit).
+    assert min_w <= req_w
+    assert min_h <= req_h
+
+
+def test_relax_minsize_skips_when_explicit_geometry(build):
+    """Explicit geometry must be respected; minsize stays at the default."""
+    app = TkApp(title="t")
+
+    @app.button("hello")
+    def on_hello():
+        return "world"
+
+    build(app, layout=["hello"])
+    root = app._root
+    root.geometry("720x480")
+    app._relax_minsize(explicit_geometry="720x480")
+    root.update_idletasks()
+    min_w, min_h = root.wm_minsize()
+    assert (min_w, min_h) == (380, 260)
+
