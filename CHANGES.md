@@ -47,7 +47,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [0.4.10] — 2026-08-06
 
-Bug-fix-only release (no new features or breaking changes).
+### Added
+
+- `@app.text` accepts `scrollbar=False` to omit the vertical scrollbar. The
+  text widget is built and wired up (content set/read via `text_set` /
+  `text_get` still work) but no vertical scrollbar is created. Useful for
+  read-only, single-purpose text panes — e.g. a borderless code listing in a
+  slide deck — that should render as a plain surface without a scrollbar.
+- `app.show(name)` / `app.hide(name)` runtime helpers toggle a widget's
+  visibility without losing its layout geometry. `hide` removes the widget
+  from its section (via `grid_remove` / `pack_forget`) and remembers it, so a
+  later `apply_state`/`sync` does not repack it; `show` restores it to its
+  original grid cell or pack options. `app.is_visible(name)` reports the
+  current mapped state. Both are safe to call on already-hidden/visible
+  widgets and on widgets that have not been built yet. This replaces the
+  manual `winfo_manager()` + `grid_remove()` dance.
 
 ### Fixed
 
@@ -73,6 +87,15 @@ Bug-fix-only release (no new features or breaking changes).
   `test_debug_layout_after_root_destroyed` (debug_layout safe after the root /
   interpreter is destroyed; also asserts `check_layout_conflicts()` is safe).
 - `tests/test_types.py`: `TestFilepickerCallbackType::test_exports_concrete_signature`
+- `tests/test_text.py`:
+  `test_text_without_scrollbar_has_no_vscrollbar` (scrollbar=False omits the
+  vertical scrollbar while the text widget stays usable),
+  `test_text_scrollbar_defaults_to_present` (vertical scrollbar present by
+  default),
+  `test_hide_removes_widget_and_show_restores_packed`,
+  `test_hide_show_gridded_widget_preserves_cell`,
+  `test_hide_show_idempotent` (app.show/hide toggle visibility while
+  preserving layout geometry; no-op when idempotent).
   (FilepickerCallback exports the concrete single-arg signature).
 
 ## [0.4.8] — 2026-08-05

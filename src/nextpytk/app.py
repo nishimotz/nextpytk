@@ -316,6 +316,16 @@ class TkApp:
         self._text_scrollbars: dict[str, ttk.Scrollbar] = {}
         self._text_hscrollbars: dict[str, ttk.Scrollbar] = {}
         self._text_scroll_sync: dict[str, str] = {}
+        # Widgets explicitly hidden via ``app.hide(name)`` so they are not
+        # rebuilt as visible on the next sync.
+        self._hidden_widgets: set[str] = set()
+        # pack options captured from ``pack_info()`` at hide time, replayed by
+        # ``app.show(name)`` to restore a packed widget's geometry.
+        self._hidden_pack_opts: dict[str, dict[str, Any]] = {}
+        # Geometry manager ("grid" | "pack") in effect when a widget was
+        # hidden, so ``show()`` knows how to restore it after ``grid_remove`` /
+        # ``pack_forget`` cleared ``winfo_manager``.
+        self._hidden_geometry: dict[str, str] = {}
         # Callables invoked after a text widget's content is replaced, keyed by
         # text widget name. Used by paired line-number gutters to stay in sync.
         self._text_set_hooks: dict[str, list[Callable[[], None]]] = {}
@@ -368,6 +378,9 @@ class TkApp:
         self._text_scrollbars.clear()
         self._text_scroll_sync.clear()
         self._text_set_hooks.clear()
+        self._hidden_widgets.clear()
+        self._hidden_pack_opts.clear()
+        self._hidden_geometry.clear()
         self._a11y_last_toggle.clear()
         self._pending_ingest.clear()
         self._ingest_flush_job = None
@@ -825,6 +838,71 @@ class TkApp:
 
     def widget(self, name: str) -> tk.Widget | None:
         return self._tk_widgets.get(name)
+
+    def hide(self, name: str) -> None:
+        """Hide a built widget, keeping its layout geometry.
+
+        The widget is removed from its section via ``grid_remove`` /
+        ``pack_forget`` and remembered in ``self._hidden_widgets`` so a later
+        ``apply_state`` sync does not repack it. Call ``app.show(name)`` to
+        restore it. Safe to call when the widget is already hidden or not yet
+        built (it is merely remembered).
+        """
+        self._hidden_widgets.add(name)
+        w = self._tk_widgets.get(name)
+        if w is None:
+            return
+        if w.winfo_manager() == "grid":
+            # grid_remove preserves the original grid options internally, so
+            # show() only needs to call grid() again.
+            self._hidden_geometry[name] = "grid"
+            w.grid_remove()
+        else:
+            self._hidden_geometry[name] = "pack"
+            try:
+                self._hidden_pack_opts[name] = dict(w.pack_info())
+            except tk.TclError:
+                pass
+            w.pack_forget()
+
+    def show(self, name: str) -> None:
+        """Restore a widget previously hidden with ``app.hide(name)``.
+
+        Repacks the widget into its section frame. ``grid_remove`` preserves
+        the original grid options, so a widget hidden while gridded returns
+        to its exact cell. A widget that was ``pack``ed is re-packed with the
+        same side/fill/expand it had at hide time. Safe to call when the
+        widget is already visible.
+        """
+        self._hidden_widgets.discard(name)
+        w = self._tk_widgets.get(name)
+        if w is None:
+            return
+        if w.winfo_manager() == "grid":
+            # grid_remove kept the geometry; just restore.
+            w.grid()
+            return
+        if w.winfo_manager() == "pack":
+            return
+        manager = self._hidden_geometry.pop(name, None)
+        if manager == "grid":
+            # grid_remove left the cell options in place; grid() restores it.
+            w.grid()
+            return
+        opts = self._hidden_pack_opts.pop(name, None)
+        if opts is None:
+            return
+        # pack_info() returns option keys with trailing underscores; strip
+        # them so they are accepted by pack().
+        clean = {k.rstrip("_"): v for k, v in opts.items()}
+        w.pack(**clean)
+
+    def is_visible(self, name: str) -> bool:
+        """Return True if the named widget is currently mapped (not hidden)."""
+        w = self._tk_widgets.get(name)
+        if w is None:
+            return False
+        return w.winfo_manager() in ("pack", "grid", "place")
 
     def text_widget(self, name: str) -> tk.Text | None:
         """Return the real ``tk.Text`` widget for a registered text widget.
@@ -2266,6 +2344,9 @@ class TkApp:
         behavior). When False (default), Tab moves focus to the next widget
         and the user can use Ctrl+Tab / Ctrl+I to insert a literal tab
         (WCAG 2.1.1 Keyboard, 2.4.3 Focus Order).
+        ``scrollbar``: when False, omit the vertical scrollbar (default True).
+        The text widget stays built and editable; only the scrollbar is
+        skipped. Useful for read-only panes rendered as a plain surface.
         """
         width = options.get("width", 50)
         height = options.get("height", 8)
@@ -2285,6 +2366,7 @@ class TkApp:
             default="word", widget=f"text:{name}",
         )
         h_scroll = options.get("h_scroll", False)
+        scrollbar = options.get("scrollbar", True)
         def decorator(fn: ValueCallback) -> ValueCallback:
             extras: dict[str, Any] = {"width": width, "height": height, "tab_inserts": tab_inserts}
             if state != "normal":
@@ -2301,6 +2383,8 @@ class TkApp:
                 extras["wrap"] = wrap
             if h_scroll:
                 extras["h_scroll"] = True
+            if not scrollbar:
+                extras["scrollbar"] = False
             self._add_spec(WidgetSpec(
                 name=name, kind="text", description=description,
                 on_update=fn,
@@ -3988,10 +4072,12 @@ class TkApp:
         )
         if e.get("font") is not None:
             w.configure(font=e["font"])
-        scroll = ttk.Scrollbar(container, orient=tk.VERTICAL, command=w.yview)
-        w.configure(yscrollcommand=scroll.set)
+        scroll: ttk.Scrollbar | None = None
+        if e.get("scrollbar", True):
+            scroll = ttk.Scrollbar(container, orient=tk.VERTICAL, command=w.yview)
+            w.configure(yscrollcommand=scroll.set)
+            scroll.grid(row=0, column=1, sticky="ns")
         w.grid(row=0, column=0, sticky="nsew")
-        scroll.grid(row=0, column=1, sticky="ns")
         h_scroll = e.get("h_scroll", False)
         if h_scroll:
             # Logical-line mode: add a horizontal scrollbar so long lines can
@@ -4005,7 +4091,6 @@ class TkApp:
         self._tk_widgets[spec.name] = container
         self._text_inner[spec.name] = w
         self._text_scrollbars[spec.name] = scroll
-
         tags: dict[str, dict[str, Any]] | None = e.get("tags")
         if tags:
             for tag_name, tag_kw in tags.items():

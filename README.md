@@ -554,6 +554,26 @@ state (e.g. a treeview selection or scroll position) survives switching. Each
 variant is a `Layout` or a list of widget names. See
 `examples/swap_demo.py`.
 
+### Showing and hiding widgets
+
+To show a single widget conditionally at runtime, use `app.hide(name)` /
+`app.show(name)`:
+
+```python
+if should_show:
+    app.show("code")   # restore to its original grid cell / pack position
+else:
+    app.hide("code")   # remove without losing layout geometry
+```
+
+- `app.hide(name)` removes the widget from its section (`grid_remove` /
+  `pack_forget`) and remembers it, so a later `apply_state`/`sync` does not
+  repack it.
+- `app.show(name)` restores it to the exact grid cell or pack options it had.
+- `app.is_visible(name)` reports whether the widget is currently mapped.
+- All three are safe to call on already-hidden/visible widgets, and on widgets
+  that have not been built yet.
+
 ### Fluent DSL
 
 **Pack sections:**
@@ -642,7 +662,7 @@ app.run(layout=b.build())
 | `@app.combobox(name, values=..., values_key=..., readonly=..., font=...)` | ttk.Combobox | selected value `str` | `dict` |
 | `@app.menubar(name)` | tk.Menu (window menubar) | — | menu item list |
 | `@app.filepicker(name, mode=..., label=..., title=..., filetypes=..., ...)` | ttk.Button → tkinter.filedialog | selected path(s) `str`, `list[str]`, or `None` | `dict` |
-| `@app.text(name, width=..., height=..., font=..., wrap=..., h_scroll=...)` | tk.Text | full content `str` | `dict` |
+| `@app.text(name, width=..., height=..., font=..., wrap=..., h_scroll=..., scrollbar=...)` | tk.Text | full content `str` | `dict` |
 | `@app.scale(name, from_=..., to=..., orient=...)` | ttk.Scale | value `str` | `dict` |
 | `@app.spinbox(name, from_=..., to=..., values=..., font=...)` | ttk.Spinbox | value `str` | `dict` |
 | `@app.listbox(name, items=..., items_key=..., selectmode=..., font=..., events=...)` | tk.Listbox | selected index `int` (`-1` if none) | `dict` |
@@ -696,6 +716,7 @@ Button, checkbutton, radiobutton, spinbox, combobox, listbox, text options:
 Text options (continued):
 - `wrap`: `Wrap.WORD` (default) / `Wrap.NONE` / `Wrap.CHAR`. `Wrap.NONE` keeps each logical line on a single row.
 - `h_scroll`: when `True`, a horizontal scrollbar is added (and wired to `xscrollcommand`) so long lines are reachable, typically used with `wrap=Wrap.NONE`.
+- `scrollbar`: when `False`, the vertical scrollbar is omitted. The text widget stays built and usable (set/read via `text_set` / `text_get`) but renders as a plain surface — handy for a borderless code listing.
 
 Every widget decorator also accepts `widget_kwargs: dict` for per-widget
 design-token overrides applied after construction. Keys are widget-native

@@ -549,6 +549,26 @@ app.swap_view("main_area", "file")
 保持されます。各 variant は `Layout` またはウィジェット名のリストです。
 `examples/swap_demo.py` を参照してください。
 
+### ウィジェットの表示 / 非表示
+
+単一ウィジェットを実行時に条件付きで出し分けたい場合に、`app.hide(name)` /
+`app.show(name)` を使います:
+
+```python
+if should_show:
+    app.show("code")   # 元の grid セル / pack 位置に復元
+else:
+    app.hide("code")   # レイアウト情報を失わずに取り除く
+```
+
+- `app.hide(name)` はウィジェットを section から外し（`grid_remove` /
+  `pack_forget`）、記録しておくため、後続の `apply_state` / `sync` で再配置
+  されません。
+- `app.show(name)` は元の grid セル / pack オプションの位置に復元します。
+- `app.is_visible(name)` はウィジェットが現在マップされているかを返します。
+- いずれも既に隠れている / 表示されているウィジェットや、まだ構築前の
+  ウィジェットに対して安全に呼べます。
+
 ### Fluent DSL
 
 **Pack セクション:**
@@ -638,7 +658,7 @@ app.run(layout=b.build())
 | `@app.combobox(name, values=..., values_key=..., readonly=..., font=...)` | ttk.Combobox | 選択値 `str` | `dict` |
 | `@app.menubar(name)` | tk.Menu（ウィンドウメニューバー） | — | メニュー項目リスト |
 | `@app.filepicker(name, mode=..., label=..., title=..., filetypes=..., ...)` | ttk.Button → tkinter.filedialog | 選択パス `str`, `list[str]`, または `None` | `dict` |
-| `@app.text(name, width=..., height=..., font=..., wrap=..., h_scroll=...)` | tk.Text | 全内容 `str` | `dict` |
+| `@app.text(name, width=..., height=..., font=..., wrap=..., h_scroll=..., scrollbar=...)` | tk.Text | 全内容 `str` | `dict` |
 | `@app.scale(name, from_=..., to=..., orient=...)` | ttk.Scale | 値 `str` | `dict` |
 | `@app.spinbox(name, from_=..., to=..., values=..., font=...)` | ttk.Spinbox | 値 `str` | `dict` |
 | `@app.listbox(name, items=..., items_key=..., selectmode=..., font=..., events=...)` | tk.Listbox | 選択 index `int`（未選択は `-1`） | `dict` |
@@ -691,6 +711,7 @@ button / checkbutton / radiobutton / spinbox / combobox / listbox / text:
 text の追加オプション:
 - `wrap`: `Wrap.WORD`（デフォルト）/ `Wrap.NONE` / `Wrap.CHAR`。`Wrap.NONE` は各論理行を1行に保ちます。
 - `h_scroll`: `True` にすると水平スクロールバーを追加します（`xscrollcommand` に接続）。通常は `wrap=Wrap.NONE` と組み合わせて長い行にアクセスします。
+- `scrollbar`: `False` にすると垂直スクロールバーを省略します。テキストウィジェット自体は構築され使い続けられます（`text_set` / `text_get` で読み書き可能）が、プレーンな表示になります。枠線のないコード表示などに向いています。
 
 すべてのウィジェットデコレータは `widget_kwargs: dict` も受け付け、構築後に
 ウィジェット単位でデザイントークンを上書きできます。キーはウィジェット

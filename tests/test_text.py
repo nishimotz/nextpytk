@@ -157,3 +157,111 @@ def test_text_without_h_scroll_has_no_hscrollbar(build):
     assert real is not None
     assert real.cget("xscrollcommand") == ""
 
+
+def test_text_without_scrollbar_has_no_vscrollbar(build):
+    app = TkApp(title="t")
+
+    @app.text("body", scrollbar=False)
+    def body(value: str) -> dict[str, str]:
+        return {}
+
+    build(app, layout=["body"])
+    assert app._text_scrollbars.get("body") is None
+    real = app.text_widget("body")
+    assert real is not None
+    # No vertical scrollbar wired up, so yscrollcommand stays empty.
+    assert real.cget("yscrollcommand") == ""
+    # The text itself is still built and usable.
+    app.text_set("body", "line one\nline two")
+    assert app.text_get("body") == "line one\nline two"
+
+
+def test_text_scrollbar_defaults_to_present(build):
+    app = TkApp(title="t")
+
+    @app.text("body")
+    def body(value: str) -> dict[str, str]:
+        return {}
+
+    build(app, layout=["body"])
+    assert app._text_scrollbars.get("body") is not None
+    real = app.text_widget("body")
+    assert real is not None
+    assert real.cget("yscrollcommand")
+
+
+def test_hide_removes_widget_and_show_restores_packed(build):
+    app = TkApp(title="t")
+
+    @app.label("note")
+    def note():
+        return "hi"
+
+    @app.text("body")
+    def body(value: str) -> dict[str, str]:
+        return {}
+
+    build(app, layout=["note", "body"])
+
+    body_w = app.widget("body")
+    note_w = app.widget("note")
+    assert body_w is not None and note_w is not None
+    assert app.is_visible("body")
+    assert app.is_visible("note")
+
+    app.hide("body")
+    assert not app.is_visible("body")
+    assert app.is_visible("note")  # sibling unaffected
+    # Hidden widget is remembered so a later sync does not repack it.
+    assert "body" in app._hidden_widgets
+    app.sync()
+    assert not app.is_visible("body")
+
+    app.show("body")
+    assert app.is_visible("body")
+    assert "body" not in app._hidden_widgets
+    # Grid/pack geometry preserved.
+    assert body_w.winfo_manager() == "pack"
+
+
+def test_hide_show_gridded_widget_preserves_cell(build):
+    app = TkApp(title="t")
+
+    @app.text("body")
+    def body(value: str) -> dict[str, str]:
+        return {}
+
+    build(app, layout=["body"])
+    # Force the text onto the grid by re-packing it into a small grid cell.
+    container = app.widget("body")
+    assert container is not None
+    container.grid_forget()
+    container.grid(row=0, column=0, sticky="nsew")
+
+    app.hide("body")
+    assert not app.is_visible("body")
+    app.show("body")
+    assert app.is_visible("body")
+    # grid_remove preserved the original cell.
+    info = container.grid_info()
+    assert info["row"] == 0
+    assert info["column"] == 0
+
+
+def test_hide_show_idempotent(build):
+    app = TkApp(title="t")
+
+    @app.label("note")
+    def note():
+        return "hi"
+
+    build(app, layout=["note"])
+    # Hiding an already-hidden widget is a no-op.
+    app.hide("note")
+    app.hide("note")
+    assert not app.is_visible("note")
+    # Showing an already-visible widget is a no-op.
+    app.show("note")
+    app.show("note")
+    assert app.is_visible("note")
+
