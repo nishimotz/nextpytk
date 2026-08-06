@@ -176,7 +176,8 @@ with app.view(
                   ("oval", 150, 20, 250, 80, {"fill": "red"}),
                   ("line", 20, 120, 280, 120, {"fill": "green", "width": 3}),
                   ("text", 150, 170,
-                   {"text": "Canvas demo", "font": ("TkDefaultFont", 14)}),
+                   {"text": "Canvas demo", "font": ("TkDefaultFont", 14),
+                    "fill": "#1a1a1a"}),
               ])
     def _cv_noop(): return
 
