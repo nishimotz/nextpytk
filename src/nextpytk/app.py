@@ -313,7 +313,7 @@ class TkApp:
         self._treeview_inner: dict[str, ttk.Treeview] = {}
         self._treeview_row_cache: dict[str, tuple[Any, ...]] = {}
         self._text_inner: dict[str, tk.Text] = {}
-        self._text_scrollbars: dict[str, ttk.Scrollbar] = {}
+        self._text_scrollbars: dict[str, ttk.Scrollbar | None] = {}
         self._text_hscrollbars: dict[str, ttk.Scrollbar] = {}
         self._text_scroll_sync: dict[str, str] = {}
         # Widgets explicitly hidden via ``app.hide(name)`` so they are not
