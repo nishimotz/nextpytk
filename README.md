@@ -571,7 +571,12 @@ else:
   repack it.
 - `app.show(name)` restores it to the exact grid cell or pack options it had.
 - `app.is_visible(name)` reports whether the widget is currently mapped.
-- All three are safe to call on already-hidden/visible widgets, and on widgets
+- `app.set_padding(name, padx=..., pady=...)` dynamically changes layout
+  padding. It is **hide-aware**: while a widget is hidden the change is
+  remembered and applied when `show()` restores it, instead of calling
+  `pack_configure` on a `pack_forget`'d widget (which would silently re-show
+  it).
+- All four are safe to call on already-hidden/visible widgets, and on widgets
   that have not been built yet.
 
 ### Fluent DSL

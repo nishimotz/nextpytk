@@ -326,6 +326,11 @@ class TkApp:
         # hidden, so ``show()`` knows how to restore it after ``grid_remove`` /
         # ``pack_forget`` cleared ``winfo_manager``.
         self._hidden_geometry: dict[str, str] = {}
+        # Pending padding changes requested via ``set_padding`` while a widget
+        # was hidden. They are applied by ``show()`` when the widget returns,
+        # because calling ``pack_configure`` on a ``pack_forget``'d widget
+        # would re-pack (re-show) it prematurely.
+        self._hidden_padding: dict[str, dict[str, Any]] = {}
         # Callables invoked after a text widget's content is replaced, keyed by
         # text widget name. Used by paired line-number gutters to stay in sync.
         self._text_set_hooks: dict[str, list[Callable[[], None]]] = {}
@@ -381,6 +386,7 @@ class TkApp:
         self._hidden_widgets.clear()
         self._hidden_pack_opts.clear()
         self._hidden_geometry.clear()
+        self._hidden_padding.clear()
         self._a11y_last_toggle.clear()
         self._pending_ingest.clear()
         self._ingest_flush_job = None
@@ -891,11 +897,20 @@ class TkApp:
             return
         opts = self._hidden_pack_opts.pop(name, None)
         if opts is None:
+            # A widget hidden without pack options (grid path) still needs any
+            # remembered padding applied once it is gridded again.
+            pending = self._hidden_padding.pop(name, None)
+            if pending and w.winfo_manager() == "grid":
+                w.grid_configure(**pending)
             return
         # pack_info() returns option keys with trailing underscores; strip
         # them so they are accepted by pack().
         clean = {k.rstrip("_"): v for k, v in opts.items()}
         w.pack(**clean)
+        # Apply padding requested while the widget was hidden.
+        pending = self._hidden_padding.pop(name, None)
+        if pending and w.winfo_manager() == "pack":
+            w.pack_configure(**pending)
 
     def is_visible(self, name: str) -> bool:
         """Return True if the named widget is currently mapped (not hidden)."""
@@ -903,6 +918,47 @@ class TkApp:
         if w is None:
             return False
         return w.winfo_manager() in ("pack", "grid", "place")
+
+    def set_padding(
+        self,
+        name: str,
+        *,
+        padx: int | tuple[int, int] | None = None,
+        pady: int | tuple[int, int] | None = None,
+    ) -> None:
+        """Dynamically change a built widget's layout padding, hide-aware.
+
+        ``padx``/``pady`` mirror the ``pack`` padding options. Only the
+        padding is changed; side/fill/expand/position are left untouched.
+
+        When the widget is currently visible it is applied immediately. When
+        it is hidden (see :meth:`hide`) the change is remembered and applied
+        when :meth:`show` restores the widget. This avoids the classic Tk
+        pitfall where calling ``pack_configure`` on a ``pack_forget``'d
+        widget silently re-packs (re-shows) it.
+
+        Works for ``grid``-managed widgets too: the new padding is applied via
+        ``grid_configure``.
+        """
+        w = self._tk_widgets.get(name)
+        if w is None:
+            return
+        # Remember the request regardless, so a change made while hidden is
+        # applied on show(). Only store the options that were actually given.
+        pending: dict[str, Any] = {}
+        if padx is not None:
+            pending["padx"] = padx
+        if pady is not None:
+            pending["pady"] = pady
+        if pending:
+            self._hidden_padding[name] = pending
+
+        if w.winfo_manager() == "grid":
+            w.grid_configure(**pending)
+        elif w.winfo_manager() == "pack":
+            w.pack_configure(**pending)
+        # Else (hidden / not yet packed): keep the remembered value; show()
+        # applies it.
 
     def text_widget(self, name: str) -> tk.Text | None:
         """Return the real ``tk.Text`` widget for a registered text widget.

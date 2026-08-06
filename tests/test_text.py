@@ -265,3 +265,63 @@ def test_hide_show_idempotent(build):
     app.show("note")
     assert app.is_visible("note")
 
+
+def test_set_padding_visible_applies_immediately(build):
+    app = TkApp(title="t")
+
+    @app.label("note")
+    def note():
+        return "hi"
+
+    build(app, layout=["note"])
+
+    w = app.widget("note")
+    assert w is not None
+    app.set_padding("note", padx=30)
+    assert w.winfo_manager() == "pack"
+    assert w.pack_info().get("padx") == 30
+
+
+def test_set_padding_hidden_applies_on_show(build):
+    """set_padding while hidden must not re-pack (re-show) the widget."""
+    app = TkApp(title="t")
+
+    @app.label("note")
+    def note():
+        return "hi"
+
+    build(app, layout=["note"])
+    w = app.widget("note")
+    assert w is not None
+
+    app.hide("note")
+    assert not app.is_visible("note")
+
+    # The bug: calling pack_configure on a pack_forget'd widget re-shows it.
+    app.set_padding("note", padx=40)
+    assert not app.is_visible("note"), "hidden widget must stay hidden"
+
+    app.show("note")
+    assert app.is_visible("note")
+    assert w.pack_info().get("padx") == 40
+    assert "note" not in app._hidden_padding
+
+
+def test_set_padding_gridded(build):
+    app = TkApp(title="t")
+
+    @app.text("body")
+    def body(value: str) -> dict[str, str]:
+        return {}
+
+    build(app, layout=["body"])
+    w = app.widget("body")
+    assert w is not None
+    w.grid_forget()
+    w.grid(row=0, column=0, sticky="nsew")
+
+    app.set_padding("body", padx=(5, 10), pady=3)
+    info = w.grid_info()
+    assert info["padx"] == (5, 10)
+    assert info["pady"] == 3
+

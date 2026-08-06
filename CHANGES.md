@@ -62,6 +62,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   current mapped state. Both are safe to call on already-hidden/visible
   widgets and on widgets that have not been built yet. This replaces the
   manual `winfo_manager()` + `grid_remove()` dance.
+- `app.set_padding(name, padx=..., pady=...)` dynamically changes a built
+  widget's layout padding. It is **hide-aware**: while a widget is hidden the
+  change is remembered and applied when `show()` restores it, instead of
+  calling `pack_configure` on a `pack_forget`'d widget (which would silently
+  re-show it). This makes resize-driven padding updates safe in apps that
+  also toggle a widget's visibility.
 
 ### Fixed
 
@@ -96,6 +102,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `test_hide_show_gridded_widget_preserves_cell`,
   `test_hide_show_idempotent` (app.show/hide toggle visibility while
   preserving layout geometry; no-op when idempotent).
+  `test_set_padding_visible_applies_immediately`,
+  `test_set_padding_hidden_applies_on_show` (set_padding must not re-pack a
+  hidden widget; the change is applied on show),
+  `test_set_padding_gridded` (padding applied via grid_configure).
   (FilepickerCallback exports the concrete single-arg signature).
 
 ## [0.4.8] — 2026-08-05
