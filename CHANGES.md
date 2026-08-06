@@ -33,6 +33,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - README Quick Start is now a minimal single-button example (label update via
   plain-string return, `app.run()` with auto layout).
 
+### Tests
+
+- `tests/test_api.py`: `test_button_label_updates_from_state_dict`,
+  `test_button_label_updates_from_plain_string`,
+  `test_auto_layout_builds_single_column`, `test_auto_layout_none_when_no_widgets`,
+  `test_layout_names_detects_orphan`, `test_layout_names_collects_grid_cells`,
+  `test_entry_callback_returning_string_warns`,
+  `test_button_callback_returning_none_is_ignored`,
+  `test_button_callback_returning_set_is_ignored_with_warning`,
+  `test_button_callback_returning_list_is_ignored`,
+  `test_button_callback_returning_tuple_is_ignored`.
+
+## [0.4.10] — 2026-08-06
+
+Bug-fix-only release (no new features or breaking changes).
+
 ### Fixed
 
 - `debug_layout()` no longer crashes with
@@ -45,15 +61,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Tests
 
-- `tests/test_api.py`: `test_button_label_updates_from_state_dict`,
-  `test_button_label_updates_from_plain_string`,
-  `test_auto_layout_builds_single_column`, `test_auto_layout_none_when_no_widgets`,
-  `test_layout_names_detects_orphan`, `test_layout_names_collects_grid_cells`,
-  `test_entry_callback_returning_string_warns`,
-  `test_button_callback_returning_none_is_ignored`,
-  `test_button_callback_returning_set_is_ignored_with_warning`,
-  `test_button_callback_returning_list_is_ignored`,
-  `test_button_callback_returning_tuple_is_ignored`.
 - `tests/test_debug_layout.py`:
   `test_debug_layout_after_root_destroyed` (debug_layout safe after the root /
   interpreter is destroyed).
