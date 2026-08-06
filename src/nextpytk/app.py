@@ -37,7 +37,6 @@ from nextpytk.types import (
     ComboboxOptions,
     EntryOptions,
     EventSeq,
-    FilepickerCallback,
     FilepickerOptions,
     FillLike,
     LabelOptions,
@@ -105,9 +104,6 @@ ButtonCallback = (
     | Callable[[], dict[str, Any]]
 )
 BindCallback = ButtonCallback  # bind: same signature as button
-
-# filepicker: receives selected path(s) or None, returns state dict
-FilepickerCallback = Callable[[str | list[str] | None], dict[str, Any]]
 
 # entry / text / scale / spinbox: receives value str (optional), returns state dict
 ValueCallback = Callable[[str], dict[str, Any]] | Callable[[], dict[str, Any]]
@@ -1049,6 +1045,10 @@ class TkApp:
 
         A ``warnings.warn`` is emitted for every conflict found, so it can be
         used as a debugging aid after ``build_widgets`` (or inside ``run``).
+
+        Safe to call after ``run()`` has returned: when the Tk interpreter has
+        been torn down (the window was closed), ``debug_layout()`` reports no
+        live widgets and this returns an empty list instead of raising.
         """
         debug = self.debug_layout()
         conflicts: list[dict[str, Any]] = []

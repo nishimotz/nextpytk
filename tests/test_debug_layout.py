@@ -288,3 +288,6 @@ def test_debug_layout_after_root_destroyed(harness, build):
     assert debug["alive"] is False
     assert debug["sections"] == []
     assert debug["conflicts"] == []
+
+    # check_layout_conflicts must also be safe after destruction.
+    assert app.check_layout_conflicts() == []

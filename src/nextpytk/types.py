@@ -237,7 +237,7 @@ LabelCallback = Callable[[], str | dict[str, Any]]
 BindCallback = Callable[[dict[str, Any]], dict[str, Any]]
 TreeviewSelectCallback = Callable[[int, list[Any]], dict[str, Any]]
 TreeviewActivateCallback = Callable[[int, list[Any]], dict[str, Any]]
-FilepickerCallback = Callable[..., dict[str, Any]]
+FilepickerCallback = Callable[[str | list[str] | None], dict[str, Any]]
 
 # ── generic event sequences (bindings, listbox events, etc.) ──
 

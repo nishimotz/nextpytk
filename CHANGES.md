@@ -58,12 +58,22 @@ Bug-fix-only release (no new features or breaking changes).
   `sections`/`conflicts` instead of raising. Each widget/master query is also
   guarded with `winfo_exists()` so a partially-torn-down tree is handled
   gracefully.
+- `check_layout_conflicts()` is likewise safe to call after the app is
+  destroyed (it returns an empty list instead of raising); documented on the
+  method docstring.
+- `FilepickerCallback` type alias consolidated to a single source in
+  `types.py`. It previously existed in both `types.py` (loose `*args` form)
+  and `app.py` (concrete `(str | list[str] | None) -> dict` form), where the
+  `app.py` shadow hid the exported one. The concrete signature now lives in
+  `types.py` only, and the shadowing redefinition in `app.py` was removed.
 
 ### Tests
 
 - `tests/test_debug_layout.py`:
   `test_debug_layout_after_root_destroyed` (debug_layout safe after the root /
-  interpreter is destroyed).
+  interpreter is destroyed; also asserts `check_layout_conflicts()` is safe).
+- `tests/test_types.py`: `TestFilepickerCallbackType::test_exports_concrete_signature`
+  (FilepickerCallback exports the concrete single-arg signature).
 
 ## [0.4.8] — 2026-08-05
 
