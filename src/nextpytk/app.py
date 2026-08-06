@@ -911,23 +911,57 @@ class TkApp:
         Useful for diagnosing clipping, minsize, and geometry-manager issues
         without needing to sprinkle ``winfo_*`` calls in user code.  Output is
         JSON-compatible so it can be logged or handed to an agent.
+
+        Safe to call after ``run()`` has returned: once the window is closed the
+        Tk interpreter (and every widget) is destroyed, so ``winfo_*`` queries
+        would otherwise raise ``TclError``.  ``debug_layout()`` reports
+        ``"alive"`` as ``False`` and skips destroyed widgets instead of crashing.
         """
-        out: dict[str, Any] = {"title": self._title, "sections": []}
+        def _is_alive() -> bool:
+            if self._root is None:
+                return False
+            try:
+                return bool(self._root.winfo_exists())
+            except tk.TclError:
+                # The whole Tk interpreter is gone (e.g. root destroyed after
+                # run()/mainloop exits); nothing can be queried anymore.
+                return False
+
+        alive = _is_alive()
+        out: dict[str, Any] = {
+            "title": self._title,
+            "alive": alive,
+            "sections": [],
+        }
+        if not alive:
+            out["conflicts"] = []
+            return out
+
         seen_sections: dict[int, dict[str, Any]] = {}
         for spec in self._widgets:
             name = spec.name
             w = self._tk_widgets.get(name)
-            if w is None:
+            if w is None or not bool(w.winfo_exists()):
                 continue
             master = w.master
             sec_id = id(master)
             if sec_id not in seen_sections:
-                seen_sections[sec_id] = {
-                    "master": master,
-                    "master_class": master.winfo_class(),
-                    "master_geometry": master.winfo_geometry(),
-                    "widgets": [],
-                }
+                if master is None or not bool(master.winfo_exists()):
+                    seen_sections[sec_id] = {
+                        "master": master,
+                        "master_class": None,
+                        "master_geometry": None,
+                        "destroyed": True,
+                        "widgets": [],
+                    }
+                else:
+                    seen_sections[sec_id] = {
+                        "master": master,
+                        "master_class": master.winfo_class(),
+                        "master_geometry": master.winfo_geometry(),
+                        "destroyed": False,
+                        "widgets": [],
+                    }
             info: dict[str, Any] = {
                 "name": name,
                 "kind": spec.kind,
@@ -973,7 +1007,7 @@ class TkApp:
                 if w["manager"]:
                     managers.add(w["manager"])
                 widget_names.append(w["name"])
-            if master is not None:
+            if master is not None and bool(master.winfo_exists()):
                 try:
                     for child in master.winfo_children():
                         mgr = child.winfo_manager()

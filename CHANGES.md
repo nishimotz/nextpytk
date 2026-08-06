@@ -33,6 +33,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - README Quick Start is now a minimal single-button example (label update via
   plain-string return, `app.run()` with auto layout).
 
+### Fixed
+
+- `debug_layout()` no longer crashes with
+  `TclError: can't invoke "winfo" command: application has been destroyed`
+  when called after `run()`/`mainloop` exits (the window was closed and the
+  Tk interpreter torn down). It now reports `"alive": False` and returns empty
+  `sections`/`conflicts` instead of raising. Each widget/master query is also
+  guarded with `winfo_exists()` so a partially-torn-down tree is handled
+  gracefully.
+
 ### Tests
 
 - `tests/test_api.py`: `test_button_label_updates_from_state_dict`,
@@ -44,6 +54,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `test_button_callback_returning_set_is_ignored_with_warning`,
   `test_button_callback_returning_list_is_ignored`,
   `test_button_callback_returning_tuple_is_ignored`.
+- `tests/test_debug_layout.py`:
+  `test_debug_layout_after_root_destroyed` (debug_layout safe after the root /
+  interpreter is destroyed).
 
 ## [0.4.8] — 2026-08-05
 

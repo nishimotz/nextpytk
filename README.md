@@ -770,12 +770,15 @@ app.schema()
 
 After widgets are built, `app.debug_layout()` returns JSON-compatible geometry
 and pack/grid info for every registered widget (useful for clipping, minsize,
-and layout regressions).
+and layout regressions). It is safe to call after `run()` has returned: once
+the window is closed the Tk interpreter is torn down, and `debug_layout()`
+reports `"alive": False` with empty `sections`/`conflicts` instead of crashing
+on destroyed widgets.
 
 ```python
 app.run(layout=["msg", "go"])  # or build via tests / custom runner
 print(app.debug_layout())
-# → {"title": "...", "sections": [{"widgets": [{"name": "msg", "geometry": ..., ...}, ...]}]}
+# → {"title": "...", "alive": True, "sections": [{"widgets": [{"name": "msg", "geometry": ..., ...}, ...]}]}
 ```
 
 **Detecting geometry-manager conflicts.** Mixing `pack`/`grid`/`place` on one

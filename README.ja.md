@@ -764,12 +764,15 @@ app.schema()
 
 ウィジェット構築後に `app.debug_layout()` を呼ぶと、登録ウィジェットごとの
 geometry / pack・grid 情報を JSON 互換で返せます（クリップや minsize、
-レイアウト回帰の調査向け）。
+レイアウト回帰の調査向け）。`run()` が終了した後でも安全に呼べます。
+ウィンドウを閉じると Tk インタープリタが破棄されますが、
+`debug_layout()` は破棄済みウィジェットでクラッシュせず
+`"alive": False` と空の `sections`/`conflicts` を返します。
 
 ```python
 app.run(layout=["msg", "go"])  # またはテスト / カスタム runner
 print(app.debug_layout())
-# → {"title": "...", "sections": [{"widgets": [{"name": "msg", "geometry": ..., ...}, ...]}]}
+# → {"title": "...", "alive": True, "sections": [{"widgets": [{"name": "msg", "geometry": ..., ...}, ...]}]}
 ```
 
 **ジオメトリマネージャー混在の検出。** `pack`/`grid`/`place` の混在（例: `wrap`/`flow`
