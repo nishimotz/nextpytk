@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from nextpytk import TkApp
+from nextpytk import TkApp, Layout
 
 from .conftest import requires_display
 
@@ -291,3 +291,55 @@ def test_debug_layout_after_root_destroyed(harness, build):
 
     # check_layout_conflicts must also be safe after destruction.
     assert app.check_layout_conflicts() == []
+
+
+def test_show_debug_padding_badges_padded_frames(build):
+    """show_debug_padding badges every distinct section frame with padding."""
+    from nextpytk import tokens as t
+
+    app = TkApp(title="pad")
+
+    @app.button("go", label="Go")
+    def go(vals):
+        return {}
+
+    build(app, layout=Layout()
+          .section("go", padx=t.SPACE[2], pady=t.SPACE[3]))
+    app.show_debug_padding(True)
+    badges = app._debug_padding_badges
+    # At least the explicit-padding section frame gets a badge.
+    assert len(badges) >= 1
+    texts = [b.cget("text") for b in badges]
+    assert any("padx 8" in s for s in texts)  # SPACE[2] == 8
+    assert any("pady 12" in s for s in texts)  # SPACE[3] == 12
+
+
+def test_show_debug_padding_toggle_off_removes_badges(build):
+    from nextpytk import tokens as t
+
+    app = TkApp(title="pad")
+
+    @app.button("go", label="Go")
+    def go(vals):
+        return {}
+
+    build(app, layout=Layout().section("go", padx=t.SPACE[2], pady=t.SPACE[2]))
+    app.show_debug_padding(True)
+    assert len(app._debug_padding_badges) >= 1
+    app.show_debug_padding(False)
+    assert app._debug_padding_badges == []
+
+
+def test_widget_padding_reports_layout_padding(build):
+    from nextpytk import tokens as t
+
+    app = TkApp(title="pad")
+
+    @app.button("go", label="Go")
+    def go(vals):
+        return {}
+
+    build(app, layout=Layout().section("go", padx=t.SPACE[2], pady=t.SPACE[2]))
+    # Padding lives on the section frame, so the widget's own padding is 0.
+    assert app.widget_padding("go") == {"padx": 0, "pady": 0}
+

@@ -265,9 +265,11 @@ class TkApp:
         debug: bool = False,
         theme: bool | str = "kizashi",
         ingest_trace: bool = False,
+        debug_padding: bool = False,
     ):
         self._title = title
         self._debug = debug
+        self._debug_padding = debug_padding
         self._theme = self._normalize_theme(theme)
         self._kizashi = self._theme == "kizashi"
         # When True, a ``trace_add("write", ...)`` is installed on every
@@ -342,6 +344,7 @@ class TkApp:
         self._declared_state_keys: set[str] = set()
         self._warned_state_keys: set[str] = set()
         self._first_focusable: tk.Widget | None = None
+        self._debug_padding_badges: list[tk.Label] = []
         self._register_default_builders()
 
     def _normalize_theme(self, theme: bool | str) -> str:
@@ -387,6 +390,7 @@ class TkApp:
         self._hidden_pack_opts.clear()
         self._hidden_geometry.clear()
         self._hidden_padding.clear()
+        self._debug_padding_badges.clear()
         self._a11y_last_toggle.clear()
         self._pending_ingest.clear()
         self._ingest_flush_job = None
@@ -979,6 +983,121 @@ class TkApp:
         # Else (hidden / not yet packed): keep the remembered value; show()
         # applies it.
 
+    def widget_padding(self, name: str) -> dict[str, Any]:
+        """Return the current layout padding of a built widget.
+
+        Reads ``pack_info()`` / ``grid_info()`` and reports the padding as
+        ``{"padx": ..., "pady": ...}``. Values are normalized to the
+        ``(left, right)`` / ``(top, bottom)`` form where possible so callers
+        (and the padding debug overlay) get a stable shape. Returns ``{}``
+        when the widget is not built or not managed.
+        """
+        w = self._tk_widgets.get(name)
+        if w is None or not bool(w.winfo_exists()):
+            return {}
+        try:
+            mgr = w.winfo_manager()
+            if mgr == "pack":
+                pi = w.pack_info()
+                padx, pady = pi.get("padx"), pi.get("pady")
+            elif mgr == "grid":
+                gi = w.grid_info()
+                padx, pady = gi.get("padx"), gi.get("pady")
+            else:
+                return {}
+        except tk.TclError:
+            return {}
+        return {"padx": padx, "pady": pady}
+
+    def show_debug_padding(self, on: bool = True) -> None:
+        """Overlay each padded layout frame with a small badge showing its padding.
+
+        Layout padding lives on the **section frames** (``Layout.section()``,
+        ``frame()``, etc. pack the frame with ``padx``/``pady``), not on the
+        widget itself. So this method inspects every distinct section frame
+        that owns at least one built widget and, when the frame reports a
+        non-zero ``padx``/``pady``, places a small colored badge at its top-left
+        corner reading e.g. ``padx 8 / pady 12``.
+
+        Toggle off with ``show_debug_padding(False)``. When ``debug_padding=True``
+        is passed to the constructor, the overlay is enabled automatically at
+        startup. The badges are ``place``-managed labels over the root, so they
+        never disturb the pack/grid layout itself.
+        """
+        root = self._root
+        if root is None:
+            return
+        # Remove any existing badges first (idempotent toggle).
+        self._hide_debug_padding_badges()
+        if not on:
+            return
+        # Distinct section frames that own widgets, in a stable order.
+        seen_frames: list[tk.Widget] = []
+        for name in self._widgets:
+            frame = self._widget_masters.get(name.name)
+            if frame is None or not bool(frame.winfo_exists()):
+                continue
+            if frame not in seen_frames:
+                seen_frames.append(frame)
+        for frame in seen_frames:
+            padx, pady = self._frame_padding(frame)
+            if not padx and not pady:
+                continue
+            self._debug_padding_badges.append(
+                self._make_padding_badge(root, frame, padx, pady)
+            )
+
+    def _frame_padding(self, frame: tk.Widget) -> tuple[Any, Any]:
+        """Return the (padx, pady) a layout frame is packed/gridded with."""
+        try:
+            mgr = frame.winfo_manager()
+            if mgr == "pack":
+                pi = frame.pack_info()
+                return pi.get("padx"), pi.get("pady")
+            if mgr == "grid":
+                gi = frame.grid_info()
+                return gi.get("padx"), gi.get("pady")
+        except tk.TclError:
+            pass
+        return None, None
+
+    def _make_padding_badge(
+        self,
+        root: tk.Misc,
+        widget: tk.Widget,
+        padx: Any,
+        pady: Any,
+    ) -> tk.Label:
+        """Create a small colored label placed at the widget's top-left corner."""
+        badge = tk.Label(
+            root,
+            text=f"padx {padx} / pady {pady}",
+            bg="#ffd54d",
+            fg="#000000",
+            relief="solid",
+            borderwidth=1,
+            font=("TkDefaultFont", 8),
+        )
+        try:
+            wx = widget.winfo_rootx()
+            wy = widget.winfo_rooty()
+            rrx = root.winfo_rootx()
+            rry = root.winfo_rooty()
+            # Keep the badge just inside the widget's top-left corner.
+            badge.place(x=wx - rrx, y=wy - rry)
+        except tk.TclError:
+            pass
+        return badge
+
+    def _hide_debug_padding_badges(self) -> None:
+        """Destroy any previously created padding badges."""
+        for b in self._debug_padding_badges:
+            try:
+                b.destroy()
+            except tk.TclError:
+                pass
+        self._debug_padding_badges.clear()
+
     def text_widget(self, name: str) -> tk.Text | None:
         """Return the real ``tk.Text`` widget for a registered text widget.
 
@@ -1130,6 +1249,8 @@ class TkApp:
                         "side": pi.get("side"),
                         "fill": pi.get("fill"),
                         "expand": pi.get("expand"),
+                        "padx": pi.get("padx"),
+                        "pady": pi.get("pady"),
                     }
                 elif mgr == "grid":
                     gi = w.grid_info()
@@ -1137,6 +1258,8 @@ class TkApp:
                         "row": gi.get("row"),
                         "column": gi.get("column"),
                         "sticky": gi.get("sticky"),
+                        "padx": gi.get("padx"),
+                        "pady": gi.get("pady"),
                     }
             except tk.TclError:
                 pass
@@ -4831,6 +4954,8 @@ class TkApp:
         self._sync_widget_states()
         self._set_initial_focus()
         self._relax_minsize(explicit_geometry=geometry)
+        if self._debug_padding:
+            self.show_debug_padding(True)
         self._root.mainloop()
 
     def run_async(
@@ -4967,6 +5092,8 @@ class TkApp:
         self._sync_widget_states()
         self._set_initial_focus()
         self._relax_minsize(explicit_geometry=geometry)
+        if self._debug_padding:
+            self.show_debug_padding(True)
         await self._async_mainloop()
 
     # ── schema export (for AI agents / LLM Function Calling) ──
