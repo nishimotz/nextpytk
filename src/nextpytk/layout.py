@@ -974,11 +974,17 @@ class Layout:
             open the standard 8px gap, etc.
         padx, pady: Direct pixel overrides. If either is provided, it takes
             precedence over the value derived from ``spacing``.
+        page_margin: The outer page margin (pixels) applied to the root's
+            ``content_frame`` when the layout is run at a top level (the
+            default Kizashi page pad, ``SPACE[6]`` / 24px). Set to 0 to make
+            the layout hug the window edge. This only affects the outermost
+            ``content_frame``; per-block ``padx``/``pady`` still apply.
     """
 
     padx: int | None = None
     pady: int | None = None
     spacing: int = 1
+    page_margin: int | None = None
 
     _blocks: list[_Block] = field(default_factory=list)
 
@@ -1472,11 +1478,15 @@ class Layout:
         # When the root is a true top-level window (run/run_async), wrap the
         # layout in a content frame so the Kizashi ground color and page
         # margin apply even to the simplest Layout.from_list() examples.
+        # ``page_margin`` lets the caller override the default SPACE[6] pad.
         from nextpytk.theme import content_frame, window_header, status_bar
         from nextpytk import tokens as t
+        page_margin = self.page_margin
+        if page_margin is None:
+            page_margin = t.SPACE[6]
         is_toplevel = isinstance(parent, tk.Tk) or getattr(parent, "winfo_toplevel", lambda: parent)() is parent
         if is_toplevel:
-            body = content_frame(parent, padding=t.SPACE[6])
+            body = content_frame(parent, padding=page_margin)
         else:
             # View/tab pages breathe too: inner content margin so sections
             # don't hug the notebook border (SPACE[6] / 24px page pad).

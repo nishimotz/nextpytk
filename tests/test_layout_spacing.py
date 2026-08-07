@@ -34,6 +34,25 @@ def _section_frame(app: TkApp, name: str):
     return w.master  # type: ignore[no-any-return]
 
 
+def _content_frame(app: TkApp, name: str):
+    """Return the outermost content_frame that wraps the named widget's section."""
+    frame = _section_frame(app, name)
+    root = frame.winfo_toplevel()
+    while frame is not root and frame.master is not root:
+        frame = frame.master  # type: ignore[assignment]
+    return frame
+
+
+def _cget_int(w, option: str) -> int:
+    value = w.cget(option)
+    if isinstance(value, str):
+        return int(value)
+    if isinstance(value, (tuple, list)):
+        # padding may be (l, r, t, b) or (x, y); use the first element.
+        return int(value[0])
+    return int(value)
+
+
 def _pack_info(app: TkApp, name: str):
     return _section_frame(app, name).pack_info()  # type: ignore[no-any-return]
 
@@ -145,3 +164,27 @@ def test_from_list_inherits_layout_spacing(build):
     b_info = _pack_info(app, "b")
     assert int(a_info["pady"]) == t.SPACE[2]
     assert int(b_info["pady"]) == t.SPACE[2]
+
+
+def test_layout_page_margin_default_is_space6(build):
+    """The top-level content_frame page pad defaults to SPACE[6] (24px)."""
+    app = _label_app()
+    build(app, layout=Layout().section("a"))
+    content = _content_frame(app, "a")
+    assert _cget_int(content, "padding") == t.SPACE[6]
+
+
+def test_layout_page_margin_zero(build):
+    """page_margin=0 removes the page pad from the content_frame."""
+    app = _label_app()
+    build(app, layout=Layout(page_margin=0).section("a"))
+    content = _content_frame(app, "a")
+    assert _cget_int(content, "padding") == 0
+
+
+def test_layout_page_margin_explicit(build):
+    """page_margin accepts an explicit pixel override."""
+    app = _label_app()
+    build(app, layout=Layout(page_margin=8).section("a"))
+    content = _content_frame(app, "a")
+    assert _cget_int(content, "padding") == 8

@@ -51,6 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   of raising `ValueError`. The latest definition wins. `bind` specs are still
   exempt: a bind sharing a button's name remains the documented shortcut
   pairing and never replaces a widget spec.
+- `Layout` accepts a `page_margin` option that overrides the outer
+  `content_frame` page pad (default `SPACE[6]` / 24px). Pass `page_margin=0`
+  to make a top-level layout hug the window edge; the per-block
+  `padx`/`pady` still apply.
 - `_relax_minsize()` no longer pins the window to a fixed `WxH` geometry. It
   now resets the explicit geometry (`geometry("")`) after lowering the
   minimum, so a small app still opens at its requested size but the window
