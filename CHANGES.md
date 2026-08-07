@@ -4,7 +4,7 @@ All notable changes to nextpytk are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.4.11] — 2026-08-07
+## [0.4.11] — 2026-08-08
 
 ### Added
 
@@ -80,6 +80,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   clipping it).
 - `tests/test_api.py`: `test_layout_names_excludes_nested_frame_name` (a
   `frame(name, ...)` container name is not flagged as an orphan).
+- `tests/test_layout_spacing.py`:
+  `test_layout_page_margin_default_is_space6`,
+  `test_layout_page_margin_zero`,
+  `test_layout_page_margin_explicit` (the outer `content_frame` page pad is
+  overridable via `Layout(page_margin=...)`),
+  `test_set_page_margin_updates_runtime` (`app.set_page_margin()` re-scales
+  the page pad at runtime).
+- `tests/test_errors.py`:
+  `test_duplicate_widget_name_replaces_in_place`,
+  `test_re_register_same_kind_replaces_callback`,
+  `test_unregister_removes_spec`,
+  `test_unregister_then_re_register` (re-registering replaces in place;
+  `app.unregister(name)` removes a spec).
 - `tests/test_debug_layout.py`:
   `test_show_debug_padding_badges_padded_frames` (badges placed on section
   frames that carry padding),
@@ -88,7 +101,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `test_show_debug_padding_reports_inner_padding` (label `padding` and text
   `padx`/`pady` inner badges),
   `test_show_debug_padding_reports_self_padding` (cyan self badge for a widget
-  packed with explicit `padx`/`pady`).
+  packed with explicit `padx`/`pady`),
+  `test_show_debug_padding_section_badge_lists_widgets`,
+  `test_show_debug_padding_rebuilds_after_set_padding`,
+  `test_show_debug_padding_toggle_off_unbinds_resize`,
+  `test_show_debug_layout_badges_render_json_info`,
+  `test_show_debug_layout_toggle_off`,
+  `test_debug_badges_clickable_to_lift`,
+  `test_refresh_debug_overlay_rebuilds_active_badges`,
+  `test_refresh_debug_overlay_noop_when_inactive`,
+  `test_debug_badges_skip_hidden_widgets`,
+  `test_debug_overlay_periodic_poll_moves_badges`,
+  `test_debug_overlay_poll_cancelled_when_off`,
+  `test_inner_badge_placed_inside_widget`,
+  `test_inner_badge_text_aligns_first_character`,
+  `test_show_debug_padding_shows_page_margin_badge`,
+  `test_show_debug_padding_page_badge_tracks_set_page_margin`.
 
 ## [0.4.10] — 2026-08-07
 
