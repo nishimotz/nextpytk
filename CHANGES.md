@@ -41,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   widget's `debug_layout()` JSON info as a badge at the widget's own location
   — the visual, in-window counterpart of `debug_layout()` (geometry, requested
   size, and pack/grid details). Re-places on resize (debounced).
+- `app.set_page_margin(margin)` updates the outer `content_frame` page pad at
+  runtime, so a resize handler can re-scale it proportionally (e.g. to window
+  height). This complements `Layout(page_margin=...)`, which sets the initial
+  value.
 - `debug_layout()` now includes each widget's `padx`/`pady` in its
   `pack_info` / `grid_info` payloads.
 

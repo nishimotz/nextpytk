@@ -340,6 +340,9 @@ class TkApp:
         self._pane_frames: dict[str, tk.Widget] = {}
         self._layout_paned_opts: dict[str, dict[str, Any]] = {}
         self._current_pane: str | None = None
+        # The outermost content_frame (page-margin wrapper) created when a
+        # top-level layout is mounted; used to update the page margin at runtime.
+        self._content_frame: tk.Widget | None = None
         self._menubar_submenus: dict[str | int, list[tk.Menu | None]] = {}
         self._declared_state_keys: set[str] = set()
         self._warned_state_keys: set[str] = set()
@@ -391,6 +394,7 @@ class TkApp:
         self._pane_frames.clear()
         self._layout_paned_opts.clear()
         self._current_pane = None
+        self._content_frame = None
         self._tk_vars.clear()
         self._widget_masters.clear()
         self._row_pack_jobs.clear()
@@ -1008,6 +1012,22 @@ class TkApp:
             w.pack_configure(**pending)
         # Else (hidden / not yet packed): keep the remembered value; show()
         # applies it.
+
+    def set_page_margin(self, margin: int) -> None:
+        """Update the outer page margin (``content_frame`` padding) at runtime.
+
+        The outermost page pad defaults to ``SPACE[6]`` (24px), or whatever
+        ``Layout(page_margin=...)`` set. Use this to re-scale it dynamically
+        (e.g. proportionally to window height in a resize handler). It is a
+        no-op when the app has not mounted a top-level ``content_frame``.
+        """
+        frame = self._content_frame
+        if frame is None or not bool(frame.winfo_exists()):
+            return
+        try:
+            frame.configure(padding=margin)
+        except tk.TclError:
+            pass
 
     def widget_padding(self, name: str) -> dict[str, Any]:
         """Return the current layout padding of a built widget.

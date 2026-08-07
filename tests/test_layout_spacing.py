@@ -188,3 +188,17 @@ def test_layout_page_margin_explicit(build):
     build(app, layout=Layout(page_margin=8).section("a"))
     content = _content_frame(app, "a")
     assert _cget_int(content, "padding") == 8
+
+
+def test_set_page_margin_updates_runtime(build):
+    """set_page_margin() re-scales the content_frame page pad at runtime."""
+    app = _label_app()
+    build(app, layout=Layout().section("a"))
+    content = _content_frame(app, "a")
+    assert _cget_int(content, "padding") == t.SPACE[6]
+
+    app.set_page_margin(0)
+    assert _cget_int(content, "padding") == 0
+
+    app.set_page_margin(16)
+    assert _cget_int(content, "padding") == 16

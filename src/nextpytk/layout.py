@@ -1487,6 +1487,7 @@ class Layout:
         is_toplevel = isinstance(parent, tk.Tk) or getattr(parent, "winfo_toplevel", lambda: parent)() is parent
         if is_toplevel:
             body = content_frame(parent, padding=page_margin)
+            app._content_frame = body
         else:
             # View/tab pages breathe too: inner content margin so sections
             # don't hug the notebook border (SPACE[6] / 24px page pad).
