@@ -4,6 +4,23 @@ All notable changes to nextpytk are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.11] — 2026-08-07
+
+### Added
+
+- `TkApp.unregister(name)` removes a registered widget spec by name, returning
+  `True`/`False`. Useful in interactive sessions to drop a widget (and its
+  callback) before `run()`, e.g. to re-declare it with a different kind or
+  options.
+
+### Changed
+
+- Re-registering a widget name (e.g. re-decorating `@app.button("next")` in an
+  interactive session) now silently replaces the previous spec in place instead
+  of raising `ValueError`. The latest definition wins. `bind` specs are still
+  exempt: a bind sharing a button's name remains the documented shortcut
+  pairing and never replaces a widget spec.
+
 ## [0.4.10] — 2026-08-07
 
 ### Added

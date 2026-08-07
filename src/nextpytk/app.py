@@ -403,19 +403,38 @@ class TkApp:
         return _PaneContext(self, pane_id)
 
     def _add_spec(self, spec: WidgetSpec) -> None:
-        """Register a WidgetSpec, rejecting duplicate names.
+        """Register a WidgetSpec, replacing any existing spec with the same name.
 
-        ``bind`` specs are exempt: a bind sharing a button's name is the
-        documented pairing for shortcut annotation.
+        Re-registering a name (e.g. re-decorating ``@app.button("next")`` in an
+        interactive session) silently replaces the previous spec in place, so
+        the latest definition wins. ``bind`` specs are exempt from replacement
+        checks: a bind sharing a button's name is the documented pairing for
+        shortcut annotation, and a bind never replaces a widget spec.
         """
         if spec.kind != "bind":
-            for w in self._widgets:
+            for i, w in enumerate(self._widgets):
                 if w.name == spec.name and w.kind != "bind":
-                    raise ValueError(
-                        f"widget name {spec.name!r} is already registered "
-                        f"(kind={w.kind!r})"
-                    )
+                    self._widgets[i] = spec
+                    return
         self._widgets.append(spec)
+
+    def unregister(self, name: str) -> bool:
+        """Remove a registered widget spec by name.
+
+        Returns ``True`` if a spec was removed, ``False`` if no widget with
+        that name was registered. This is useful in interactive sessions to
+        drop a widget (and its callback) before ``run()``, e.g. to re-declare
+        it with a different kind or options.
+
+        Only the spec is removed; if the widget was already built, the live
+        Tk widget is left in place. Call ``unregister`` before ``run()`` /
+        ``build_widgets()`` to affect the built layout.
+        """
+        for i, w in enumerate(self._widgets):
+            if w.name == name:
+                del self._widgets[i]
+                return True
+        return False
 
     @staticmethod
     def _callback_accepts_args(fn: Callable[..., Any]) -> bool:
