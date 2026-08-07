@@ -1064,11 +1064,28 @@ class TkApp:
         Call this after such a change to force the padding and/or debug-layout
         badges to re-read live geometry. It is a no-op when neither overlay is
         active.
+
+        Rebuilding is deferred to ``after_idle`` so the badges are placed at
+        the widget's *final* positions. ``pack``/``grid`` settle their geometry
+        in an idle task, so reading positions synchronously right after
+        ``show()``/``hide()`` would capture stale coordinates.
         """
-        if self._debug_padding_rebind is not None:
-            self._build_padding_badges()
-        if self._debug_layout_rebind is not None:
-            self._build_debug_layout_badges()
+        root = self._root
+        if root is None:
+            return
+        if self._debug_padding_rebind is None and self._debug_layout_rebind is None:
+            return
+
+        def _rebuild() -> None:
+            if self._debug_padding_rebind is not None:
+                self._build_padding_badges()
+            if self._debug_layout_rebind is not None:
+                self._build_debug_layout_badges()
+
+        try:
+            root.after_idle(_rebuild)
+        except tk.TclError:
+            pass
 
     def _build_padding_badges(self) -> None:
         """(Re)build the padding badges from the current widget state.

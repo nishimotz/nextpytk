@@ -517,6 +517,7 @@ def test_refresh_debug_overlay_rebuilds_active_badges(build):
     # Change padding (as a dynamic layout change would), then refresh.
     app.set_padding("body", padx=15, pady=20)
     app.refresh_debug_overlay()
+    app._root.update_idletasks()  # refresh defers the rebuild to idle
     texts = [b.cget("text") for b in app._debug_padding_badges]
     assert any("widget[body] padx 15 / pady 20" in s for s in texts)
 
@@ -570,12 +571,14 @@ def test_debug_badges_skip_hidden_widgets(build):
     # Hide code, refresh → code badge disappears.
     app.hide("code")
     app.refresh_debug_overlay()
+    app._root.update_idletasks()
     assert "code" not in padding_names()
     assert "code" not in layout_names()
 
     # Show code again, refresh → badge returns.
     app.show("code")
     app.refresh_debug_overlay()
+    app._root.update_idletasks()
     assert "code" in padding_names()
     assert "code" in layout_names()
 
