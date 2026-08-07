@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `app.show_debug_padding(True)` / `(False)`) to place small colored badges
   over the layout. Three kinds of padding are color-coded: **section-frame
   outer padding** (yellow, `section padx 8 / pady 12`), **widget's own outer
-  padding** (cyan, `self padx 15 / pady 20`), and **widget inner padding**
+  padding** (cyan, `widget padx 15 / pady 20`), and **widget inner padding**
   (orange, `inner padx 8 / pady 12` — a label's `padding` option or a text
   widget's `padx`/`pady`). The badges are `place`-managed labels over the
   root, so they never disturb the pack/grid layout, and they re-place

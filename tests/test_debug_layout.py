@@ -378,7 +378,7 @@ def test_show_debug_padding_reports_self_padding(build):
     app.set_padding("body", padx=15, pady=20)
     app.show_debug_padding(True)
     texts = [b.cget("text") for b in app._debug_padding_badges]
-    assert any("self[body] padx 15 / pady 20" in s for s in texts)
+    assert any("widget[body] padx 15 / pady 20" in s for s in texts)
 
 
 def test_show_debug_padding_section_badge_lists_widgets(build):
@@ -415,13 +415,13 @@ def test_show_debug_padding_rebuilds_after_set_padding(build):
     build(app, layout=Layout().section("body"))
     app.show_debug_padding(True)
     texts = [b.cget("text") for b in app._debug_padding_badges]
-    assert not any("self[body] padx 15" in s for s in texts)
+    assert not any("widget[body] padx 15" in s for s in texts)
 
     # Change padding after the overlay is up, then rebuild (as <Configure> does).
     app.set_padding("body", padx=15, pady=20)
     app._build_padding_badges()
     texts = [b.cget("text") for b in app._debug_padding_badges]
-    assert any("self[body] padx 15 / pady 20" in s for s in texts)
+    assert any("widget[body] padx 15 / pady 20" in s for s in texts)
 
 
 def test_show_debug_padding_toggle_off_unbinds_resize(build):
@@ -495,4 +495,43 @@ def test_debug_badges_clickable_to_lift(build):
     for b in app._debug_padding_badges + app._debug_layout_badges:
         # A Button-1 binding is present (click lifts the badge to the front).
         assert b.bind("<Button-1>") != ""
+
+
+def test_refresh_debug_overlay_rebuilds_active_badges(build):
+    """refresh_debug_overlay() re-reads badges after a dynamic layout change."""
+    from nextpytk import tokens as t
+
+    app = TkApp(title="t")
+
+    @app.label("body")
+    def body():
+        return "Body"
+
+    build(app, layout=Layout().section("body", padx=t.SPACE[2], pady=t.SPACE[2]))
+    app.show_debug_padding(True)
+    app.show_debug_layout(True)
+    # Both overlays active; the body section badge shows padx 8.
+    texts = [b.cget("text") for b in app._debug_padding_badges]
+    assert any("section[body] padx 8" in s for s in texts)
+
+    # Change padding (as a dynamic layout change would), then refresh.
+    app.set_padding("body", padx=15, pady=20)
+    app.refresh_debug_overlay()
+    texts = [b.cget("text") for b in app._debug_padding_badges]
+    assert any("widget[body] padx 15 / pady 20" in s for s in texts)
+
+
+def test_refresh_debug_overlay_noop_when_inactive(build):
+    """refresh_debug_overlay() is a no-op when no overlay is active."""
+    app = TkApp(title="t")
+
+    @app.label("body")
+    def body():
+        return "Body"
+
+    build(app, layout=Layout().section("body"))
+    # No overlays shown; refresh must not create badges.
+    app.refresh_debug_overlay()
+    assert app._debug_padding_badges == []
+    assert app._debug_layout_badges == []
 

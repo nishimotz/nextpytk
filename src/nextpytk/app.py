@@ -1055,6 +1055,21 @@ class TkApp:
         self._build_padding_badges()
         self._bind_debug_padding_resize()
 
+    def refresh_debug_overlay(self) -> None:
+        """Re-read and re-place any active debug overlay badges.
+
+        The resize-triggered re-render only fires when the window size actually
+        changes, so dynamic layout changes that do not resize the window (e.g.
+        hiding/showing a widget, swapping a region) leave the badges stale.
+        Call this after such a change to force the padding and/or debug-layout
+        badges to re-read live geometry. It is a no-op when neither overlay is
+        active.
+        """
+        if self._debug_padding_rebind is not None:
+            self._build_padding_badges()
+        if self._debug_layout_rebind is not None:
+            self._build_debug_layout_badges()
+
     def _build_padding_badges(self) -> None:
         """(Re)build the padding badges from the current widget state.
 
@@ -1102,7 +1117,7 @@ class TkApp:
             opx, opy = self._frame_padding(w)
             if opx or opy:
                 self._debug_padding_badges.append(self._make_padding_badge(
-                    root, w, opx, opy, bg="#4dd0ff", label="self",
+                    root, w, opx, opy, bg="#4dd0ff", label="widget",
                     name=spec.name,
                 ))
             ipx, ipy = self._widget_inner_padding(spec, w)
