@@ -638,3 +638,27 @@ def test_inner_badge_placed_inside_widget(build):
     assert y >= 0
 
 
+def test_inner_badge_text_aligns_first_character(build):
+    """A text widget's inner badge aligns with its first character (padx, pady)."""
+    app = TkApp(title="t")
+
+    @app.text(
+        "code", readonly=True, wrap="none", height=4, width=40,
+        widget_kwargs={"padx": 20, "pady": 15},
+    )
+    def code_content(value):
+        return {}
+
+    build(app, layout=Layout().section("code"))
+    app.show_debug_padding(True)
+    inner = [b for b in app._debug_padding_badges
+             if "inner[code]" in b.cget("text")]
+    assert inner, "expected an inner[code] badge"
+    x = int(inner[0].place_info().get("x"))
+    y = int(inner[0].place_info().get("y"))
+    # The badge is offset by the text's padx/pady (20, 15), aligning with the
+    # first character's top-left corner inside the widget.
+    assert x == 20
+    assert y == 15
+
+

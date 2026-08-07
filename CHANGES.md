@@ -23,7 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   themselves on window resize. Section badges report the widget names they
   group (e.g. `section[title,body]`). The `inner` badge is placed just inside
   the widget's bottom edge so it reads as "inside" the widget rather than
-  stacked with the section/widget badges at the top-left. Hidden widgets (via
+  stacked with the section/widget badges at the top-left; for a `text` widget
+  it aligns with the first character's top-left corner (offset by the text's
+  `padx`/`pady`). Hidden widgets (via
   `app.hide()`) are excluded from the overlay, so a no-longer-visible widget
   leaves no stale badge. `app.show()` / `app.hide()` automatically re-place
   the badges, so

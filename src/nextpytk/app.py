@@ -1240,13 +1240,19 @@ class TkApp:
                 ))
             ipx, ipy = self._widget_inner_padding(spec, w)
             if ipx or ipy:
-                # Place the inner badge just inside the widget's bottom edge so
-                # it reads as "inside" the widget rather than stacked at the
-                # top-left with section/widget badges.
-                dy = max(0, (w.winfo_height() or 0) - 20)
+                # For text widgets the inner padx/pady sits the first character
+                # at (padx, pady) inside the widget, so align the inner badge
+                # with that first character's top-left corner. For labels,
+                # fall back to just inside the widget.
+                if spec.kind == "text":
+                    dx = self._inner_offset(ipx)
+                    dy = self._inner_offset(ipy)
+                else:
+                    dx = 0
+                    dy = max(0, (w.winfo_height() or 0) - 20)
                 self._debug_padding_badges.append(self._make_padding_badge(
                     root, w, ipx, ipy, bg="#ff9d4d", label="inner",
-                    name=spec.name, dy=dy,
+                    name=spec.name, dx=dx, dy=dy,
                 ))
 
     def _place_badge(self, badge: tk.Label, x: int, y: int) -> None:
@@ -1292,6 +1298,23 @@ class TkApp:
             pass
         return None, None
 
+    @staticmethod
+    def _inner_offset(v: Any) -> int:
+        """Return a pixel offset from an inner-padding value.
+
+        ``tk.Text``'s ``padx``/``pady`` are plain ints; a ``(left, top, ...)``
+        tuple (label ``padding``) uses its leading element. Anything else
+        (e.g. ``None``, a string) maps to 0.
+        """
+        if isinstance(v, bool):
+            return int(v)
+        if isinstance(v, (int, float)):
+            return int(v)
+        if isinstance(v, (tuple, list)):
+            if v and isinstance(v[0], (int, float)):
+                return int(v[0])
+        return 0
+
     def _frame_padding(self, frame: tk.Widget) -> tuple[Any, Any]:
         """Return the (padx, pady) a layout frame is packed/gridded with."""
         try:
@@ -1316,14 +1339,15 @@ class TkApp:
         bg: str,
         label: str,
         name: str = "",
+        dx: int = 0,
         dy: int = 0,
     ) -> tk.Label:
         """Create a small colored label placed at the widget's top-left corner.
 
         ``name`` (optional) is shown after the label so a section badge can
-        report which widget(s) it groups. ``dy`` nudges the badge down; see
-        :meth:`_place_badge` for the automatic collision-free placement used
-        here.
+        report which widget(s) it groups. ``dx``/``dy`` nudge the badge right /
+        down from the widget's top-left; see :meth:`_place_badge` for the
+        automatic collision-free placement used here.
         """
         text = f"{label} padx {padx} / pady {pady}"
         if name:
@@ -1345,7 +1369,7 @@ class TkApp:
             wy = widget.winfo_rooty()
             rrx = root.winfo_rootx()
             rry = root.winfo_rooty()
-            self._place_badge(badge, wx - rrx, wy - rry + dy)
+            self._place_badge(badge, wx - rrx + dx, wy - rry + dy)
         except tk.TclError:
             pass
         return badge
