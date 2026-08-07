@@ -1538,7 +1538,7 @@ class TkApp:
         if root is None:
             return
         self._hide_debug_layout_badges()
-        debug = self.debug_layout()
+        debug = self.layout_info()
         seen_rows: set[tuple[int, int]] = set()
 
         def _place(badge: tk.Label, x: int, y: int) -> None:
@@ -1706,6 +1706,10 @@ class TkApp:
         Tk interpreter (and every widget) is destroyed, so ``winfo_*`` queries
         would otherwise raise ``TclError``.  ``debug_layout()`` reports
         ``"alive"`` as ``False`` and skips destroyed widgets instead of crashing.
+
+        .. deprecated:: 0.4.11
+            Use :meth:`layout_info` instead. ``debug_layout`` is a deprecated
+            alias and will be removed in 0.5.x.
         """
         def _is_alive() -> bool:
             if self._root is None:
@@ -1823,6 +1827,21 @@ class TkApp:
         out["conflicts"] = conflicts
         return out
 
+    def layout_info(self) -> dict[str, Any]:
+        """Collect runtime geometry/state for every registered widget.
+
+        This is the non-debug-named counterpart of :meth:`debug_layout`: it
+        returns the same JSON-compatible snapshot of each widget's geometry,
+        requested size, and pack/grid details. ``debug_layout`` is a deprecated
+        alias for this method (removed in 0.5.x); prefer ``layout_info``.
+
+        Safe to call after ``run()`` has returned: once the window is closed the
+        Tk interpreter (and every widget) is destroyed, so ``winfo_*`` queries
+        would otherwise raise ``TclError``. It reports ``"alive"`` as ``False``
+        and skips destroyed widgets instead of crashing.
+        """
+        return self.debug_layout()
+
     def check_layout_conflicts(self) -> list[dict[str, Any]]:
         """Return a list of geometry-manager conflicts, warning on each.
 
@@ -1848,7 +1867,7 @@ class TkApp:
         been torn down (the window was closed), ``debug_layout()`` reports no
         live widgets and this returns an empty list instead of raising.
         """
-        debug = self.debug_layout()
+        debug = self.layout_info()
         conflicts: list[dict[str, Any]] = []
         for conflict in debug.get("conflicts", []):
             conflicts.append(conflict)

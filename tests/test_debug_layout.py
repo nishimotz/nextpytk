@@ -293,6 +293,23 @@ def test_debug_layout_after_root_destroyed(harness, build):
     assert app.check_layout_conflicts() == []
 
 
+def test_layout_info_alias_matches_debug_layout(build):
+    """layout_info() is the canonical name; debug_layout() is its deprecated alias."""
+    app = TkApp(title="t")
+
+    @app.label("body")
+    def body():
+        return "Body"
+
+    build(app, layout=Layout().section("body"))
+    assert app.layout_info() == app.debug_layout()
+    # The alias reports the same structure.
+    info = app.layout_info()
+    assert info["alive"] is True
+    assert "sections" in info
+    assert "conflicts" in info
+
+
 def test_show_debug_padding_badges_padded_frames(build):
     """show_debug_padding badges every distinct section frame with padding."""
     from nextpytk import tokens as t

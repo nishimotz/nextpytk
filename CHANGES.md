@@ -51,9 +51,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   section/widget/inner badges.
 - `debug_layout()` now includes each widget's `padx`/`pady` in its
   `pack_info` / `grid_info` payloads.
+- `app.layout_info()` is the canonical, non-`debug`-named accessor for the
+  runtime layout snapshot (geometry, requested size, pack/grid details). It
+  aligns with tkinter's `pack_info()` / `grid_info()` convention and pairs with
+  `schema()` (content vs. presentation).
 
 ### Changed
 
+- `app.debug_layout()` is now a **deprecated alias** for `app.layout_info()`.
+  It will be removed in 0.5.x; prefer `layout_info()`.
 - Re-registering a widget name (e.g. re-decorating `@app.button("next")` in an
   interactive session) now silently replaces the previous spec in place instead
   of raising `ValueError`. The latest definition wins. `bind` specs are still

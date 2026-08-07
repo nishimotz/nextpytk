@@ -794,18 +794,21 @@ app.schema()
 
 ## Layout debug
 
-After widgets are built, `app.debug_layout()` returns JSON-compatible geometry
+After widgets are built, `app.layout_info()` returns JSON-compatible geometry
 and pack/grid info for every registered widget (useful for clipping, minsize,
 and layout regressions). It is safe to call after `run()` has returned: once
-the window is closed the Tk interpreter is torn down, and `debug_layout()`
+the window is closed the Tk interpreter is torn down, and `layout_info()`
 reports `"alive": False` with empty `sections`/`conflicts` instead of crashing
 on destroyed widgets.
 
 ```python
 app.run(layout=["msg", "go"])  # or build via tests / custom runner
-print(app.debug_layout())
+print(app.layout_info())
 # → {"title": "...", "alive": True, "sections": [{"widgets": [{"name": "msg", "geometry": ..., ...}, ...]}]}
 ```
+
+> **Note:** `app.debug_layout()` is a deprecated alias for `layout_info()`
+> (removed in 0.5.x). Prefer `layout_info()`.
 
 **Detecting geometry-manager conflicts.** Mixing `pack`/`grid`/`place` on one
 master (e.g. manually `pack`/`grid`-ing into a `place`-managed `wrap`/`flow`
@@ -827,7 +830,7 @@ you can see geometry and padding where the widget actually sits (they are
   whitespace: the page margin (`page`), section frames (`section`), a widget's
   own outer padding (`widget`), and its inner padding (`inner`). Badges
   re-place on resize and follow `show()`/`hide()` automatically.
-- `app.show_debug_layout(True)` — each widget's `debug_layout()` info (class,
+- `app.show_debug_layout(True)` — each widget's `layout_info()` data (class,
   geometry, requested size, pack/grid details) at its own location.
 
 Turn either off with `show_debug_padding(False)` / `show_debug_layout(False)`,
@@ -842,6 +845,19 @@ startup. Click a badge to lift it to the front.
 - `app.unregister(name)` removes a registered widget spec by name (useful in
   interactive sessions); re-registering a name replaces the previous spec in
   place instead of raising `ValueError`.
+
+**For AI coding agents (headless / non-vision).** These debug facilities are
+deliberately machine-readable so they work without a visible window:
+
+- `app.layout_info()` returns **JSON-compatible data**, so an agent can read
+  geometry, requested sizes, and pack/grid details as text.
+- Widgets can be built headlessly — `tk.Tk(); root.withdraw()` + the `build`
+  fixture pattern in `tests/conftest.py` — and inspected via `winfo_*` /
+  `pack_info()`, then pinned with `assert` in unit tests.
+- The overlay badges expose the same data as text: `badge.cget("text")` and
+  `badge.place_info()` give the padding label and coordinates. So a badge that
+  a human sees visually, an agent can assert on. "What a human sees is also
+  visible to an agent."
 
 ---
 
