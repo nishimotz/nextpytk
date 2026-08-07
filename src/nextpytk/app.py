@@ -993,16 +993,22 @@ class TkApp:
         removes the entire section frame — including the empty vertical space
         it reserved. The original pack options are remembered so
         ``show_section(name)`` restores it exactly.
+
+        Only ``pack``-managed section frames are supported (the default for
+        ``Layout.section()``). A section whose frame is managed by another
+        geometry manager is left untouched. Calling this with an unknown
+        ``name`` (or a section that is already hidden) is a no-op.
         """
         frame = self._section_frames.get(name)
         if frame is None:
             return
-        if frame.winfo_manager() == "pack":
-            try:
-                self._hidden_section_opts[name] = dict(frame.pack_info())
-            except tk.TclError:
-                pass
-            frame.pack_forget()
+        if frame.winfo_manager() != "pack":
+            return
+        try:
+            self._hidden_section_opts[name] = dict(frame.pack_info())
+        except tk.TclError:
+            return
+        frame.pack_forget()
         # Visibility changed; re-place any active debug-overlay badges.
         self.refresh_debug_overlay()
 
@@ -1010,11 +1016,13 @@ class TkApp:
         """Restore a section frame previously hidden with ``hide_section``.
 
         Re-packs the section frame with the same side/fill/expand/padding it
-        had when it was hidden.
+        had when it was hidden. Calling this with an unknown ``name``, or for a
+        section that was not hidden (or is not ``pack``-managed), is a no-op.
         """
         frame = self._section_frames.get(name)
         if frame is None:
             return
+        # Already visible / not hidden; nothing to restore.
         if frame.winfo_manager() == "pack":
             return
         opts = self._hidden_section_opts.pop(name, None)
