@@ -380,3 +380,61 @@ def test_show_debug_padding_reports_self_padding(build):
     texts = [b.cget("text") for b in app._debug_padding_badges]
     assert any("self padx 15 / pady 20" in s for s in texts)
 
+
+def test_show_debug_padding_section_badge_lists_widgets(build):
+    """A section badge reports which widget(s) its frame groups."""
+    from nextpytk import tokens as t
+
+    app = TkApp(title="pad")
+
+    @app.label("title")
+    def title():
+        return "T"
+
+    @app.label("body")
+    def body():
+        return "B"
+
+    build(app, layout=Layout()
+          .section("title", padx=t.SPACE[2], pady=t.SPACE[2])
+          .section("body", "title", padx=t.SPACE[3]))
+    app.show_debug_padding(True)
+    texts = [b.cget("text") for b in app._debug_padding_badges]
+    # The two-widget section frame reports the names it groups.
+    assert any("section[" in s and "title" in s and "body" in s for s in texts)
+
+
+def test_show_debug_padding_rebuilds_after_set_padding(build):
+    """Rebuilding badges reflects a later set_padding change (resize use-case)."""
+    app = TkApp(title="pad")
+
+    @app.label("body")
+    def body():
+        return "Body"
+
+    build(app, layout=Layout().section("body"))
+    app.show_debug_padding(True)
+    texts = [b.cget("text") for b in app._debug_padding_badges]
+    assert not any("self padx 15" in s for s in texts)
+
+    # Change padding after the overlay is up, then rebuild (as <Configure> does).
+    app.set_padding("body", padx=15, pady=20)
+    app._build_padding_badges()
+    texts = [b.cget("text") for b in app._debug_padding_badges]
+    assert any("self padx 15 / pady 20" in s for s in texts)
+
+
+def test_show_debug_padding_toggle_off_unbinds_resize(build):
+    """show_debug_padding(False) removes the resize re-render binding."""
+    app = TkApp(title="pad")
+
+    @app.label("body")
+    def body():
+        return "Body"
+
+    build(app, layout=Layout().section("body"))
+    app.show_debug_padding(True)
+    assert app._debug_padding_rebind is not None
+    app.show_debug_padding(False)
+    assert app._debug_padding_rebind is None
+

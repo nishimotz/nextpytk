@@ -19,7 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   padding** (cyan, `self padx 15 / pady 20`), and **widget inner padding**
   (orange, `inner padx 8 / pady 12` — a label's `padding` option or a text
   widget's `padx`/`pady`). The badges are `place`-managed labels over the
-  root, so they never disturb the pack/grid layout. Also added
+  root, so they never disturb the pack/grid layout, and they re-place
+  themselves on window resize. Section badges report the widget names they
+  group (e.g. `section[title,body]`). Also added
   `app.widget_padding(name)` to read a built widget's own layout padding.
 - `debug_layout()` now includes each widget's `padx`/`pady` in its
   `pack_info` / `grid_info` payloads.

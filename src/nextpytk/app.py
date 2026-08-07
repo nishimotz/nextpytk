@@ -348,6 +348,9 @@ class TkApp:
         # (x, y) slots already occupied by a padding badge, so overlapping
         # badges are nudged down onto their own line.
         self._debug_badge_rows: set[tuple[int, int]] = set()
+        # The root <Configure> handler that re-places badges on resize while
+        # the debug-padding overlay is active (None when off).
+        self._debug_padding_rebind: str | None = None
         self._register_default_builders()
 
     def _normalize_theme(self, theme: bool | str) -> str:
@@ -395,6 +398,7 @@ class TkApp:
         self._hidden_padding.clear()
         self._debug_padding_badges.clear()
         self._debug_badge_rows.clear()
+        self._debug_padding_rebind = None
         self._a11y_last_toggle.clear()
         self._pending_ingest.clear()
         self._ingest_flush_job = None
@@ -1037,10 +1041,36 @@ class TkApp:
         # Remove any existing badges first (idempotent toggle).
         self._hide_debug_padding_badges()
         self._debug_badge_rows.clear()
+        # Drop any resize re-render binding.
+        self._unbind_debug_padding_resize()
         if not on:
             return
 
+        self._build_padding_badges()
+        self._bind_debug_padding_resize()
+
+    def _build_padding_badges(self) -> None:
+        """(Re)build the padding badges from the current widget state.
+
+        Position and padding values are read live, so calling this again after
+        a resize or ``set_padding`` reflects the new values. Badges are
+        cleared first (see :meth:`_hide_debug_padding_badges`).
+        """
+        root = self._root
+        if root is None:
+            return
+        self._hide_debug_padding_badges()
+        self._debug_badge_rows.clear()
+
         # 1) Distinct section frames that own widgets → their outer padding.
+        # Build a frame → owning-widget-names map so the badge can show which
+        # widgets a section groups together.
+        frame_names: dict[int, list[str]] = {}
+        for spec in self._widgets:
+            frame = self._widget_masters.get(spec.name)
+            if frame is None or not bool(frame.winfo_exists()):
+                continue
+            frame_names.setdefault(id(frame), []).append(spec.name)
         seen_frames: list[tk.Widget] = []
         for spec in self._widgets:
             frame = self._widget_masters.get(spec.name)
@@ -1052,8 +1082,10 @@ class TkApp:
             padx, pady = self._frame_padding(frame)
             if not padx and not pady:
                 continue
+            section = ",".join(frame_names.get(id(frame), []))
             self._debug_padding_badges.append(self._make_padding_badge(
                 root, frame, padx, pady, bg="#ffd54d", label="section",
+                name=section,
             ))
 
         # 2) Each built widget's own outer padding + inner padding.
@@ -1138,16 +1170,22 @@ class TkApp:
         *,
         bg: str,
         label: str,
+        name: str = "",
         dy: int = 0,
     ) -> tk.Label:
         """Create a small colored label placed at the widget's top-left corner.
 
-        ``dy`` nudges the badge down by that many pixels; see :meth:`_place_badge`
-        for the automatic collision-free placement used here.
+        ``name`` (optional) is shown after the label so a section badge can
+        report which widget(s) it groups. ``dy`` nudges the badge down; see
+        :meth:`_place_badge` for the automatic collision-free placement used
+        here.
         """
+        text = f"{label} padx {padx} / pady {pady}"
+        if name:
+            text = f"{label}[{name}] padx {padx} / pady {pady}"
         badge = tk.Label(
             root,
-            text=f"{label} padx {padx} / pady {pady}",
+            text=text,
             bg=bg,
             fg="#000000",
             relief="solid",
@@ -1172,6 +1210,35 @@ class TkApp:
             except tk.TclError:
                 pass
         self._debug_padding_badges.clear()
+
+    def _bind_debug_padding_resize(self) -> None:
+        """Re-place badges on window resize while the overlay is active.
+
+        Layout padding can change on resize (e.g. ``talk_slides.py`` scales
+        ``set_padding`` with window height), so the badges must be re-read
+        live instead of keeping a stale snapshot.
+        """
+        root = self._root
+        if root is None:
+            return
+        if self._debug_padding_rebind is not None:
+            return
+
+        def _rerender(_event=None) -> None:
+            self._build_padding_badges()
+
+        self._debug_padding_rebind = root.bind("<Configure>", _rerender, add="+")
+
+    def _unbind_debug_padding_resize(self) -> None:
+        """Remove the resize re-render binding (if any)."""
+        root = self._root
+        if root is None or self._debug_padding_rebind is None:
+            return
+        try:
+            root.unbind("<Configure>", self._debug_padding_rebind)
+        except tk.TclError:
+            pass
+        self._debug_padding_rebind = None
 
     def text_widget(self, name: str) -> tk.Text | None:
         """Return the real ``tk.Text`` widget for a registered text widget.
