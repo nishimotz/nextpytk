@@ -21,8 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   widget's `padx`/`pady`). The badges are `place`-managed labels over the
   root, so they never disturb the pack/grid layout, and they re-place
   themselves on window resize. Section badges report the widget names they
-  group (e.g. `section[title,body]`). Also added
-  `app.widget_padding(name)` to read a built widget's own layout padding.
+  group (e.g. `section[title,body]`). Hidden widgets (via `app.hide()`) are
+  excluded from the overlay, so a no-longer-visible widget leaves no stale
+  badge. Also added `app.widget_padding(name)` to read a built widget's own
+  layout padding.
 - Layout-debug overlay: `app.show_debug_layout(True)` / `(False)` renders each
   widget's `debug_layout()` JSON info as a badge at the widget's own location
   — the visual, in-window counterpart of `debug_layout()` (geometry, requested

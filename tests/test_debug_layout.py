@@ -535,3 +535,48 @@ def test_refresh_debug_overlay_noop_when_inactive(build):
     assert app._debug_padding_badges == []
     assert app._debug_layout_badges == []
 
+
+def test_debug_badges_skip_hidden_widgets(build):
+    """A hidden (pack_forget) widget must not get a badge."""
+    app = TkApp(title="t")
+
+    @app.label("body")
+    def body():
+        return "Body"
+
+    @app.label("code")
+    def code():
+        return "code"
+
+    build(app, layout=Layout().section("body").section("code"))
+    app.show_debug_padding(True)
+    app.show_debug_layout(True)
+
+    def padding_names():
+        out = []
+        for b in app._debug_padding_badges:
+            t = b.cget("text")
+            if "[" in t:
+                out.append(t.split("[", 1)[1].split("]")[0])
+        return out
+
+    def layout_names():
+        return [b.cget("text").split(" ")[0] for b in app._debug_layout_badges]
+
+    # Both visible → both badged.
+    assert "code" in padding_names()
+    assert "code" in layout_names()
+
+    # Hide code, refresh → code badge disappears.
+    app.hide("code")
+    app.refresh_debug_overlay()
+    assert "code" not in padding_names()
+    assert "code" not in layout_names()
+
+    # Show code again, refresh → badge returns.
+    app.show("code")
+    app.refresh_debug_overlay()
+    assert "code" in padding_names()
+    assert "code" in layout_names()
+
+

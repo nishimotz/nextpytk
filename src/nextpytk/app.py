@@ -1085,17 +1085,29 @@ class TkApp:
 
         # 1) Distinct section frames that own widgets → their outer padding.
         # Build a frame → owning-widget-names map so the badge can show which
-        # widgets a section groups together.
+        # widgets a section groups together. Only visible widgets are included,
+        # so a section whose every widget is hidden (e.g. a code block on a
+        # no-code slide) does not keep a stale badge.
+        def _is_hidden(name: str) -> bool:
+            return name in self._hidden_widgets
+
+        def _visible_names(names: list[str]) -> list[str]:
+            return [n for n in names if not _is_hidden(n)]
+
         frame_names: dict[int, list[str]] = {}
         for spec in self._widgets:
             frame = self._widget_masters.get(spec.name)
             if frame is None or not bool(frame.winfo_exists()):
+                continue
+            if _is_hidden(spec.name):
                 continue
             frame_names.setdefault(id(frame), []).append(spec.name)
         seen_frames: list[tk.Widget] = []
         for spec in self._widgets:
             frame = self._widget_masters.get(spec.name)
             if frame is None or not bool(frame.winfo_exists()):
+                continue
+            if _is_hidden(spec.name):
                 continue
             if frame not in seen_frames:
                 seen_frames.append(frame)
@@ -1104,6 +1116,9 @@ class TkApp:
             if not padx and not pady:
                 continue
             section = ",".join(frame_names.get(id(frame), []))
+            if not section:
+                # Every widget in this section is hidden; do not badge it.
+                continue
             self._debug_padding_badges.append(self._make_padding_badge(
                 root, frame, padx, pady, bg="#ffd54d", label="section",
                 name=section,
@@ -1111,6 +1126,8 @@ class TkApp:
 
         # 2) Each built widget's own outer padding + inner padding.
         for spec in self._widgets:
+            if _is_hidden(spec.name):
+                continue
             w = self._tk_widgets.get(spec.name)
             if w is None or not bool(w.winfo_exists()):
                 continue
@@ -1353,7 +1370,11 @@ class TkApp:
 
         for sec in debug.get("sections", []):
             for info in sec.get("widgets", []):
-                w = self._tk_widgets.get(info.get("name"))
+                name = info.get("name")
+                if name in self._hidden_widgets:
+                    # Do not badge a hidden (pack_forget/grid_remove) widget.
+                    continue
+                w = self._tk_widgets.get(name)
                 if w is None or not bool(w.winfo_exists()):
                     continue
                 badge = tk.Label(
