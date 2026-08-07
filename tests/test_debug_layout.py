@@ -438,3 +438,41 @@ def test_show_debug_padding_toggle_off_unbinds_resize(build):
     app.show_debug_padding(False)
     assert app._debug_padding_rebind is None
 
+
+def test_show_debug_layout_badges_render_json_info(build):
+    """show_debug_layout renders each widget's debug_layout() info at its spot."""
+    app = TkApp(title="t")
+
+    @app.label("title")
+    def title():
+        return "T"
+
+    @app.button("go", label="Go")
+    def go(vals):
+        return {}
+
+    build(app, layout=Layout().section("title").section("go"))
+    app.show_debug_layout(True)
+    badges = app._debug_layout_badges
+    assert len(badges) == 2
+    texts = [b.cget("text") for b in badges]
+    assert any(s.startswith("title ") and "TLabel" in s for s in texts)
+    assert any(s.startswith("go ") and "TButton" in s for s in texts)
+    assert all("req " in s for s in texts)
+
+
+def test_show_debug_layout_toggle_off(build):
+    app = TkApp(title="t")
+
+    @app.label("title")
+    def title():
+        return "T"
+
+    build(app, layout=Layout().section("title"))
+    app.show_debug_layout(True)
+    assert len(app._debug_layout_badges) == 1
+    assert app._debug_layout_rebind is not None
+    app.show_debug_layout(False)
+    assert app._debug_layout_badges == []
+    assert app._debug_layout_rebind is None
+

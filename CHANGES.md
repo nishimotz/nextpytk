@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   themselves on window resize. Section badges report the widget names they
   group (e.g. `section[title,body]`). Also added
   `app.widget_padding(name)` to read a built widget's own layout padding.
+- Layout-debug overlay: `app.show_debug_layout(True)` / `(False)` renders each
+  widget's `debug_layout()` JSON info as a badge at the widget's own location
+  — the visual, in-window counterpart of `debug_layout()` (geometry, requested
+  size, and pack/grid details). Re-places on resize (debounced).
 - `debug_layout()` now includes each widget's `padx`/`pady` in its
   `pack_info` / `grid_info` payloads.
 

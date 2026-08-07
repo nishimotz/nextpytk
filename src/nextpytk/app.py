@@ -351,6 +351,10 @@ class TkApp:
         # The root <Configure> handler that re-places badges on resize while
         # the debug-padding overlay is active (None when off).
         self._debug_padding_rebind: str | None = None
+        # Badges for the debug-layout overlay (each widget's debug_layout()
+        # info rendered at its own location).
+        self._debug_layout_badges: list[tk.Label] = []
+        self._debug_layout_rebind: str | None = None
         self._register_default_builders()
 
     def _normalize_theme(self, theme: bool | str) -> str:
@@ -399,6 +403,8 @@ class TkApp:
         self._debug_padding_badges.clear()
         self._debug_badge_rows.clear()
         self._debug_padding_rebind = None
+        self._debug_layout_badges.clear()
+        self._debug_layout_rebind = None
         self._a11y_last_toggle.clear()
         self._pending_ingest.clear()
         self._ingest_flush_job = None
@@ -1259,6 +1265,138 @@ class TkApp:
         except tk.TclError:
             pass
         self._debug_padding_rebind = None
+
+    def show_debug_layout(self, on: bool = True) -> None:
+        """Overlay each widget with a badge showing its ``debug_layout()`` info.
+
+        This is the visual, in-window counterpart of :meth:`debug_layout`. For
+        every built widget it renders the same JSON-compatible fields at the
+        widget's own top-left corner, so you can see geometry, requested size,
+        and pack/grid details right where the widget sits instead of reading a
+        printout. The badges are ``place``-managed labels over the root, so
+        they never disturb the pack/grid layout, and they re-place themselves
+        on resize (debounced).
+
+        Toggle off with ``show_debug_layout(False)``.
+        """
+        root = self._root
+        if root is None:
+            return
+        self._hide_debug_layout_badges()
+        self._unbind_debug_layout_resize()
+        if not on:
+            return
+        self._build_debug_layout_badges()
+        self._bind_debug_layout_resize()
+
+    def _debug_layout_badge_lines(self, info: dict[str, Any]) -> str:
+        """Render a widget's ``debug_layout()`` info as a short one-line badge."""
+        parts: list[str] = []
+        if info.get("name"):
+            parts.append(info["name"])
+        if info.get("class"):
+            parts.append(info["class"])
+        geom = info.get("geometry")
+        if geom:
+            parts.append(geom)
+        parts.append(f"req {info.get('reqwidth')}x{info.get('reqheight')}")
+        mgr = info.get("manager")
+        if mgr:
+            if mgr == "pack":
+                pi = info.get("pack_info") or {}
+                parts.append(
+                    f"{pi.get('side')} {pi.get('fill')}"
+                    f" padx{pi.get('padx')} pady{pi.get('pady')}"
+                )
+            elif mgr == "grid":
+                gi = info.get("grid_info") or {}
+                parts.append(
+                    f"r{gi.get('row')} c{gi.get('column')}"
+                    f" padx{gi.get('padx')} pady{gi.get('pady')}"
+                )
+        return " ".join(str(p) for p in parts)
+
+    def _build_debug_layout_badges(self) -> None:
+        """(Re)build the debug-layout badges from the current widget state."""
+        root = self._root
+        if root is None:
+            return
+        self._hide_debug_layout_badges()
+        debug = self.debug_layout()
+        seen_rows: set[tuple[int, int]] = set()
+
+        def _place(badge: tk.Label, x: int, y: int) -> None:
+            while (x, y) in seen_rows:
+                y += 18
+            seen_rows.add((x, y))
+            badge.place(x=x, y=y)
+
+        for sec in debug.get("sections", []):
+            for info in sec.get("widgets", []):
+                w = self._tk_widgets.get(info.get("name"))
+                if w is None or not bool(w.winfo_exists()):
+                    continue
+                badge = tk.Label(
+                    root,
+                    text=self._debug_layout_badge_lines(info),
+                    bg="#e0e0e0",
+                    fg="#000000",
+                    relief="solid",
+                    borderwidth=1,
+                    font=("TkDefaultFont", 8),
+                )
+                try:
+                    wx = w.winfo_rootx()
+                    wy = w.winfo_rooty()
+                    rrx = root.winfo_rootx()
+                    rry = root.winfo_rooty()
+                    _place(badge, wx - rrx, wy - rry)
+                except tk.TclError:
+                    pass
+                self._debug_layout_badges.append(badge)
+
+    def _hide_debug_layout_badges(self) -> None:
+        """Destroy any previously created debug-layout badges."""
+        for b in self._debug_layout_badges:
+            try:
+                b.destroy()
+            except tk.TclError:
+                pass
+        self._debug_layout_badges.clear()
+
+    def _bind_debug_layout_resize(self) -> None:
+        """Re-place debug-layout badges on window resize (debounced)."""
+        root = self._root
+        if root is None or self._debug_layout_rebind is not None:
+            return
+        last = {"w": root.winfo_width(), "h": root.winfo_height()}
+        pending: dict[str, str | None] = {"job": None}
+
+        def _rerender(_event=None) -> None:
+            w = root.winfo_width()
+            h = root.winfo_height()
+            if w == last["w"] and h == last["h"]:
+                return
+            last["w"], last["h"] = w, h
+            if pending["job"] is not None:
+                try:
+                    root.after_cancel(pending["job"])
+                except tk.TclError:
+                    pass
+            pending["job"] = root.after(60, self._build_debug_layout_badges)
+
+        self._debug_layout_rebind = root.bind("<Configure>", _rerender, add="+")
+
+    def _unbind_debug_layout_resize(self) -> None:
+        """Remove the debug-layout resize re-render binding (if any)."""
+        root = self._root
+        if root is None or self._debug_layout_rebind is None:
+            return
+        try:
+            root.unbind("<Configure>", self._debug_layout_rebind)
+        except tk.TclError:
+            pass
+        self._debug_layout_rebind = None
 
     def text_widget(self, name: str) -> tk.Text | None:
         """Return the real ``tk.Text`` widget for a registered text widget.
