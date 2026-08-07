@@ -13,10 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   callback) before `run()`, e.g. to re-declare it with a different kind or
   options.
 - Padding debug overlay: pass `debug_padding=True` to `TkApp` (or call
-  `app.show_debug_padding(True)` / `(False)`) to place a small colored badge on
-  every distinct layout section frame that carries a non-zero `padx`/`pady`,
-  reading e.g. `padx 8 / pady 12`. The badges are `place`-managed labels over
-  the root, so they never disturb the pack/grid layout. Also added
+  `app.show_debug_padding(True)` / `(False)`) to place small colored badges
+  over the layout. Three kinds of padding are color-coded: **section-frame
+  outer padding** (yellow, `section padx 8 / pady 12`), **widget's own outer
+  padding** (cyan, `self padx 15 / pady 20`), and **widget inner padding**
+  (orange, `inner padx 8 / pady 12` — a label's `padding` option or a text
+  widget's `padx`/`pady`). The badges are `place`-managed labels over the
+  root, so they never disturb the pack/grid layout. Also added
   `app.widget_padding(name)` to read a built widget's own layout padding.
 - `debug_layout()` now includes each widget's `padx`/`pady` in its
   `pack_info` / `grid_info` payloads.
@@ -49,7 +52,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `test_show_debug_padding_badges_padded_frames` (badges placed on section
   frames that carry padding),
   `test_show_debug_padding_toggle_off_removes_badges`,
-  `test_widget_padding_reports_layout_padding`.
+  `test_widget_padding_reports_layout_padding`,
+  `test_show_debug_padding_reports_inner_padding` (label `padding` and text
+  `padx`/`pady` inner badges),
+  `test_show_debug_padding_reports_self_padding` (cyan self badge for a widget
+  packed with explicit `padx`/`pady`).
 
 ## [0.4.10] — 2026-08-07
 

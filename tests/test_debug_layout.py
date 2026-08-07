@@ -343,3 +343,40 @@ def test_widget_padding_reports_layout_padding(build):
     # Padding lives on the section frame, so the widget's own padding is 0.
     assert app.widget_padding("go") == {"padx": 0, "pady": 0}
 
+
+def test_show_debug_padding_reports_inner_padding(build):
+    """Label ``padding`` and text ``padx/pady`` are surfaced as inner badges."""
+    app = TkApp(title="pad")
+
+    @app.label("body", padding=(6, 10))
+    def body():
+        return "Body"
+
+    @app.text(
+        "code", readonly=True, wrap="none", height=4, width=40,
+        widget_kwargs={"padx": 8, "pady": 12},
+    )
+    def code_content(value):
+        return {}
+
+    build(app, layout=Layout().section("body").section("code"))
+    app.show_debug_padding(True)
+    texts = [b.cget("text") for b in app._debug_padding_badges]
+    assert any("inner padx (6, 10)" in s for s in texts)   # label padding
+    assert any("inner padx 8 / pady 12" in s for s in texts)  # text padx/pady
+
+
+def test_show_debug_padding_reports_self_padding(build):
+    """A widget packed with explicit padx/pady gets a cyan self badge."""
+    app = TkApp(title="pad")
+
+    @app.label("body")
+    def body():
+        return "Body"
+
+    build(app, layout=Layout().section("body"))
+    app.set_padding("body", padx=15, pady=20)
+    app.show_debug_padding(True)
+    texts = [b.cget("text") for b in app._debug_padding_badges]
+    assert any("self padx 15 / pady 20" in s for s in texts)
+

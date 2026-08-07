@@ -1010,14 +1010,17 @@ class TkApp:
         return {"padx": padx, "pady": pady}
 
     def show_debug_padding(self, on: bool = True) -> None:
-        """Overlay each padded layout frame with a small badge showing its padding.
+        """Overlay layout frames and widgets with badges showing their padding.
 
-        Layout padding lives on the **section frames** (``Layout.section()``,
-        ``frame()``, etc. pack the frame with ``padx``/``pady``), not on the
-        widget itself. So this method inspects every distinct section frame
-        that owns at least one built widget and, when the frame reports a
-        non-zero ``padx``/``pady``, places a small colored badge at its top-left
-        corner reading e.g. ``padx 8 / pady 12``.
+        Three kinds of padding are surfaced, each with its own badge color:
+
+        - **Section-frame outer padding** (yellow): the ``padx``/``pady`` a
+          ``Layout.section()`` / ``frame()`` packs its frame with.
+        - **Widget outer padding** (cyan): the ``padx``/``pady`` a built widget
+          itself is packed/gridded with (e.g. set via ``pack_configure`` or
+          ``set_padding``).
+        - **Widget inner padding** (orange): a label's ``padding`` option or a
+          text widget's ``padx``/``pady``.
 
         Toggle off with ``show_debug_padding(False)``. When ``debug_padding=True``
         is passed to the constructor, the overlay is enabled automatically at
@@ -1031,10 +1034,11 @@ class TkApp:
         self._hide_debug_padding_badges()
         if not on:
             return
-        # Distinct section frames that own widgets, in a stable order.
+
+        # 1) Distinct section frames that own widgets → their outer padding.
         seen_frames: list[tk.Widget] = []
-        for name in self._widgets:
-            frame = self._widget_masters.get(name.name)
+        for spec in self._widgets:
+            frame = self._widget_masters.get(spec.name)
             if frame is None or not bool(frame.winfo_exists()):
                 continue
             if frame not in seen_frames:
@@ -1043,9 +1047,55 @@ class TkApp:
             padx, pady = self._frame_padding(frame)
             if not padx and not pady:
                 continue
-            self._debug_padding_badges.append(
-                self._make_padding_badge(root, frame, padx, pady)
-            )
+            self._debug_padding_badges.append(self._make_padding_badge(
+                root, frame, padx, pady, bg="#ffd54d", label="section",
+            ))
+
+        # 2) Each built widget's own outer padding + inner padding.
+        for spec in self._widgets:
+            w = self._tk_widgets.get(spec.name)
+            if w is None or not bool(w.winfo_exists()):
+                continue
+            opx, opy = self._frame_padding(w)
+            if opx or opy:
+                self._debug_padding_badges.append(self._make_padding_badge(
+                    root, w, opx, opy, bg="#4dd0ff", label="self",
+                ))
+            ipx, ipy = self._widget_inner_padding(spec, w)
+            if ipx or ipy:
+                self._debug_padding_badges.append(self._make_padding_badge(
+                    root, w, ipx, ipy, bg="#ff9d4d", label="inner",
+                ))
+
+    def _widget_inner_padding(
+        self,
+        spec: WidgetSpec,
+        w: tk.Widget,
+    ) -> tuple[Any, Any]:
+        """Return a widget's own inner padding (label padding / text padx,pady).
+
+        For ``text`` widgets the inner ``tk.Text`` lives in ``_text_inner``,
+        not the container frame in ``w``, so it is queried directly.
+        """
+        if spec.kind == "text":
+            inner = self._text_inner.get(spec.name)
+            if inner is not None and bool(inner.winfo_exists()):
+                try:
+                    return inner.cget("padx"), inner.cget("pady")
+                except tk.TclError:
+                    return None, None
+            return None, None
+        try:
+            cls = w.winfo_class()
+            if cls in ("TLabel", "Label"):
+                p = w.cget("padding")
+                if p:
+                    if isinstance(p, (tuple, list)):
+                        return p, None
+                    return p, p
+        except tk.TclError:
+            pass
+        return None, None
 
     def _frame_padding(self, frame: tk.Widget) -> tuple[Any, Any]:
         """Return the (padx, pady) a layout frame is packed/gridded with."""
@@ -1067,12 +1117,15 @@ class TkApp:
         widget: tk.Widget,
         padx: Any,
         pady: Any,
+        *,
+        bg: str,
+        label: str,
     ) -> tk.Label:
         """Create a small colored label placed at the widget's top-left corner."""
         badge = tk.Label(
             root,
-            text=f"padx {padx} / pady {pady}",
-            bg="#ffd54d",
+            text=f"{label} padx {padx} / pady {pady}",
+            bg=bg,
             fg="#000000",
             relief="solid",
             borderwidth=1,
