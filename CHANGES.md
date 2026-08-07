@@ -20,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   of raising `ValueError`. The latest definition wins. `bind` specs are still
   exempt: a bind sharing a button's name remains the documented shortcut
   pairing and never replaces a widget spec.
+- `_relax_minsize()` no longer pins the window to a fixed `WxH` geometry. It
+  now resets the explicit geometry (`geometry("")`) after lowering the
+  minimum, so a small app still opens at its requested size but the window
+  keeps following its content — e.g. a button label that widens at runtime no
+  longer gets clipped.
+
+### Tests
+
+- `tests/test_text.py`: `test_relax_minsize_does_not_pin_window_size` (after
+  relax, growing a button label grows the window's requested width instead of
+  clipping it).
 
 ## [0.4.10] — 2026-08-07
 

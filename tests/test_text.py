@@ -361,3 +361,28 @@ def test_relax_minsize_skips_when_explicit_geometry(build):
     min_w, min_h = root.wm_minsize()
     assert (min_w, min_h) == (380, 260)
 
+
+def test_relax_minsize_does_not_pin_window_size(build):
+    """After relax, the window must not be pinned to a fixed size.
+
+    A fixed ``geometry("WxH")`` would clip content that later grows (e.g. a
+    button label widening). The window should follow its natural requested
+    size instead.
+    """
+    app = TkApp(title="t")
+
+    @app.button("hello")
+    def on_hello():
+        return "world"
+
+    build(app, layout=["hello"])
+    app._relax_minsize()
+    root = app._root
+    root.update_idletasks()
+    req_before = root.winfo_reqwidth()
+
+    # Growing the content must grow the window's requested width (not clip it).
+    app.apply_state({"hello": "a much wider button label"})
+    root.update_idletasks()
+    assert root.winfo_reqwidth() > req_before
+

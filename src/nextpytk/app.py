@@ -3769,11 +3769,12 @@ class TkApp:
                     # shrink a window already mapped at the larger default.
                     root.minsize(new_w, new_h)
                     # Deferring to after_idle lets the first map settle; then
-                    # we shrink the window to its requested size so a small
-                    # app does not open with wasted space.
-                    root.after_idle(
-                        lambda: root.geometry(f"{req_w}x{req_h}")
-                    )
+                    # reset the explicit geometry so the window shrinks to its
+                    # requested size. Using geometry("") (rather than pinning
+                    # to a fixed "WxH") keeps the window flexible: if content
+                    # later grows (e.g. a button label widens), the window
+                    # follows its natural requested size instead of clipping.
+                    root.after_idle(lambda: root.geometry(""))
             except tk.TclError:
                 pass
 
