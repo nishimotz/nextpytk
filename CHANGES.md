@@ -55,6 +55,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   runtime layout snapshot (geometry, requested size, pack/grid details). It
   aligns with tkinter's `pack_info()` / `grid_info()` convention and pairs with
   `schema()` (content vs. presentation).
+- `Layout.section()` accepts an optional `name=` so a section frame can be
+  addressed at runtime with `app.hide_section(name)` / `app.show_section(name)`
+  — useful for hiding an entire section (and the empty space it reserved), e.g.
+  swapping between a diagram and a code block. When `name=` is omitted, the
+  section is registered under an auto-derived name `<first widget>_section`
+  (e.g. `diagram_section`).
+- `app.hide_section(name)` / `app.show_section(name)` hide or restore a whole
+  section frame at runtime, keeping its pack options so `show_section` restores
+  it exactly. Unlike `app.hide(name)` (which removes a single widget), these
+  remove the entire section frame including its reserved space.
+- The padding debug overlay is enabled automatically at startup when the
+  `NEXTPYTK_DEBUG_PADDING` environment variable is set to a non-empty value
+  other than `0`, so any app can be inspected without editing its source. This
+  works across all run modes (`run()`, `run_multiview()`, `run_stages()`,
+  `run_async()`).
+- Padding / debug-layout badges now show `side` / `fill` / `expand` / `anchor`
+  pack hints on the badge text (single line), and use the app font rather than
+  a raw `TkDefaultFont` tuple. Badges also skip widgets that are not currently
+  mapped (e.g. inactive multiview tabs), so no stray badge appears over a
+  hidden tab.
 
 ### Changed
 

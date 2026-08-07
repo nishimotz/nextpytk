@@ -837,6 +837,11 @@ Turn either off with `show_debug_padding(False)` / `show_debug_layout(False)`,
 or pass `debug_padding=True` to `TkApp` to enable the padding overlay at
 startup. Click a badge to lift it to the front.
 
+The padding overlay is also enabled automatically at startup when the
+`NEXTPYTK_DEBUG_PADDING` environment variable is set to a non-empty value other
+than `0` (e.g. `NEXTPYTK_DEBUG_PADDING=1 uv run python app.py`), so you can
+inspect any app's layout without editing its source.
+
 **Page margin & widget unregister.**
 
 - `Layout(page_margin=...)` overrides the outer `content_frame` page pad
@@ -845,6 +850,11 @@ startup. Click a badge to lift it to the front.
 - `app.unregister(name)` removes a registered widget spec by name (useful in
   interactive sessions); re-registering a name replaces the previous spec in
   place instead of raising `ValueError`.
+- `app.hide_section(name)` / `app.show_section(name)` hide or restore an
+  entire section frame (including the empty space it reserved) at runtime.
+  `Layout.section(name=...)` lets you give a section a stable label;
+  otherwise it is auto-derived from the first widget as
+  `"<first widget>_section"` (e.g. `diagram_section`).
 
 **For AI coding agents (headless / non-vision).** These debug facilities are
 deliberately machine-readable so they work without a visible window:
