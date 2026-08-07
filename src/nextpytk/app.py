@@ -4693,21 +4693,10 @@ class TkApp:
 
     def _layout_names(self, layout: Any) -> set[str]:
         """Collect the widget names referenced by a resolved Layout object."""
-        names: set[str] = set()
         try:
-            blocks = layout._blocks
+            names = layout.widget_names()
         except AttributeError:
-            return names
-        for block in blocks:
-            for w in getattr(block, "widgets", ()) or ():
-                names.add(w if isinstance(w, str) else getattr(w, "widget", w))
-            for attr in ("name", "left", "right"):
-                n = getattr(block, attr, None)
-                if isinstance(n, str):
-                    names.add(n)
-            cells = getattr(block, "cells", None)
-            if isinstance(cells, dict):
-                names.update(cells.keys())
+            return set()
         return names
 
     def _warn_orphan_layout_names(self, layout: Any) -> None:

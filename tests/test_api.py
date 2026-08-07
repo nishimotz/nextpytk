@@ -164,6 +164,22 @@ def test_layout_names_collects_grid_cells(build):
     assert "go" in app._layout_names(layout)
 
 
+def test_layout_names_excludes_nested_frame_name(build):
+    """A ``frame(name, ...)`` container name is not a widget and must not be
+    flagged as an orphan (it is the name of a self-mounted layout frame)."""
+    app = TkApp(title="t")
+
+    @app.label("body")
+    def body():
+        return ""
+
+    from nextpytk import Layout
+    layout = Layout().frame("slide", Layout().section("body"))
+    names = app._layout_names(layout)
+    assert "body" in names
+    assert "slide" not in names
+
+
 def test_entry_callback_returning_string_warns(build):
     """A string from an entry callback is invalid and ignored with a warning."""
     app = TkApp(title="t")

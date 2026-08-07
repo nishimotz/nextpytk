@@ -25,12 +25,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   minimum, so a small app still opens at its requested size but the window
   keeps following its content — e.g. a button label that widens at runtime no
   longer gets clipped.
+- `_warn_orphan_layout_names()` no longer flags `Layout.frame(name, ...)` /
+  `Layout.target(name, ...)` container names as orphaned widgets. It now uses
+  `Layout.widget_names()`, which correctly excludes self-mounted frame/swap
+  region names and only reports actual widget names.
 
 ### Tests
 
 - `tests/test_text.py`: `test_relax_minsize_does_not_pin_window_size` (after
   relax, growing a button label grows the window's requested width instead of
   clipping it).
+- `tests/test_api.py`: `test_layout_names_excludes_nested_frame_name` (a
+  `frame(name, ...)` container name is not flagged as an orphan).
 
 ## [0.4.10] — 2026-08-07
 
