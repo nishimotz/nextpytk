@@ -37,7 +37,6 @@ from nextpytk.types import (
     ComboboxOptions,
     EntryOptions,
     EventSeq,
-    FilepickerCallback,
     FilepickerOptions,
     FillLike,
     LabelOptions,
@@ -105,9 +104,6 @@ ButtonCallback = (
     | Callable[[], dict[str, Any]]
 )
 BindCallback = ButtonCallback  # bind: same signature as button
-
-# filepicker: receives selected path(s) or None, returns state dict
-FilepickerCallback = Callable[[str | list[str] | None], dict[str, Any]]
 
 # entry / text / scale / spinbox: receives value str (optional), returns state dict
 ValueCallback = Callable[[str], dict[str, Any]] | Callable[[], dict[str, Any]]
@@ -317,9 +313,24 @@ class TkApp:
         self._treeview_inner: dict[str, ttk.Treeview] = {}
         self._treeview_row_cache: dict[str, tuple[Any, ...]] = {}
         self._text_inner: dict[str, tk.Text] = {}
-        self._text_scrollbars: dict[str, ttk.Scrollbar] = {}
+        self._text_scrollbars: dict[str, ttk.Scrollbar | None] = {}
         self._text_hscrollbars: dict[str, ttk.Scrollbar] = {}
         self._text_scroll_sync: dict[str, str] = {}
+        # Widgets explicitly hidden via ``app.hide(name)`` so they are not
+        # rebuilt as visible on the next sync.
+        self._hidden_widgets: set[str] = set()
+        # pack options captured from ``pack_info()`` at hide time, replayed by
+        # ``app.show(name)`` to restore a packed widget's geometry.
+        self._hidden_pack_opts: dict[str, dict[str, Any]] = {}
+        # Geometry manager ("grid" | "pack") in effect when a widget was
+        # hidden, so ``show()`` knows how to restore it after ``grid_remove`` /
+        # ``pack_forget`` cleared ``winfo_manager``.
+        self._hidden_geometry: dict[str, str] = {}
+        # Pending padding changes requested via ``set_padding`` while a widget
+        # was hidden. They are applied by ``show()`` when the widget returns,
+        # because calling ``pack_configure`` on a ``pack_forget``'d widget
+        # would re-pack (re-show) it prematurely.
+        self._hidden_padding: dict[str, dict[str, Any]] = {}
         # Callables invoked after a text widget's content is replaced, keyed by
         # text widget name. Used by paired line-number gutters to stay in sync.
         self._text_set_hooks: dict[str, list[Callable[[], None]]] = {}
@@ -372,6 +383,10 @@ class TkApp:
         self._text_scrollbars.clear()
         self._text_scroll_sync.clear()
         self._text_set_hooks.clear()
+        self._hidden_widgets.clear()
+        self._hidden_pack_opts.clear()
+        self._hidden_geometry.clear()
+        self._hidden_padding.clear()
         self._a11y_last_toggle.clear()
         self._pending_ingest.clear()
         self._ingest_flush_job = None
@@ -830,6 +845,121 @@ class TkApp:
     def widget(self, name: str) -> tk.Widget | None:
         return self._tk_widgets.get(name)
 
+    def hide(self, name: str) -> None:
+        """Hide a built widget, keeping its layout geometry.
+
+        The widget is removed from its section via ``grid_remove`` /
+        ``pack_forget`` and remembered in ``self._hidden_widgets`` so a later
+        ``apply_state`` sync does not repack it. Call ``app.show(name)`` to
+        restore it. Safe to call when the widget is already hidden or not yet
+        built (it is merely remembered).
+        """
+        self._hidden_widgets.add(name)
+        w = self._tk_widgets.get(name)
+        if w is None:
+            return
+        if w.winfo_manager() == "grid":
+            # grid_remove preserves the original grid options internally, so
+            # show() only needs to call grid() again.
+            self._hidden_geometry[name] = "grid"
+            w.grid_remove()
+        else:
+            self._hidden_geometry[name] = "pack"
+            try:
+                self._hidden_pack_opts[name] = dict(w.pack_info())
+            except tk.TclError:
+                pass
+            w.pack_forget()
+
+    def show(self, name: str) -> None:
+        """Restore a widget previously hidden with ``app.hide(name)``.
+
+        Repacks the widget into its section frame. ``grid_remove`` preserves
+        the original grid options, so a widget hidden while gridded returns
+        to its exact cell. A widget that was ``pack``ed is re-packed with the
+        same side/fill/expand it had at hide time. Safe to call when the
+        widget is already visible.
+        """
+        self._hidden_widgets.discard(name)
+        w = self._tk_widgets.get(name)
+        if w is None:
+            return
+        if w.winfo_manager() == "grid":
+            # grid_remove kept the geometry; just restore.
+            w.grid()
+            return
+        if w.winfo_manager() == "pack":
+            return
+        manager = self._hidden_geometry.pop(name, None)
+        if manager == "grid":
+            # grid_remove left the cell options in place; grid() restores it.
+            w.grid()
+            return
+        opts = self._hidden_pack_opts.pop(name, None)
+        if opts is None:
+            # A widget hidden without pack options (grid path) still needs any
+            # remembered padding applied once it is gridded again.
+            pending = self._hidden_padding.pop(name, None)
+            if pending and w.winfo_manager() == "grid":
+                w.grid_configure(**pending)
+            return
+        # pack_info() returns option keys with trailing underscores; strip
+        # them so they are accepted by pack().
+        clean = {k.rstrip("_"): v for k, v in opts.items()}
+        w.pack(**clean)
+        # Apply padding requested while the widget was hidden.
+        pending = self._hidden_padding.pop(name, None)
+        if pending and w.winfo_manager() == "pack":
+            w.pack_configure(**pending)
+
+    def is_visible(self, name: str) -> bool:
+        """Return True if the named widget is currently mapped (not hidden)."""
+        w = self._tk_widgets.get(name)
+        if w is None:
+            return False
+        return w.winfo_manager() in ("pack", "grid", "place")
+
+    def set_padding(
+        self,
+        name: str,
+        *,
+        padx: int | tuple[int, int] | None = None,
+        pady: int | tuple[int, int] | None = None,
+    ) -> None:
+        """Dynamically change a built widget's layout padding, hide-aware.
+
+        ``padx``/``pady`` mirror the ``pack`` padding options. Only the
+        padding is changed; side/fill/expand/position are left untouched.
+
+        When the widget is currently visible it is applied immediately. When
+        it is hidden (see :meth:`hide`) the change is remembered and applied
+        when :meth:`show` restores the widget. This avoids the classic Tk
+        pitfall where calling ``pack_configure`` on a ``pack_forget``'d
+        widget silently re-packs (re-shows) it.
+
+        Works for ``grid``-managed widgets too: the new padding is applied via
+        ``grid_configure``.
+        """
+        w = self._tk_widgets.get(name)
+        if w is None:
+            return
+        # Remember the request regardless, so a change made while hidden is
+        # applied on show(). Only store the options that were actually given.
+        pending: dict[str, Any] = {}
+        if padx is not None:
+            pending["padx"] = padx
+        if pady is not None:
+            pending["pady"] = pady
+        if pending:
+            self._hidden_padding[name] = pending
+
+        if w.winfo_manager() == "grid":
+            w.grid_configure(**pending)
+        elif w.winfo_manager() == "pack":
+            w.pack_configure(**pending)
+        # Else (hidden / not yet packed): keep the remembered value; show()
+        # applies it.
+
     def text_widget(self, name: str) -> tk.Text | None:
         """Return the real ``tk.Text`` widget for a registered text widget.
 
@@ -911,23 +1041,57 @@ class TkApp:
         Useful for diagnosing clipping, minsize, and geometry-manager issues
         without needing to sprinkle ``winfo_*`` calls in user code.  Output is
         JSON-compatible so it can be logged or handed to an agent.
+
+        Safe to call after ``run()`` has returned: once the window is closed the
+        Tk interpreter (and every widget) is destroyed, so ``winfo_*`` queries
+        would otherwise raise ``TclError``.  ``debug_layout()`` reports
+        ``"alive"`` as ``False`` and skips destroyed widgets instead of crashing.
         """
-        out: dict[str, Any] = {"title": self._title, "sections": []}
+        def _is_alive() -> bool:
+            if self._root is None:
+                return False
+            try:
+                return bool(self._root.winfo_exists())
+            except tk.TclError:
+                # The whole Tk interpreter is gone (e.g. root destroyed after
+                # run()/mainloop exits); nothing can be queried anymore.
+                return False
+
+        alive = _is_alive()
+        out: dict[str, Any] = {
+            "title": self._title,
+            "alive": alive,
+            "sections": [],
+        }
+        if not alive:
+            out["conflicts"] = []
+            return out
+
         seen_sections: dict[int, dict[str, Any]] = {}
         for spec in self._widgets:
             name = spec.name
             w = self._tk_widgets.get(name)
-            if w is None:
+            if w is None or not bool(w.winfo_exists()):
                 continue
             master = w.master
             sec_id = id(master)
             if sec_id not in seen_sections:
-                seen_sections[sec_id] = {
-                    "master": master,
-                    "master_class": master.winfo_class(),
-                    "master_geometry": master.winfo_geometry(),
-                    "widgets": [],
-                }
+                if master is None or not bool(master.winfo_exists()):
+                    seen_sections[sec_id] = {
+                        "master": master,
+                        "master_class": None,
+                        "master_geometry": None,
+                        "destroyed": True,
+                        "widgets": [],
+                    }
+                else:
+                    seen_sections[sec_id] = {
+                        "master": master,
+                        "master_class": master.winfo_class(),
+                        "master_geometry": master.winfo_geometry(),
+                        "destroyed": False,
+                        "widgets": [],
+                    }
             info: dict[str, Any] = {
                 "name": name,
                 "kind": spec.kind,
@@ -973,7 +1137,7 @@ class TkApp:
                 if w["manager"]:
                     managers.add(w["manager"])
                 widget_names.append(w["name"])
-            if master is not None:
+            if master is not None and bool(master.winfo_exists()):
                 try:
                     for child in master.winfo_children():
                         mgr = child.winfo_manager()
@@ -1015,6 +1179,10 @@ class TkApp:
 
         A ``warnings.warn`` is emitted for every conflict found, so it can be
         used as a debugging aid after ``build_widgets`` (or inside ``run``).
+
+        Safe to call after ``run()`` has returned: when the Tk interpreter has
+        been torn down (the window was closed), ``debug_layout()`` reports no
+        live widgets and this returns an empty list instead of raising.
         """
         debug = self.debug_layout()
         conflicts: list[dict[str, Any]] = []
@@ -2232,6 +2400,9 @@ class TkApp:
         behavior). When False (default), Tab moves focus to the next widget
         and the user can use Ctrl+Tab / Ctrl+I to insert a literal tab
         (WCAG 2.1.1 Keyboard, 2.4.3 Focus Order).
+        ``scrollbar``: when False, omit the vertical scrollbar (default True).
+        The text widget stays built and editable; only the scrollbar is
+        skipped. Useful for read-only panes rendered as a plain surface.
         """
         width = options.get("width", 50)
         height = options.get("height", 8)
@@ -2251,6 +2422,7 @@ class TkApp:
             default="word", widget=f"text:{name}",
         )
         h_scroll = options.get("h_scroll", False)
+        scrollbar = options.get("scrollbar", True)
         def decorator(fn: ValueCallback) -> ValueCallback:
             extras: dict[str, Any] = {"width": width, "height": height, "tab_inserts": tab_inserts}
             if state != "normal":
@@ -2267,6 +2439,8 @@ class TkApp:
                 extras["wrap"] = wrap
             if h_scroll:
                 extras["h_scroll"] = True
+            if not scrollbar:
+                extras["scrollbar"] = False
             self._add_spec(WidgetSpec(
                 name=name, kind="text", description=description,
                 on_update=fn,
@@ -3533,6 +3707,62 @@ class TkApp:
         except tk.TclError:
             pass
 
+    def _relax_minsize(
+        self,
+        *,
+        explicit_geometry: str | None = None,
+        default_min: tuple[int, int] = (380, 260),
+    ) -> None:
+        """Lower the window minimum size when the content requests less.
+
+        ``configure_window`` applies a default ``minsize`` (380x260) so small
+        dialogs are still comfortably usable and accessible. But for a tiny
+        app — e.g. a single-button hello demo whose requested size is
+        ``146x123`` — that default forcibly stretches the window, wasting
+        vertical space.
+
+        This helper re-measures the layout's requested size after widgets are
+        built (``update_idletasks``) and clamps the minimum to
+        ``min(default, requested)`` per axis. The minimum is only ever
+        *lowered*, never raised, so it remains a lower bound: a window whose
+        content requests more than the default still grows to fit
+        (``minsize`` only sets a floor, it does not cap the size).
+
+        When the caller passes an explicit ``geometry`` (e.g.
+        ``"720x480"``) the window size is intentional, so the minimum is left
+        untouched.
+        """
+        root = self._root
+        if root is None or explicit_geometry:
+            return
+
+        def _apply() -> None:
+            try:
+                root.update_idletasks()
+                req_w, req_h = root.winfo_reqwidth(), root.winfo_reqheight()
+                min_w, min_h = root.wm_minsize()
+                if min_w <= 0 and min_h <= 0:
+                    return
+                new_w = max(1, min(req_w, min_w))
+                new_h = max(1, min(req_h, min_h))
+                if (new_w, new_h) != (min_w, min_h):
+                    # minsize is a floor, not a cap: lowering it does not
+                    # shrink a window already mapped at the larger default.
+                    root.minsize(new_w, new_h)
+                    # Deferring to after_idle lets the first map settle; then
+                    # we shrink the window to its requested size so a small
+                    # app does not open with wasted space.
+                    root.after_idle(
+                        lambda: root.geometry(f"{req_w}x{req_h}")
+                    )
+            except tk.TclError:
+                pass
+
+        try:
+            root.after_idle(_apply)
+        except tk.TclError:
+            pass
+
     # ── a11y choke point ──
 
     def _a11y_target(self, spec: WidgetSpec) -> tk.Widget | None:
@@ -3954,10 +4184,12 @@ class TkApp:
         )
         if e.get("font") is not None:
             w.configure(font=e["font"])
-        scroll = ttk.Scrollbar(container, orient=tk.VERTICAL, command=w.yview)
-        w.configure(yscrollcommand=scroll.set)
+        scroll: ttk.Scrollbar | None = None
+        if e.get("scrollbar", True):
+            scroll = ttk.Scrollbar(container, orient=tk.VERTICAL, command=w.yview)
+            w.configure(yscrollcommand=scroll.set)
+            scroll.grid(row=0, column=1, sticky="ns")
         w.grid(row=0, column=0, sticky="nsew")
-        scroll.grid(row=0, column=1, sticky="ns")
         h_scroll = e.get("h_scroll", False)
         if h_scroll:
             # Logical-line mode: add a horizontal scrollbar so long lines can
@@ -3971,7 +4203,6 @@ class TkApp:
         self._tk_widgets[spec.name] = container
         self._text_inner[spec.name] = w
         self._text_scrollbars[spec.name] = scroll
-
         tags: dict[str, dict[str, Any]] | None = e.get("tags")
         if tags:
             for tag_name, tag_kw in tags.items():
@@ -4590,6 +4821,7 @@ class TkApp:
         self._sync_progressbars()
         self._sync_widget_states()
         self._set_initial_focus()
+        self._relax_minsize(explicit_geometry=geometry)
         self._root.mainloop()
 
     def run_async(
@@ -4725,6 +4957,7 @@ class TkApp:
         self._sync_progressbars()
         self._sync_widget_states()
         self._set_initial_focus()
+        self._relax_minsize(explicit_geometry=geometry)
         await self._async_mainloop()
 
     # ── schema export (for AI agents / LLM Function Calling) ──

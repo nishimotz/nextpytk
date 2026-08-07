@@ -248,3 +248,46 @@ def test_check_layout_conflicts_warns_on_conflict(build):
 
     assert len(conflicts) == 1
     assert any("Conflicting geometry managers" in str(w.message) for w in caught)
+
+
+def test_debug_layout_after_root_destroyed(harness, build):
+    """debug_layout must not raise after the window is closed (root destroyed).
+
+    Regression guard: calling ``debug_layout()`` after ``run()``/``mainloop``
+    exits crashes with ``TclError: can't invoke "winfo" command: application
+    has been destroyed`` because every widget (and the root) has been torn
+    down. It should instead report ``alive=False`` and skip destroyed widgets.
+    """
+    app = TkApp(title="post-destroy")
+
+    @app.label("msg")
+    def msg():
+        return "hello"
+
+    @app.button("go", label="Go")
+    def go(vals):
+        return {}
+
+    build(
+        app,
+        layout=["msg", "go"],
+    )
+
+    # Sanity: while live, it reports the widgets.
+    debug = app.debug_layout()
+    assert debug["alive"] is True
+    names = {w["name"] for sec in debug["sections"] for w in sec["widgets"]}
+    assert "msg" in names and "go" in names
+
+    # Destroy the root, simulating the window being closed after run().
+    harness.root.destroy()  # type: ignore[union-attr]
+    harness.root = None
+    app.clear_runtime()
+
+    debug = app.debug_layout()  # must not raise
+    assert debug["alive"] is False
+    assert debug["sections"] == []
+    assert debug["conflicts"] == []
+
+    # check_layout_conflicts must also be safe after destruction.
+    assert app.check_layout_conflicts() == []

@@ -237,7 +237,7 @@ LabelCallback = Callable[[], str | dict[str, Any]]
 BindCallback = Callable[[dict[str, Any]], dict[str, Any]]
 TreeviewSelectCallback = Callable[[int, list[Any]], dict[str, Any]]
 TreeviewActivateCallback = Callable[[int, list[Any]], dict[str, Any]]
-FilepickerCallback = Callable[..., dict[str, Any]]
+FilepickerCallback = Callable[[str | list[str] | None], dict[str, Any]]
 
 # ── generic event sequences (bindings, listbox events, etc.) ──
 
@@ -578,6 +578,10 @@ class TextOptions(CommonWidgetOptions, total=False):
     font: tuple[str, int] | tuple[str, int, str]
     wrap: WrapLike
     h_scroll: bool
+    # Hide the vertical scrollbar entirely. Useful for read-only,
+    # single-purpose text panes (e.g. code listings in a slide deck)
+    # that should render as a plain, borderless surface.
+    scrollbar: bool
 
 
 class ScaleOptions(CommonWidgetOptions, total=False):

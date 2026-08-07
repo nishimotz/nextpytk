@@ -38,6 +38,22 @@ class TestListboxEventDeprecation:
         assert ListboxEvent.SELECT == "<<ListboxSelect>>"
 
 
+class TestFilepickerCallbackType:
+    """FilepickerCallback is exported from types with the documented signature."""
+
+    def test_exports_concrete_signature(self):
+        import typing
+
+        from nextpytk import types
+
+        assert hasattr(types, "FilepickerCallback")
+        # The alias is the concrete ``(str | list[str] | None) -> dict`` form,
+        # not the loose ``*args`` form, so it stays consistent with app.py.
+        call_args, return_type = typing.get_args(types.FilepickerCallback)
+        assert call_args == [str | list[str] | None]
+        assert return_type.__origin__ is dict
+
+
 class TestPrimaryButtonDetection:
     """Best-effort OS primary-button detection."""
 

@@ -58,11 +58,11 @@ if __name__ == "__main__":
     app.run(
         layout=(
             Layout()
+            .section("state_note", side="bottom", fill="x")
+            .section("go", side="bottom", fill="x")
             .section("query")
             .section("count")
             .section("items", fill=Fill.BOTH, expand=True)
-            .section("go")
-            .status("state_note")
         ),
         geometry="520x400",
     )

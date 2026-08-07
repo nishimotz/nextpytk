@@ -64,9 +64,9 @@ def shuffle(_values: dict[str, Any]) -> dict[str, Any]:
 
 layout = (
     Layout()
+    .section("shuffle", side="bottom")
     .section("status")
     .section("items", fill=Fill.BOTH, expand=True)
-    .section("shuffle")
 )
 
 if __name__ == "__main__":
