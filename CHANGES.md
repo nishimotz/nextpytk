@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   runtime, so a resize handler can re-scale it proportionally (e.g. to window
   height). This complements `Layout(page_margin=...)`, which sets the initial
   value.
+- The padding debug overlay (`show_debug_padding`) now also badges the
+  outermost page margin (a green `page padx 8 / pady 8` badge on the
+  `content_frame`), so the outer safe area is visible alongside the
+  section/widget/inner badges.
 - `debug_layout()` now includes each widget's `padx`/`pady` in its
   `pack_info` / `grid_info` payloads.
 

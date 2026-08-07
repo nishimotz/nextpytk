@@ -662,3 +662,36 @@ def test_inner_badge_text_aligns_first_character(build):
     assert y == 15
 
 
+def test_show_debug_padding_shows_page_margin_badge(build):
+    """The outermost content_frame page pad gets a 'page' badge."""
+    app = TkApp(title="t")
+
+    @app.label("body")
+    def body():
+        return "Body"
+
+    build(app, layout=Layout(page_margin=8).section("body"))
+    app.show_debug_padding(True)
+    page = [b for b in app._debug_padding_badges
+            if "page" in b.cget("text")]
+    assert page, "expected a page-margin badge"
+    assert "padx 8 / pady 8" in page[0].cget("text")
+
+
+def test_show_debug_padding_page_badge_tracks_set_page_margin(build):
+    """After set_page_margin(), rebuilding shows the new page pad."""
+    app = TkApp(title="t")
+
+    @app.label("body")
+    def body():
+        return "Body"
+
+    build(app, layout=Layout().section("body"))
+    app.set_page_margin(16)
+    app.show_debug_padding(True)
+    page = [b for b in app._debug_padding_badges
+            if "page" in b.cget("text")]
+    assert page, "expected a page-margin badge"
+    assert "padx 16 / pady 16" in page[0].cget("text")
+
+

@@ -1204,6 +1204,21 @@ class TkApp:
         self._hide_debug_padding_badges()
         self._debug_badge_rows.clear()
 
+        # 0) Page margin (outermost content_frame). Show its padding as a badge
+        # labelled "page" so the outer safe area is visible. Normalize a
+        # uniform padding tuple (e.g. (8,)) to a single value for a clean badge.
+        content = self._content_frame
+        if content is not None and bool(content.winfo_exists()):
+            try:
+                pm = content.cget("padding")
+            except tk.TclError:
+                pm = None
+            if pm:
+                pmv = self._normalize_padding_display(pm)
+                self._debug_padding_badges.append(self._make_padding_badge(
+                    root, content, pmv, pmv, bg="#c8e6c9", label="page",
+                ))
+
         # 1) Distinct section frames that own widgets → their outer padding.
         # Build a frame → owning-widget-names map so the badge can show which
         # widgets a section groups together. Only visible widgets are included,
@@ -1348,6 +1363,18 @@ class TkApp:
         except tk.TclError:
             pass
         return None, None
+
+    @staticmethod
+    def _normalize_padding_display(v: Any) -> Any:
+        """Collapse a uniform padding tuple like ``(8,)`` to the single value.
+
+        ``ttk.Frame`` returns ``padding`` as a tuple; if every element is the
+        same (uniform margin) we show just that number in a badge.
+        """
+        if isinstance(v, (tuple, list)):
+            if v and all(x == v[0] for x in v):
+                return v[0]
+        return v
 
     def _make_padding_badge(
         self,
