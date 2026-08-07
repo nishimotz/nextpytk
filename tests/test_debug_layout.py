@@ -476,3 +476,23 @@ def test_show_debug_layout_toggle_off(build):
     assert app._debug_layout_badges == []
     assert app._debug_layout_rebind is None
 
+
+def test_debug_badges_clickable_to_lift(build):
+    """Both padding and debug-layout badges are clickable to lift to front."""
+    from nextpytk import tokens as t
+
+    app = TkApp(title="t")
+
+    @app.label("body")
+    def body():
+        return "Body"
+
+    build(app, layout=Layout().section("body", padx=t.SPACE[2], pady=t.SPACE[2]))
+    app.show_debug_padding(True)
+    app.show_debug_layout(True)
+    assert len(app._debug_padding_badges) >= 1
+    assert len(app._debug_layout_badges) >= 1
+    for b in app._debug_padding_badges + app._debug_layout_badges:
+        # A Button-1 binding is present (click lifts the badge to the front).
+        assert b.bind("<Button-1>") != ""
+

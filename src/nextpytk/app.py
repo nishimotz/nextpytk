@@ -1200,6 +1200,9 @@ class TkApp:
             borderwidth=1,
             font=("TkDefaultFont", 8),
         )
+        # Clicking a badge lifts it to the front (topmost z-order) so a badge
+        # buried under another overlay is easy to read.
+        badge.bind("<Button-1>", lambda _e: badge.lift())
         try:
             wx = widget.winfo_rootx()
             wy = widget.winfo_rooty()
@@ -1347,6 +1350,8 @@ class TkApp:
                     borderwidth=1,
                     font=("TkDefaultFont", 8),
                 )
+                # Clicking a badge lifts it to the front (topmost z-order).
+                badge.bind("<Button-1>", lambda _e: badge.lift())
                 try:
                     wx = w.winfo_rootx()
                     wy = w.winfo_rooty()
