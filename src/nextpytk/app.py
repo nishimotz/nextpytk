@@ -1240,9 +1240,13 @@ class TkApp:
                 ))
             ipx, ipy = self._widget_inner_padding(spec, w)
             if ipx or ipy:
+                # Place the inner badge just inside the widget's bottom edge so
+                # it reads as "inside" the widget rather than stacked at the
+                # top-left with section/widget badges.
+                dy = max(0, (w.winfo_height() or 0) - 20)
                 self._debug_padding_badges.append(self._make_padding_badge(
                     root, w, ipx, ipy, bg="#ff9d4d", label="inner",
-                    name=spec.name,
+                    name=spec.name, dy=dy,
                 ))
 
     def _place_badge(self, badge: tk.Label, x: int, y: int) -> None:

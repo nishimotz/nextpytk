@@ -21,9 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   widget's `padx`/`pady`). The badges are `place`-managed labels over the
   root, so they never disturb the pack/grid layout, and they re-place
   themselves on window resize. Section badges report the widget names they
-  group (e.g. `section[title,body]`). Hidden widgets (via `app.hide()`) are
-  excluded from the overlay, so a no-longer-visible widget leaves no stale
-  badge. `app.show()` / `app.hide()` automatically re-place the badges, so
+  group (e.g. `section[title,body]`). The `inner` badge is placed just inside
+  the widget's bottom edge so it reads as "inside" the widget rather than
+  stacked with the section/widget badges at the top-left. Hidden widgets (via
+  `app.hide()`) are excluded from the overlay, so a no-longer-visible widget
+  leaves no stale badge. `app.show()` / `app.hide()` automatically re-place
+  the badges, so
   dynamic visibility changes stay in sync without an explicit refresh. While
   either overlay is active, a 1-second poll re-places the badges whenever any
   widget's position actually moves (so layout shifts not surfaced to the

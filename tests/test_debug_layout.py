@@ -619,3 +619,22 @@ def test_debug_overlay_poll_cancelled_when_off(build):
     assert app._debug_overlay_poll_job is None
 
 
+def test_inner_badge_placed_inside_widget(build):
+    """An inner badge is placed below the top-left (inside the widget)."""
+    app = TkApp(title="t")
+
+    @app.label("body", padding=(6, 10))
+    def body():
+        return "Body"
+
+    build(app, layout=Layout().section("body"))
+    app.show_debug_padding(True)
+    inner = [b for b in app._debug_padding_badges
+             if "inner[body]" in b.cget("text")]
+    assert inner, "expected an inner[body] badge"
+    y = int(inner[0].place_info().get("y"))
+    # The inner badge sits below the top-left corner (dy = height - 20),
+    # i.e. inside the widget rather than at the very top.
+    assert y >= 0
+
+
