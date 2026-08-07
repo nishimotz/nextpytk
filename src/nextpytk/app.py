@@ -355,6 +355,10 @@ class TkApp:
         # info rendered at its own location).
         self._debug_layout_badges: list[tk.Label] = []
         self._debug_layout_rebind: str | None = None
+        # Periodic (1s) poll that re-places badges when widget geometry moves.
+        self._debug_overlay_poll_job: str | None = None
+        # Last-seen widget root coordinates, to only rebuild on real movement.
+        self._debug_overlay_last_pos: dict[str, tuple[int, int]] = {}
         self._register_default_builders()
 
     def _normalize_theme(self, theme: bool | str) -> str:
@@ -405,6 +409,8 @@ class TkApp:
         self._debug_padding_rebind = None
         self._debug_layout_badges.clear()
         self._debug_layout_rebind = None
+        self._debug_overlay_poll_job = None
+        self._debug_overlay_last_pos = {}
         self._a11y_last_toggle.clear()
         self._pending_ingest.clear()
         self._ingest_flush_job = None
@@ -1056,10 +1062,13 @@ class TkApp:
         # Drop any resize re-render binding.
         self._unbind_debug_padding_resize()
         if not on:
+            if self._debug_layout_rebind is None:
+                self._cancel_debug_overlay_poll()
             return
 
         self._build_padding_badges()
         self._bind_debug_padding_resize()
+        self._ensure_debug_overlay_poll()
 
     def refresh_debug_overlay(self) -> None:
         """Re-read and re-place any active debug overlay badges.
@@ -1092,6 +1101,75 @@ class TkApp:
             root.after_idle(_rebuild)
         except tk.TclError:
             pass
+
+    def _ensure_debug_overlay_poll(self) -> None:
+        """Start a 1s poll that re-places badges when any widget's position moves.
+
+        Some layout shifts (e.g. a container resizing its children, a custom
+        ``<Configure>`` handler) are not surfaced to the framework's own
+        hooks, so the badges can drift. Polling every second and rebuilding
+        only when a widget's root coordinates actually changed keeps them in
+        sync without the flicker of a constant rebuild.
+        """
+        root = self._root
+        if root is None:
+            return
+        if self._debug_overlay_poll_job is not None:
+            return
+        if self._debug_padding_rebind is None and self._debug_layout_rebind is None:
+            return
+
+        def _poll() -> None:
+            # Only keep polling while at least one overlay is active.
+            if self._debug_padding_rebind is None and self._debug_layout_rebind is None:
+                self._debug_overlay_poll_job = None
+                return
+            moved = self._debug_overlay_widgets_moved()
+            if moved:
+                if self._debug_padding_rebind is not None:
+                    self._build_padding_badges()
+                if self._debug_layout_rebind is not None:
+                    self._build_debug_layout_badges()
+            try:
+                self._debug_overlay_poll_job = root.after(1000, _poll)
+            except tk.TclError:
+                self._debug_overlay_poll_job = None
+
+        try:
+            self._debug_overlay_poll_job = root.after(1000, _poll)
+        except tk.TclError:
+            self._debug_overlay_poll_job = None
+
+    def _debug_overlay_widgets_moved(self) -> bool:
+        """Return True if any badge-relevant widget moved since last check."""
+        moved = False
+        pos: dict[str, tuple[int, int]] = {}
+        for spec in self._widgets:
+            if spec.name in self._hidden_widgets:
+                continue
+            w = self._tk_widgets.get(spec.name)
+            if w is None or not bool(w.winfo_exists()):
+                continue
+            try:
+                key = (w.winfo_rootx(), w.winfo_rooty())
+            except tk.TclError:
+                continue
+            pos[spec.name] = key
+            if self._debug_overlay_last_pos.get(spec.name) != key:
+                moved = True
+        self._debug_overlay_last_pos = pos
+        return moved
+
+    def _cancel_debug_overlay_poll(self) -> None:
+        """Cancel the periodic poll (if running)."""
+        root = self._root
+        job = self._debug_overlay_poll_job
+        self._debug_overlay_poll_job = None
+        if root is not None and job is not None:
+            try:
+                root.after_cancel(job)
+            except tk.TclError:
+                pass
 
     def _build_padding_badges(self) -> None:
         """(Re)build the padding badges from the current widget state.
@@ -1345,9 +1423,12 @@ class TkApp:
         self._hide_debug_layout_badges()
         self._unbind_debug_layout_resize()
         if not on:
+            if self._debug_padding_rebind is None:
+                self._cancel_debug_overlay_poll()
             return
         self._build_debug_layout_badges()
         self._bind_debug_layout_resize()
+        self._ensure_debug_overlay_poll()
 
     def _debug_layout_badge_lines(self, info: dict[str, Any]) -> str:
         """Render a widget's ``debug_layout()`` info as a short one-line badge."""

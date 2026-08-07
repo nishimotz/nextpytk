@@ -24,10 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   group (e.g. `section[title,body]`). Hidden widgets (via `app.hide()`) are
   excluded from the overlay, so a no-longer-visible widget leaves no stale
   badge. `app.show()` / `app.hide()` automatically re-place the badges, so
-  dynamic visibility changes stay in sync without an explicit refresh.
-  `app.refresh_debug_overlay()` is still available to force a re-read; it
-  defers the rebuild to the idle task so badges land at the widget's *final*
-  positions after `pack`/`grid` settle. Also added
+  dynamic visibility changes stay in sync without an explicit refresh. While
+  either overlay is active, a 1-second poll re-places the badges whenever any
+  widget's position actually moves (so layout shifts not surfaced to the
+  framework's hooks still track). `app.refresh_debug_overlay()` is still
+  available to force a re-read; it defers the rebuild to the idle task so
+  badges land at the widget's *final* positions after `pack`/`grid` settle.
+  Also added
   `app.widget_padding(name)` to read a built widget's own layout padding.
 - Layout-debug overlay: `app.show_debug_layout(True)` / `(False)` renders each
   widget's `debug_layout()` JSON info as a badge at the widget's own location

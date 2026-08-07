@@ -581,3 +581,41 @@ def test_debug_badges_skip_hidden_widgets(build):
     assert "code" in layout_names()
 
 
+def test_debug_overlay_periodic_poll_moves_badges(build):
+    """The 1s poll re-places badges when a widget's position moves."""
+    from nextpytk import tokens as t
+
+    app = TkApp(title="t")
+
+    @app.label("body")
+    def body():
+        return "Body"
+
+    build(app, layout=Layout().section("body", padx=t.SPACE[2], pady=t.SPACE[2]))
+    app.show_debug_layout(True)
+    assert app._debug_overlay_poll_job is not None
+
+    # First check records the baseline; second shows no movement yet.
+    app._debug_overlay_widgets_moved()
+    assert app._debug_overlay_widgets_moved() is False
+    # Force a movement by re-packing the widget at a different padding.
+    app.set_padding("body", padx=50, pady=50)
+    app._root.update_idletasks()
+    assert app._debug_overlay_widgets_moved() is True
+
+
+def test_debug_overlay_poll_cancelled_when_off(build):
+    """Turning the last overlay off cancels the periodic poll."""
+    app = TkApp(title="t")
+
+    @app.label("body")
+    def body():
+        return "Body"
+
+    build(app, layout=Layout().section("body"))
+    app.show_debug_padding(True)
+    assert app._debug_overlay_poll_job is not None
+    app.show_debug_padding(False)
+    assert app._debug_overlay_poll_job is None
+
+
