@@ -345,6 +345,9 @@ class TkApp:
         self._warned_state_keys: set[str] = set()
         self._first_focusable: tk.Widget | None = None
         self._debug_padding_badges: list[tk.Label] = []
+        # (x, y) slots already occupied by a padding badge, so overlapping
+        # badges are nudged down onto their own line.
+        self._debug_badge_rows: set[tuple[int, int]] = set()
         self._register_default_builders()
 
     def _normalize_theme(self, theme: bool | str) -> str:
@@ -391,6 +394,7 @@ class TkApp:
         self._hidden_geometry.clear()
         self._hidden_padding.clear()
         self._debug_padding_badges.clear()
+        self._debug_badge_rows.clear()
         self._a11y_last_toggle.clear()
         self._pending_ingest.clear()
         self._ingest_flush_job = None
@@ -1032,6 +1036,7 @@ class TkApp:
             return
         # Remove any existing badges first (idempotent toggle).
         self._hide_debug_padding_badges()
+        self._debug_badge_rows.clear()
         if not on:
             return
 
@@ -1066,6 +1071,19 @@ class TkApp:
                 self._debug_padding_badges.append(self._make_padding_badge(
                     root, w, ipx, ipy, bg="#ff9d4d", label="inner",
                 ))
+
+    def _place_badge(self, badge: tk.Label, x: int, y: int) -> None:
+        """Place a badge, nudging it down if another badge already occupies (x,y).
+
+        Section frames and the widgets inside them share nearly the same
+        top-left corner, so section/self/inner badges would otherwise stack on
+        top of each other. This keeps a per-row occupancy map so every badge
+        lands on its own line.
+        """
+        while (x, y) in self._debug_badge_rows:
+            y += 18
+        self._debug_badge_rows.add((x, y))
+        badge.place(x=x, y=y)
 
     def _widget_inner_padding(
         self,
@@ -1120,8 +1138,13 @@ class TkApp:
         *,
         bg: str,
         label: str,
+        dy: int = 0,
     ) -> tk.Label:
-        """Create a small colored label placed at the widget's top-left corner."""
+        """Create a small colored label placed at the widget's top-left corner.
+
+        ``dy`` nudges the badge down by that many pixels; see :meth:`_place_badge`
+        for the automatic collision-free placement used here.
+        """
         badge = tk.Label(
             root,
             text=f"{label} padx {padx} / pady {pady}",
@@ -1136,8 +1159,7 @@ class TkApp:
             wy = widget.winfo_rooty()
             rrx = root.winfo_rootx()
             rry = root.winfo_rooty()
-            # Keep the badge just inside the widget's top-left corner.
-            badge.place(x=wx - rrx, y=wy - rry)
+            self._place_badge(badge, wx - rrx, wy - rry + dy)
         except tk.TclError:
             pass
         return badge
