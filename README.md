@@ -819,6 +819,30 @@ print(app.check_layout_conflicts())
 #    (a warning is also emitted for each conflict)
 ```
 
+**Visual overlays.** Two helpers render debug info directly in the window, so
+you can see geometry and padding where the widget actually sits (they are
+`place`-managed labels over the root, so they never disturb the layout):
+
+- `app.show_debug_padding(True)` — color-coded badges for each layer of
+  whitespace: the page margin (`page`), section frames (`section`), a widget's
+  own outer padding (`widget`), and its inner padding (`inner`). Badges
+  re-place on resize and follow `show()`/`hide()` automatically.
+- `app.show_debug_layout(True)` — each widget's `debug_layout()` info (class,
+  geometry, requested size, pack/grid details) at its own location.
+
+Turn either off with `show_debug_padding(False)` / `show_debug_layout(False)`,
+or pass `debug_padding=True` to `TkApp` to enable the padding overlay at
+startup. Click a badge to lift it to the front.
+
+**Page margin & widget unregister.**
+
+- `Layout(page_margin=...)` overrides the outer `content_frame` page pad
+  (default `SPACE[6]` / 24px); `app.set_page_margin(margin)` re-scales it at
+  runtime (e.g. proportionally to window height).
+- `app.unregister(name)` removes a registered widget spec by name (useful in
+  interactive sessions); re-registering a name replaces the previous spec in
+  place instead of raising `ValueError`.
+
 ---
 
 ## Async-Native (asyncio + Tkinter)

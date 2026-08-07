@@ -812,6 +812,28 @@ print(app.check_layout_conflicts())
 #    （各混在に対して warning も発せられます）
 ```
 
+**可視オーバーレイ。** 2 つのヘルパーがデバッグ情報をウィンドウ内に直接
+表示します（`place` 管理のラベルなのでレイアウトを乱しません）:
+
+- `app.show_debug_padding(True)` — 余白の各階層を色分けバッジで表示:
+  ページ余白（`page`）、セクションフレーム（`section`）、ウィジェット自身の
+  外側余白（`widget`）、内部余白（`inner`）。リサイズ時に再配置され、
+  `show()`/`hide()` にも自動追従します。
+- `app.show_debug_layout(True)` — 各ウィジェットの `debug_layout()` 情報
+  （クラス、geometry、要求サイズ、pack/grid 詳細）をその位置に表示。
+
+`show_debug_padding(False)` / `show_debug_layout(False)` で無効化できます。
+`TkApp(debug_padding=True)` で起動時から padding オーバーレイを有効化も可能。
+バッジをクリックすると前面に持ち上がります。
+
+**ページ余白とウィジェット解除。**
+
+- `Layout(page_margin=...)` で最外側 `content_frame` のページ余白を上書き
+  （既定 `SPACE[6]` / 24px）。`app.set_page_margin(margin)` で実行時に再スケール
+  できます（例: ウィンドウ高さに比例）。
+- `app.unregister(name)` で登録済みウィジェットの spec を名前で解除
+  （対話環境で有用）。同名の再登録は `ValueError` ではなく既存 spec を置き換えます。
+
 ---
 
 ## Async-Native (asyncio + Tkinter)
