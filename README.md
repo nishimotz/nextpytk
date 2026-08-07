@@ -794,18 +794,21 @@ app.schema()
 
 ## Layout debug
 
-After widgets are built, `app.debug_layout()` returns JSON-compatible geometry
+After widgets are built, `app.layout_info()` returns JSON-compatible geometry
 and pack/grid info for every registered widget (useful for clipping, minsize,
 and layout regressions). It is safe to call after `run()` has returned: once
-the window is closed the Tk interpreter is torn down, and `debug_layout()`
+the window is closed the Tk interpreter is torn down, and `layout_info()`
 reports `"alive": False` with empty `sections`/`conflicts` instead of crashing
 on destroyed widgets.
 
 ```python
 app.run(layout=["msg", "go"])  # or build via tests / custom runner
-print(app.debug_layout())
+print(app.layout_info())
 # → {"title": "...", "alive": True, "sections": [{"widgets": [{"name": "msg", "geometry": ..., ...}, ...]}]}
 ```
+
+> **Note:** `app.debug_layout()` is a deprecated alias for `layout_info()`
+> (removed in 0.5.x). Prefer `layout_info()`.
 
 **Detecting geometry-manager conflicts.** Mixing `pack`/`grid`/`place` on one
 master (e.g. manually `pack`/`grid`-ing into a `place`-managed `wrap`/`flow`
@@ -818,6 +821,53 @@ print(app.check_layout_conflicts())
 # → [{"master_class": "Frame", "managers": ["pack", "place"], ...}] on conflict
 #    (a warning is also emitted for each conflict)
 ```
+
+**Visual overlays.** Two helpers render debug info directly in the window, so
+you can see geometry and padding where the widget actually sits (they are
+`place`-managed labels over the root, so they never disturb the layout):
+
+- `app.show_debug_padding(True)` — color-coded badges for each layer of
+  whitespace: the page margin (`page`), section frames (`section`), a widget's
+  own outer padding (`widget`), and its inner padding (`inner`). Badges
+  re-place on resize and follow `show()`/`hide()` automatically.
+- `app.show_debug_layout(True)` — each widget's `layout_info()` data (class,
+  geometry, requested size, pack/grid details) at its own location.
+
+Turn either off with `show_debug_padding(False)` / `show_debug_layout(False)`,
+or pass `debug_padding=True` to `TkApp` to enable the padding overlay at
+startup. Click a badge to lift it to the front.
+
+The padding overlay is also enabled automatically at startup when the
+`NEXTPYTK_DEBUG_PADDING` environment variable is set to a non-empty value other
+than `0` (e.g. `NEXTPYTK_DEBUG_PADDING=1 uv run python app.py`), so you can
+inspect any app's layout without editing its source.
+
+**Page margin & widget unregister.**
+
+- `Layout(page_margin=...)` overrides the outer `content_frame` page pad
+  (default `SPACE[6]` / 24px); `app.set_page_margin(margin)` re-scales it at
+  runtime (e.g. proportionally to window height).
+- `app.unregister(name)` removes a registered widget spec by name (useful in
+  interactive sessions); re-registering a name replaces the previous spec in
+  place instead of raising `ValueError`.
+- `app.hide_section(name)` / `app.show_section(name)` hide or restore an
+  entire section frame (including the empty space it reserved) at runtime.
+  `Layout.section(name=...)` lets you give a section a stable label;
+  otherwise it is auto-derived from the first widget as
+  `"<first widget>_section"` (e.g. `diagram_section`).
+
+**For AI coding agents (headless / non-vision).** These debug facilities are
+deliberately machine-readable so they work without a visible window:
+
+- `app.layout_info()` returns **JSON-compatible data**, so an agent can read
+  geometry, requested sizes, and pack/grid details as text.
+- Widgets can be built headlessly — `tk.Tk(); root.withdraw()` + the `build`
+  fixture pattern in `tests/conftest.py` — and inspected via `winfo_*` /
+  `pack_info()`, then pinned with `assert` in unit tests.
+- The overlay badges expose the same data as text: `badge.cget("text")` and
+  `badge.place_info()` give the padding label and coordinates. So a badge that
+  a human sees visually, an agent can assert on. "What a human sees is also
+  visible to an agent."
 
 ---
 

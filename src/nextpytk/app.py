@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
 import sys
 import tkinter as tk
 import tkinter.ttk as ttk
@@ -265,9 +266,16 @@ class TkApp:
         debug: bool = False,
         theme: bool | str = "kizashi",
         ingest_trace: bool = False,
+        debug_padding: bool | None = None,
     ):
         self._title = title
         self._debug = debug
+        # ``debug_padding`` defaults to off, but the ``NEXTPYTK_DEBUG_PADDING``
+        # environment variable turns the padding overlay on at startup without
+        # touching the app code (e.g. ``NEXTPYTK_DEBUG_PADDING=1``).
+        if debug_padding is None:
+            debug_padding = os.environ.get("NEXTPYTK_DEBUG_PADDING", "").strip() not in ("", "0")
+        self._debug_padding = debug_padding
         self._theme = self._normalize_theme(theme)
         self._kizashi = self._theme == "kizashi"
         # When True, a ``trace_add("write", ...)`` is installed on every
@@ -291,7 +299,7 @@ class TkApp:
         # True while widgets are being built; build-time ``var.set`` calls
         # (e.g. placeholders) must not be ingested into state.
         self._building = False
-        self._widget_masters: dict[str, tk.Misc] = {}
+        self._widget_masters: dict[str, tk.Widget] = {}
         self._row_pack_jobs: list[tuple[tk.Frame, Any]] = []
         self._grid_pack_jobs: list[tuple[tk.Frame, Any]] = []
         self._view_widgets: dict[str, list[str]] = {}
@@ -331,6 +339,17 @@ class TkApp:
         # because calling ``pack_configure`` on a ``pack_forget``'d widget
         # would re-pack (re-show) it prematurely.
         self._hidden_padding: dict[str, dict[str, Any]] = {}
+        # Section frames created by Layout.section(), keyed by the section's
+        # name. Used by hide_section()/show_section() to hide or reveal an
+        # entire section frame (and its reserved space) at once.
+        self._section_frames: dict[str, tk.Frame] = {}
+        # Section names that were given explicitly via ``section(name=...)``.
+        # Auto-derived names ("<first widget>_section") are registered too, but
+        # only explicit names should suppress the grouped-widget badge label.
+        self._explicit_section_names: set[str] = set()
+        # pack options captured from section frames at hide_section() time,
+        # replayed by show_section() to restore the frame's geometry.
+        self._hidden_section_opts: dict[str, dict[str, Any]] = {}
         # Callables invoked after a text widget's content is replaced, keyed by
         # text widget name. Used by paired line-number gutters to stay in sync.
         self._text_set_hooks: dict[str, list[Callable[[], None]]] = {}
@@ -338,10 +357,28 @@ class TkApp:
         self._pane_frames: dict[str, tk.Widget] = {}
         self._layout_paned_opts: dict[str, dict[str, Any]] = {}
         self._current_pane: str | None = None
+        # The outermost content_frame (page-margin wrapper) created when a
+        # top-level layout is mounted; used to update the page margin at runtime.
+        self._content_frame: ttk.Frame | None = None
         self._menubar_submenus: dict[str | int, list[tk.Menu | None]] = {}
         self._declared_state_keys: set[str] = set()
         self._warned_state_keys: set[str] = set()
         self._first_focusable: tk.Widget | None = None
+        self._debug_padding_badges: list[tk.Label] = []
+        # (x, y) slots already occupied by a padding badge, so overlapping
+        # badges are nudged down onto their own line.
+        self._debug_badge_rows: set[tuple[int, int]] = set()
+        # The root <Configure> handler that re-places badges on resize while
+        # the debug-padding overlay is active (None when off).
+        self._debug_padding_rebind: str | None = None
+        # Badges for the debug-layout overlay (each widget's debug_layout()
+        # info rendered at its own location).
+        self._debug_layout_badges: list[tk.Label] = []
+        self._debug_layout_rebind: str | None = None
+        # Periodic (1s) poll that re-places badges when widget geometry moves.
+        self._debug_overlay_poll_job: str | None = None
+        # Last-seen widget root coordinates, to only rebuild on real movement.
+        self._debug_overlay_last_pos: dict[str, tuple[int, int]] = {}
         self._register_default_builders()
 
     def _normalize_theme(self, theme: bool | str) -> str:
@@ -374,6 +411,7 @@ class TkApp:
         self._pane_frames.clear()
         self._layout_paned_opts.clear()
         self._current_pane = None
+        self._content_frame = None
         self._tk_vars.clear()
         self._widget_masters.clear()
         self._row_pack_jobs.clear()
@@ -387,6 +425,16 @@ class TkApp:
         self._hidden_pack_opts.clear()
         self._hidden_geometry.clear()
         self._hidden_padding.clear()
+        self._section_frames.clear()
+        self._explicit_section_names.clear()
+        self._hidden_section_opts.clear()
+        self._debug_padding_badges.clear()
+        self._debug_badge_rows.clear()
+        self._debug_padding_rebind = None
+        self._debug_layout_badges.clear()
+        self._debug_layout_rebind = None
+        self._debug_overlay_poll_job = None
+        self._debug_overlay_last_pos = {}
         self._a11y_last_toggle.clear()
         self._pending_ingest.clear()
         self._ingest_flush_job = None
@@ -403,19 +451,38 @@ class TkApp:
         return _PaneContext(self, pane_id)
 
     def _add_spec(self, spec: WidgetSpec) -> None:
-        """Register a WidgetSpec, rejecting duplicate names.
+        """Register a WidgetSpec, replacing any existing spec with the same name.
 
-        ``bind`` specs are exempt: a bind sharing a button's name is the
-        documented pairing for shortcut annotation.
+        Re-registering a name (e.g. re-decorating ``@app.button("next")`` in an
+        interactive session) silently replaces the previous spec in place, so
+        the latest definition wins. ``bind`` specs are exempt from replacement
+        checks: a bind sharing a button's name is the documented pairing for
+        shortcut annotation, and a bind never replaces a widget spec.
         """
         if spec.kind != "bind":
-            for w in self._widgets:
+            for i, w in enumerate(self._widgets):
                 if w.name == spec.name and w.kind != "bind":
-                    raise ValueError(
-                        f"widget name {spec.name!r} is already registered "
-                        f"(kind={w.kind!r})"
-                    )
+                    self._widgets[i] = spec
+                    return
         self._widgets.append(spec)
+
+    def unregister(self, name: str) -> bool:
+        """Remove a registered widget spec by name.
+
+        Returns ``True`` if a spec was removed, ``False`` if no widget with
+        that name was registered. This is useful in interactive sessions to
+        drop a widget (and its callback) before ``run()``, e.g. to re-declare
+        it with a different kind or options.
+
+        Only the spec is removed; if the widget was already built, the live
+        Tk widget is left in place. Call ``unregister`` before ``run()`` /
+        ``build_widgets()`` to affect the built layout.
+        """
+        for i, w in enumerate(self._widgets):
+            if w.name == name:
+                del self._widgets[i]
+                return True
+        return False
 
     @staticmethod
     def _callback_accepts_args(fn: Callable[..., Any]) -> bool:
@@ -587,7 +654,7 @@ class TkApp:
         self._root = root
         self._configure_theme(root)
 
-    def set_widget_master(self, widget_name: str, master: tk.Misc) -> None:
+    def set_widget_master(self, widget_name: str, master: tk.Widget) -> None:
         self._widget_masters[widget_name] = master
 
     def register_swap_target(self, name: str, frame: tk.Frame) -> None:
@@ -870,6 +937,9 @@ class TkApp:
             except tk.TclError:
                 pass
             w.pack_forget()
+        # Visibility changed; re-place any active debug-overlay badges at the
+        # widget's final (post-idle) position. No-op when no overlay is shown.
+        self.refresh_debug_overlay()
 
     def show(self, name: str) -> None:
         """Restore a widget previously hidden with ``app.hide(name)``.
@@ -911,6 +981,59 @@ class TkApp:
         pending = self._hidden_padding.pop(name, None)
         if pending and w.winfo_manager() == "pack":
             w.pack_configure(**pending)
+        # Visibility changed; re-place any active debug-overlay badges at the
+        # widget's final (post-idle) position. No-op when no overlay is shown.
+        self.refresh_debug_overlay()
+
+    def hide_section(self, name: str) -> None:
+        """Hide the section frame that ``name`` refers to.
+
+        ``name`` is the section label given via ``section(name=...)``. Unlike
+        ``app.hide(name)`` which removes a widget from its section, this
+        removes the entire section frame — including the empty vertical space
+        it reserved. The original pack options are remembered so
+        ``show_section(name)`` restores it exactly.
+
+        Only ``pack``-managed section frames are supported (the default for
+        ``Layout.section()``). A section whose frame is managed by another
+        geometry manager is left untouched. Calling this with an unknown
+        ``name`` (or a section that is already hidden) is a no-op.
+        """
+        frame = self._section_frames.get(name)
+        if frame is None:
+            return
+        if frame.winfo_manager() != "pack":
+            return
+        try:
+            self._hidden_section_opts[name] = dict(frame.pack_info())
+        except tk.TclError:
+            return
+        frame.pack_forget()
+        # Visibility changed; re-place any active debug-overlay badges.
+        self.refresh_debug_overlay()
+
+    def show_section(self, name: str) -> None:
+        """Restore a section frame previously hidden with ``hide_section``.
+
+        Re-packs the section frame with the same side/fill/expand/padding it
+        had when it was hidden. Calling this with an unknown ``name``, or for a
+        section that was not hidden (or is not ``pack``-managed), is a no-op.
+        """
+        frame = self._section_frames.get(name)
+        if frame is None:
+            return
+        # Already visible / not hidden; nothing to restore.
+        if frame.winfo_manager() == "pack":
+            return
+        opts = self._hidden_section_opts.pop(name, None)
+        if opts is None:
+            return
+        # pack_info() returns option keys with trailing underscores; strip
+        # them so they are accepted by pack().
+        clean = {k.rstrip("_"): v for k, v in opts.items()}
+        frame.pack(**clean)
+        # Visibility changed; re-place any active debug-overlay badges.
+        self.refresh_debug_overlay()
 
     def is_visible(self, name: str) -> bool:
         """Return True if the named widget is currently mapped (not hidden)."""
@@ -959,6 +1082,683 @@ class TkApp:
             w.pack_configure(**pending)
         # Else (hidden / not yet packed): keep the remembered value; show()
         # applies it.
+
+    def set_page_margin(self, margin: int) -> None:
+        """Update the outer page margin (``content_frame`` padding) at runtime.
+
+        The outermost page pad defaults to ``SPACE[6]`` (24px), or whatever
+        ``Layout(page_margin=...)`` set. Use this to re-scale it dynamically
+        (e.g. proportionally to window height in a resize handler). It is a
+        no-op when the app has not mounted a top-level ``content_frame``.
+        """
+        frame = self._content_frame
+        if frame is None or not bool(frame.winfo_exists()):
+            return
+        try:
+            frame.configure(padding=margin)
+        except tk.TclError:
+            pass
+
+    def widget_padding(self, name: str) -> dict[str, Any]:
+        """Return the current layout padding of a built widget.
+
+        Reads ``pack_info()`` / ``grid_info()`` and reports the padding as
+        ``{"padx": ..., "pady": ...}``. Values are normalized to the
+        ``(left, right)`` / ``(top, bottom)`` form where possible so callers
+        (and the padding debug overlay) get a stable shape. Returns ``{}``
+        when the widget is not built or not managed.
+        """
+        w = self._tk_widgets.get(name)
+        if w is None or not bool(w.winfo_exists()):
+            return {}
+        try:
+            mgr = w.winfo_manager()
+            if mgr == "pack":
+                pi = w.pack_info()
+                padx, pady = pi.get("padx"), pi.get("pady")
+            elif mgr == "grid":
+                gi = w.grid_info()
+                padx, pady = gi.get("padx"), gi.get("pady")
+            else:
+                return {}
+        except tk.TclError:
+            return {}
+        return {"padx": padx, "pady": pady}
+
+    def show_debug_padding(self, on: bool = True) -> None:
+        """Overlay layout frames and widgets with badges showing their padding.
+
+        Three kinds of padding are surfaced, each with its own badge color:
+
+        - **Section-frame outer padding** (yellow): the ``padx``/``pady`` a
+          ``Layout.section()`` / ``frame()`` packs its frame with.
+        - **Widget outer padding** (cyan): the ``padx``/``pady`` a built widget
+          itself is packed/gridded with (e.g. set via ``pack_configure`` or
+          ``set_padding``).
+        - **Widget inner padding** (orange): a label's ``padding`` option or a
+          text widget's ``padx``/``pady``.
+
+        Toggle off with ``show_debug_padding(False)``. When ``debug_padding=True``
+        is passed to the constructor, the overlay is enabled automatically at
+        startup. The badges are ``place``-managed labels over the root, so they
+        never disturb the pack/grid layout itself.
+        """
+        root = self._root
+        if root is None:
+            return
+        # Remove any existing badges first (idempotent toggle).
+        self._hide_debug_padding_badges()
+        self._debug_badge_rows.clear()
+        # Drop any resize re-render binding.
+        self._unbind_debug_padding_resize()
+        if not on:
+            if self._debug_layout_rebind is None:
+                self._cancel_debug_overlay_poll()
+            return
+
+        self._build_padding_badges()
+        self._bind_debug_padding_resize()
+        self._ensure_debug_overlay_poll()
+
+    def refresh_debug_overlay(self) -> None:
+        """Re-read and re-place any active debug overlay badges.
+
+        The resize-triggered re-render only fires when the window size actually
+        changes, so dynamic layout changes that do not resize the window (e.g.
+        hiding/showing a widget, swapping a region) leave the badges stale.
+        Call this after such a change to force the padding and/or debug-layout
+        badges to re-read live geometry. It is a no-op when neither overlay is
+        active.
+
+        Rebuilding is deferred to ``after_idle`` so the badges are placed at
+        the widget's *final* positions. ``pack``/``grid`` settle their geometry
+        in an idle task, so reading positions synchronously right after
+        ``show()``/``hide()`` would capture stale coordinates.
+        """
+        root = self._root
+        if root is None:
+            return
+        if self._debug_padding_rebind is None and self._debug_layout_rebind is None:
+            return
+
+        def _rebuild() -> None:
+            if self._debug_padding_rebind is not None:
+                self._build_padding_badges()
+            if self._debug_layout_rebind is not None:
+                self._build_debug_layout_badges()
+
+        try:
+            root.after_idle(_rebuild)
+        except tk.TclError:
+            pass
+
+    def _ensure_debug_overlay_poll(self) -> None:
+        """Start a 1s poll that re-places badges when any widget's position moves.
+
+        Some layout shifts (e.g. a container resizing its children, a custom
+        ``<Configure>`` handler) are not surfaced to the framework's own
+        hooks, so the badges can drift. Polling every second and rebuilding
+        only when a widget's root coordinates actually changed keeps them in
+        sync without the flicker of a constant rebuild.
+        """
+        root = self._root
+        if root is None:
+            return
+        if self._debug_overlay_poll_job is not None:
+            return
+        if self._debug_padding_rebind is None and self._debug_layout_rebind is None:
+            return
+
+        def _poll() -> None:
+            # Only keep polling while at least one overlay is active.
+            if self._debug_padding_rebind is None and self._debug_layout_rebind is None:
+                self._debug_overlay_poll_job = None
+                return
+            moved = self._debug_overlay_widgets_moved()
+            if moved:
+                if self._debug_padding_rebind is not None:
+                    self._build_padding_badges()
+                if self._debug_layout_rebind is not None:
+                    self._build_debug_layout_badges()
+            try:
+                self._debug_overlay_poll_job = root.after(1000, _poll)
+            except tk.TclError:
+                self._debug_overlay_poll_job = None
+
+        try:
+            self._debug_overlay_poll_job = root.after(1000, _poll)
+        except tk.TclError:
+            self._debug_overlay_poll_job = None
+
+    def _debug_overlay_widgets_moved(self) -> bool:
+        """Return True if any badge-relevant widget moved since last check."""
+        moved = False
+        pos: dict[str, tuple[int, int]] = {}
+        for spec in self._widgets:
+            if spec.name in self._hidden_widgets:
+                continue
+            w = self._tk_widgets.get(spec.name)
+            if w is None or not bool(w.winfo_exists()):
+                continue
+            try:
+                key = (w.winfo_rootx(), w.winfo_rooty())
+            except tk.TclError:
+                continue
+            pos[spec.name] = key
+            if self._debug_overlay_last_pos.get(spec.name) != key:
+                moved = True
+        self._debug_overlay_last_pos = pos
+        return moved
+
+    def _cancel_debug_overlay_poll(self) -> None:
+        """Cancel the periodic poll (if running)."""
+        root = self._root
+        job = self._debug_overlay_poll_job
+        self._debug_overlay_poll_job = None
+        if root is not None and job is not None:
+            try:
+                root.after_cancel(job)
+            except tk.TclError:
+                pass
+
+    def _build_padding_badges(self) -> None:
+        """(Re)build the padding badges from the current widget state.
+
+        Position and padding values are read live, so calling this again after
+        a resize or ``set_padding`` reflects the new values. Badges are
+        cleared first (see :meth:`_hide_debug_padding_badges`).
+        """
+        root = self._root
+        if root is None:
+            return
+        self._hide_debug_padding_badges()
+        self._debug_badge_rows.clear()
+
+        # 0) Page margin (outermost content_frame). Show its padding as a badge
+        # labelled "page" so the outer safe area is visible. Normalize a
+        # uniform padding tuple (e.g. (8,)) to a single value for a clean badge.
+        content = self._content_frame
+        if content is not None and bool(content.winfo_exists()):
+            try:
+                pm = content.cget("padding")
+            except tk.TclError:
+                pm = None
+            if pm:
+                pmv = self._normalize_padding_display(pm)
+                self._debug_padding_badges.append(self._make_padding_badge(
+                    root, content, pmv, pmv, bg="#c8e6c9", label="page",
+                ))
+
+        # 1) Distinct section frames that own widgets → their outer padding.
+        # Build a frame → owning-widget-names map so the badge can show which
+        # widgets a section groups together. Only visible widgets are included,
+        # so a section whose every widget is hidden (e.g. a code block on a
+        # no-code slide) does not keep a stale badge.
+        def _is_hidden(name: str) -> bool:
+            if name in self._hidden_widgets:
+                return True
+            w = self._tk_widgets.get(name)
+            if w is None or not bool(w.winfo_exists()):
+                return True
+            # In multiview / stages the inactive tabs' widgets exist but are
+            # not mapped (pack_forget), so they must not receive badges. Only
+            # apply this when the root itself is mapped: headless tests use a
+            # withdrawn root, where every widget reports unmapped.
+            try:
+                if root.winfo_ismapped() and not bool(w.winfo_ismapped()):
+                    return True
+            except tk.TclError:
+                pass
+            return False
+
+        # Map each section frame id → its explicit section() name, when one was
+        # given. Auto-derived names ("<first>_section") are excluded so a
+        # multi-widget section without an explicit name still reports the
+        # grouped widget names on its badge.
+        section_name_by_frame: dict[int, str] = {
+            id(frame): name
+            for name, frame in self._section_frames.items()
+            if name in self._explicit_section_names
+        }
+
+        frame_names: dict[int, list[str]] = {}
+        for spec in self._widgets:
+            frame = self._widget_masters.get(spec.name)
+            if frame is None or not bool(frame.winfo_exists()):
+                continue
+            if _is_hidden(spec.name):
+                continue
+            frame_names.setdefault(id(frame), []).append(spec.name)
+        seen_frames: list[tk.Widget] = []
+        for spec in self._widgets:
+            frame = self._widget_masters.get(spec.name)
+            if frame is None or not bool(frame.winfo_exists()):
+                continue
+            if _is_hidden(spec.name):
+                continue
+            if frame not in seen_frames:
+                seen_frames.append(frame)
+        for frame in seen_frames:
+            padx, pady = self._frame_padding(frame)
+            if not padx and not pady:
+                continue
+            # Prefer the explicit section name for a clear badge; otherwise
+            # fall back to the widget names the section groups. This keeps
+            # ``section[diagram_section]`` distinct from ``widget[diagram]``.
+            section = section_name_by_frame.get(id(frame))
+            if section is None:
+                section = ",".join(frame_names.get(id(frame), []))
+            if not section:
+                # Every widget in this section is hidden; do not badge it.
+                continue
+            self._debug_padding_badges.append(self._make_padding_badge(
+                root, frame, padx, pady, bg="#ffd54d", label="section",
+                name=section,
+            ))
+
+        # 2) Each built widget's own outer padding + inner padding.
+        for spec in self._widgets:
+            if _is_hidden(spec.name):
+                continue
+            w = self._tk_widgets.get(spec.name)
+            if w is None or not bool(w.winfo_exists()):
+                continue
+            opx, opy = self._frame_padding(w)
+            if opx or opy:
+                self._debug_padding_badges.append(self._make_padding_badge(
+                    root, w, opx, opy, bg="#4dd0ff", label="widget",
+                    name=spec.name,
+                ))
+            ipx, ipy = self._widget_inner_padding(spec, w)
+            if ipx or ipy:
+                # For text widgets the inner padx/pady sits the first character
+                # at (padx, pady) inside the widget, so align the inner badge
+                # with that first character's top-left corner. For labels,
+                # fall back to just inside the widget.
+                if spec.kind == "text":
+                    dx = self._inner_offset(ipx)
+                    dy = self._inner_offset(ipy)
+                else:
+                    dx = 0
+                    dy = max(0, (w.winfo_height() or 0) - 20)
+                self._debug_padding_badges.append(self._make_padding_badge(
+                    root, w, ipx, ipy, bg="#ff9d4d", label="inner",
+                    name=spec.name, dx=dx, dy=dy,
+                ))
+
+    def _place_badge(self, badge: tk.Label, x: int, y: int) -> None:
+        """Place a badge, nudging it down if another badge already occupies (x,y).
+
+        Section frames and the widgets inside them share nearly the same
+        top-left corner, so section/self/inner badges would otherwise stack on
+        top of each other. This keeps a per-row occupancy map so every badge
+        lands on its own line.
+        """
+        while (x, y) in self._debug_badge_rows:
+            y += 18
+        self._debug_badge_rows.add((x, y))
+        badge.place(x=x, y=y)
+        # Raise the badge above the pack/grid content. Badges are ``place``-ed
+        # on the root after the content frames already exist, so without an
+        # explicit lift() they can end up beneath the widgets and stay hidden.
+        # Only the click handler used to lift() them; doing it here too keeps
+        # every badge visible from the start.
+        try:
+            badge.lift()
+        except tk.TclError:
+            pass
+
+    def _widget_inner_padding(
+        self,
+        spec: WidgetSpec,
+        w: tk.Widget,
+    ) -> tuple[Any, Any]:
+        """Return a widget's own inner padding (label padding / text padx,pady).
+
+        For ``text`` widgets the inner ``tk.Text`` lives in ``_text_inner``,
+        not the container frame in ``w``, so it is queried directly.
+        """
+        if spec.kind == "text":
+            inner = self._text_inner.get(spec.name)
+            if inner is not None and bool(inner.winfo_exists()):
+                try:
+                    return inner.cget("padx"), inner.cget("pady")
+                except tk.TclError:
+                    return None, None
+            return None, None
+        try:
+            cls = w.winfo_class()
+            if cls in ("TLabel", "Label"):
+                p = w.cget("padding")
+                if p:
+                    if isinstance(p, (tuple, list)):
+                        return p, None
+                    return p, p
+        except tk.TclError:
+            pass
+        return None, None
+
+    @staticmethod
+    def _inner_offset(v: Any) -> int:
+        """Return a pixel offset from an inner-padding value.
+
+        ``tk.Text``'s ``padx``/``pady`` are plain ints; a ``(left, top, ...)``
+        tuple (label ``padding``) uses its leading element. Anything else
+        (e.g. ``None``, a string) maps to 0.
+        """
+        if isinstance(v, bool):
+            return int(v)
+        if isinstance(v, (int, float)):
+            return int(v)
+        if isinstance(v, (tuple, list)):
+            if v and isinstance(v[0], (int, float)):
+                return int(v[0])
+        return 0
+
+    def _frame_padding(self, frame: tk.Widget) -> tuple[Any, Any]:
+        """Return the (padx, pady) a layout frame is packed/gridded with."""
+        try:
+            mgr = frame.winfo_manager()
+            if mgr == "pack":
+                pi = frame.pack_info()
+                return pi.get("padx"), pi.get("pady")
+            if mgr == "grid":
+                gi = frame.grid_info()
+                return gi.get("padx"), gi.get("pady")
+        except tk.TclError:
+            pass
+        return None, None
+
+    @staticmethod
+    def _normalize_padding_display(v: Any) -> Any:
+        """Collapse a uniform padding tuple like ``(8,)`` to the single value.
+
+        ``ttk.Frame`` returns ``padding`` as a tuple; if every element is the
+        same (uniform margin) we show just that number in a badge.
+        """
+        if isinstance(v, (tuple, list)):
+            if v and all(x == v[0] for x in v):
+                return v[0]
+        return v
+
+    def _make_padding_badge(
+        self,
+        root: tk.Misc,
+        widget: tk.Widget,
+        padx: Any,
+        pady: Any,
+        *,
+        bg: str,
+        label: str,
+        name: str = "",
+        dx: int = 0,
+        dy: int = 0,
+    ) -> tk.Label:
+        """Create a small colored label placed at the widget's top-left corner.
+
+        ``name`` (optional) is shown after the label so a section badge can
+        report which widget(s) it groups. ``dx``/``dy`` nudge the badge right /
+        down from the widget's top-left; see :meth:`_place_badge` for the
+        automatic collision-free placement used here.
+
+        When the widget is ``pack``-managed, its ``side`` / ``fill`` /
+        ``expand`` are appended (single line) so the badge doubles as a
+        compact layout hint.
+        """
+        text = f"{label} padx {padx} / pady {pady}"
+        if name:
+            text = f"{label}[{name}] padx {padx} / pady {pady}"
+        try:
+            mgr = widget.winfo_manager()
+        except tk.TclError:
+            mgr = None
+        if mgr == "pack":
+            try:
+                pi = widget.pack_info()
+                # Keep this on a single line. With multiple lines (\n),
+                # _place_badge would read the badge's height as 1 before it is
+                # placed, so the row pitch would stay 18px and multi-line
+                # badges would overlap. A single line is stable.
+                side = pi.get("side") or "?"
+                fill = pi.get("fill") or "?"
+                expand = bool(pi.get("expand"))
+                anchor = pi.get("anchor") or "?"
+                text += (f" / side {side} / fill {fill} / expand {expand}"
+                         f" / anchor {anchor}")
+            except tk.TclError:
+                pass
+        badge = tk.Label(
+            root,
+            text=text,
+            bg=bg,
+            fg="#000000",
+            relief="solid",
+            borderwidth=1,
+            # Use the app font rather than a raw "TkDefaultFont" tuple, which
+            # Tk would treat as a literal family name and render poorly.
+            font=t.font("small"),
+        )
+        # Clicking a badge lifts it to the front (topmost z-order) so a badge
+        # buried under another overlay is easy to read.
+        badge.bind("<Button-1>", lambda _e: badge.lift())
+        try:
+            wx = widget.winfo_rootx()
+            wy = widget.winfo_rooty()
+            rrx = root.winfo_rootx()
+            rry = root.winfo_rooty()
+            self._place_badge(badge, wx - rrx + dx, wy - rry + dy)
+        except tk.TclError:
+            pass
+        return badge
+
+    def _hide_debug_padding_badges(self) -> None:
+        """Destroy any previously created padding badges."""
+        for b in self._debug_padding_badges:
+            try:
+                b.destroy()
+            except tk.TclError:
+                pass
+        self._debug_padding_badges.clear()
+
+    def _bind_debug_padding_resize(self) -> None:
+        """Re-place badges on window resize while the overlay is active.
+
+        Layout padding can change on resize (e.g. ``talk_slides.py`` scales
+        ``set_padding`` with window height), so the badges must be re-read
+        live instead of keeping a stale snapshot.
+
+        ``<Configure>`` fires very often (moves, layout changes from
+        hide/show, focus, …) — not just real resizes. Rebuilding badges on
+        every event would destroy and recreate them constantly, causing
+        visible flicker. So we only rebuild when the window's width or height
+        actually changed, and we debounce consecutive changes through a single
+        ``after`` so a resize storm settles into one rebuild.
+        """
+        root = self._root
+        if root is None:
+            return
+        if self._debug_padding_rebind is not None:
+            return
+
+        last = {"w": root.winfo_width(), "h": root.winfo_height()}
+        pending: dict[str, str | None] = {"job": None}
+
+        def _rerender(_event=None) -> None:
+            w = root.winfo_width()
+            h = root.winfo_height()
+            if w == last["w"] and h == last["h"]:
+                return
+            last["w"], last["h"] = w, h
+            if pending["job"] is not None:
+                try:
+                    root.after_cancel(pending["job"])
+                except tk.TclError:
+                    pass
+            pending["job"] = root.after(60, self._build_padding_badges)
+
+        self._debug_padding_rebind = root.bind("<Configure>", _rerender, add="+")
+
+    def _unbind_debug_padding_resize(self) -> None:
+        """Remove the resize re-render binding (if any)."""
+        root = self._root
+        if root is None or self._debug_padding_rebind is None:
+            return
+        try:
+            root.unbind("<Configure>", self._debug_padding_rebind)
+        except tk.TclError:
+            pass
+        self._debug_padding_rebind = None
+
+    def show_debug_layout(self, on: bool = True) -> None:
+        """Overlay each widget with a badge showing its ``debug_layout()`` info.
+
+        This is the visual, in-window counterpart of :meth:`debug_layout`. For
+        every built widget it renders the same JSON-compatible fields at the
+        widget's own top-left corner, so you can see geometry, requested size,
+        and pack/grid details right where the widget sits instead of reading a
+        printout. The badges are ``place``-managed labels over the root, so
+        they never disturb the pack/grid layout, and they re-place themselves
+        on resize (debounced).
+
+        Toggle off with ``show_debug_layout(False)``.
+        """
+        root = self._root
+        if root is None:
+            return
+        self._hide_debug_layout_badges()
+        self._unbind_debug_layout_resize()
+        if not on:
+            if self._debug_padding_rebind is None:
+                self._cancel_debug_overlay_poll()
+            return
+        self._build_debug_layout_badges()
+        self._bind_debug_layout_resize()
+        self._ensure_debug_overlay_poll()
+
+    def _debug_layout_badge_lines(self, info: dict[str, Any]) -> str:
+        """Render a widget's ``debug_layout()`` info as a short one-line badge."""
+        parts: list[str] = []
+        if info.get("name"):
+            parts.append(info["name"])
+        if info.get("class"):
+            parts.append(info["class"])
+        geom = info.get("geometry")
+        if geom:
+            parts.append(geom)
+        parts.append(f"req {info.get('reqwidth')}x{info.get('reqheight')}")
+        mgr = info.get("manager")
+        if mgr:
+            if mgr == "pack":
+                pi = info.get("pack_info") or {}
+                parts.append(
+                    f"{pi.get('side')} {pi.get('fill')}"
+                    f" expand{pi.get('expand')}"
+                    f" padx{pi.get('padx')} pady{pi.get('pady')}"
+                )
+            elif mgr == "grid":
+                gi = info.get("grid_info") or {}
+                parts.append(
+                    f"r{gi.get('row')} c{gi.get('column')}"
+                    f" padx{gi.get('padx')} pady{gi.get('pady')}"
+                )
+        return " ".join(str(p) for p in parts)
+
+    def _build_debug_layout_badges(self) -> None:
+        """(Re)build the debug-layout badges from the current widget state."""
+        root = self._root
+        if root is None:
+            return
+        self._hide_debug_layout_badges()
+        debug = self.layout_info()
+        seen_rows: set[tuple[int, int]] = set()
+
+        def _place(badge: tk.Label, x: int, y: int) -> None:
+            while (x, y) in seen_rows:
+                y += 18
+            seen_rows.add((x, y))
+            badge.place(x=x, y=y)
+
+        for sec in debug.get("sections", []):
+            for info in sec.get("widgets", []):
+                name = info.get("name")
+                if name in self._hidden_widgets:
+                    # Do not badge a hidden (pack_forget/grid_remove) widget.
+                    continue
+                w = self._tk_widgets.get(name)
+                if w is None or not bool(w.winfo_exists()):
+                    continue
+                # Skip widgets not currently mapped (e.g. inactive multiview
+                # tabs / hidden stages) so no stray badge appears over them.
+                # Only apply when the root is mapped (headless tests use a
+                # withdrawn root, where every widget reports unmapped).
+                try:
+                    if root.winfo_ismapped() and not bool(w.winfo_ismapped()):
+                        continue
+                except tk.TclError:
+                    pass
+                badge = tk.Label(
+                    root,
+                    text=self._debug_layout_badge_lines(info),
+                    bg="#e0e0e0",
+                    fg="#000000",
+                    relief="solid",
+                    borderwidth=1,
+                    font=t.font("small"),
+                )
+                # Clicking a badge lifts it to the front (topmost z-order).
+                badge.bind("<Button-1>", lambda _e: badge.lift())
+                try:
+                    wx = w.winfo_rootx()
+                    wy = w.winfo_rooty()
+                    rrx = root.winfo_rootx()
+                    rry = root.winfo_rooty()
+                    _place(badge, wx - rrx, wy - rry)
+                except tk.TclError:
+                    pass
+                self._debug_layout_badges.append(badge)
+
+    def _hide_debug_layout_badges(self) -> None:
+        """Destroy any previously created debug-layout badges."""
+        for b in self._debug_layout_badges:
+            try:
+                b.destroy()
+            except tk.TclError:
+                pass
+        self._debug_layout_badges.clear()
+
+    def _bind_debug_layout_resize(self) -> None:
+        """Re-place debug-layout badges on window resize (debounced)."""
+        root = self._root
+        if root is None or self._debug_layout_rebind is not None:
+            return
+        last = {"w": root.winfo_width(), "h": root.winfo_height()}
+        pending: dict[str, str | None] = {"job": None}
+
+        def _rerender(_event=None) -> None:
+            w = root.winfo_width()
+            h = root.winfo_height()
+            if w == last["w"] and h == last["h"]:
+                return
+            last["w"], last["h"] = w, h
+            if pending["job"] is not None:
+                try:
+                    root.after_cancel(pending["job"])
+                except tk.TclError:
+                    pass
+            pending["job"] = root.after(60, self._build_debug_layout_badges)
+
+        self._debug_layout_rebind = root.bind("<Configure>", _rerender, add="+")
+
+    def _unbind_debug_layout_resize(self) -> None:
+        """Remove the debug-layout resize re-render binding (if any)."""
+        root = self._root
+        if root is None or self._debug_layout_rebind is None:
+            return
+        try:
+            root.unbind("<Configure>", self._debug_layout_rebind)
+        except tk.TclError:
+            pass
+        self._debug_layout_rebind = None
 
     def text_widget(self, name: str) -> tk.Text | None:
         """Return the real ``tk.Text`` widget for a registered text widget.
@@ -1046,6 +1846,10 @@ class TkApp:
         Tk interpreter (and every widget) is destroyed, so ``winfo_*`` queries
         would otherwise raise ``TclError``.  ``debug_layout()`` reports
         ``"alive"`` as ``False`` and skips destroyed widgets instead of crashing.
+
+        .. deprecated:: 0.4.11
+            Use :meth:`layout_info` instead. ``debug_layout`` is a deprecated
+            alias and will be removed in 0.5.x.
         """
         def _is_alive() -> bool:
             if self._root is None:
@@ -1111,6 +1915,8 @@ class TkApp:
                         "side": pi.get("side"),
                         "fill": pi.get("fill"),
                         "expand": pi.get("expand"),
+                        "padx": pi.get("padx"),
+                        "pady": pi.get("pady"),
                     }
                 elif mgr == "grid":
                     gi = w.grid_info()
@@ -1118,6 +1924,8 @@ class TkApp:
                         "row": gi.get("row"),
                         "column": gi.get("column"),
                         "sticky": gi.get("sticky"),
+                        "padx": gi.get("padx"),
+                        "pady": gi.get("pady"),
                     }
             except tk.TclError:
                 pass
@@ -1159,6 +1967,21 @@ class TkApp:
         out["conflicts"] = conflicts
         return out
 
+    def layout_info(self) -> dict[str, Any]:
+        """Collect runtime geometry/state for every registered widget.
+
+        This is the non-debug-named counterpart of :meth:`debug_layout`: it
+        returns the same JSON-compatible snapshot of each widget's geometry,
+        requested size, and pack/grid details. ``debug_layout`` is a deprecated
+        alias for this method (removed in 0.5.x); prefer ``layout_info``.
+
+        Safe to call after ``run()`` has returned: once the window is closed the
+        Tk interpreter (and every widget) is destroyed, so ``winfo_*`` queries
+        would otherwise raise ``TclError``. It reports ``"alive"`` as ``False``
+        and skips destroyed widgets instead of crashing.
+        """
+        return self.debug_layout()
+
     def check_layout_conflicts(self) -> list[dict[str, Any]]:
         """Return a list of geometry-manager conflicts, warning on each.
 
@@ -1184,7 +2007,7 @@ class TkApp:
         been torn down (the window was closed), ``debug_layout()`` reports no
         live widgets and this returns an empty list instead of raising.
         """
-        debug = self.debug_layout()
+        debug = self.layout_info()
         conflicts: list[dict[str, Any]] = []
         for conflict in debug.get("conflicts", []):
             conflicts.append(conflict)
@@ -1500,6 +2323,8 @@ class TkApp:
         self.draw_canvas_items()
         self.sync()
         self._set_initial_focus()
+        if self._debug_padding:
+            self.show_debug_padding(True)
         return root
 
     # ── async job registration ──
@@ -1661,6 +2486,8 @@ class TkApp:
         self.draw_canvas_items()
         self.sync()
         self._set_initial_focus()
+        if self._debug_padding:
+            self.show_debug_padding(True)
         return root
 
     def _render_stage(self, stage: str, *, key: str, centered: set[str]) -> None:
@@ -3750,11 +4577,12 @@ class TkApp:
                     # shrink a window already mapped at the larger default.
                     root.minsize(new_w, new_h)
                     # Deferring to after_idle lets the first map settle; then
-                    # we shrink the window to its requested size so a small
-                    # app does not open with wasted space.
-                    root.after_idle(
-                        lambda: root.geometry(f"{req_w}x{req_h}")
-                    )
+                    # reset the explicit geometry so the window shrinks to its
+                    # requested size. Using geometry("") (rather than pinning
+                    # to a fixed "WxH") keeps the window flexible: if content
+                    # later grows (e.g. a button label widens), the window
+                    # follows its natural requested size instead of clipping.
+                    root.after_idle(lambda: root.geometry(""))
             except tk.TclError:
                 pass
 
@@ -4673,21 +5501,10 @@ class TkApp:
 
     def _layout_names(self, layout: Any) -> set[str]:
         """Collect the widget names referenced by a resolved Layout object."""
-        names: set[str] = set()
         try:
-            blocks = layout._blocks
+            names = layout.widget_names()
         except AttributeError:
-            return names
-        for block in blocks:
-            for w in getattr(block, "widgets", ()) or ():
-                names.add(w if isinstance(w, str) else getattr(w, "widget", w))
-            for attr in ("name", "left", "right"):
-                n = getattr(block, attr, None)
-                if isinstance(n, str):
-                    names.add(n)
-            cells = getattr(block, "cells", None)
-            if isinstance(cells, dict):
-                names.update(cells.keys())
+            return set()
         return names
 
     def _warn_orphan_layout_names(self, layout: Any) -> None:
@@ -4822,6 +5639,8 @@ class TkApp:
         self._sync_widget_states()
         self._set_initial_focus()
         self._relax_minsize(explicit_geometry=geometry)
+        if self._debug_padding:
+            self.show_debug_padding(True)
         self._root.mainloop()
 
     def run_async(
@@ -4958,6 +5777,8 @@ class TkApp:
         self._sync_widget_states()
         self._set_initial_focus()
         self._relax_minsize(explicit_geometry=geometry)
+        if self._debug_padding:
+            self.show_debug_padding(True)
         await self._async_mainloop()
 
     # ── schema export (for AI agents / LLM Function Calling) ──

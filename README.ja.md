@@ -788,18 +788,21 @@ app.schema()
 
 ## Layout debug
 
-ウィジェット構築後に `app.debug_layout()` を呼ぶと、登録ウィジェットごとの
+ウィジェット構築後に `app.layout_info()` を呼ぶと、登録ウィジェットごとの
 geometry / pack・grid 情報を JSON 互換で返せます（クリップや minsize、
 レイアウト回帰の調査向け）。`run()` が終了した後でも安全に呼べます。
 ウィンドウを閉じると Tk インタープリタが破棄されますが、
-`debug_layout()` は破棄済みウィジェットでクラッシュせず
+`layout_info()` は破棄済みウィジェットでクラッシュせず
 `"alive": False` と空の `sections`/`conflicts` を返します。
 
 ```python
 app.run(layout=["msg", "go"])  # またはテスト / カスタム runner
-print(app.debug_layout())
+print(app.layout_info())
 # → {"title": "...", "alive": True, "sections": [{"widgets": [{"name": "msg", "geometry": ..., ...}, ...]}]}
 ```
+
+> **注:** `app.debug_layout()` は `layout_info()` の非推奨エイリアスです
+> （0.5.x で削除予定）。`layout_info()` を使ってください。
 
 **ジオメトリマネージャー混在の検出。** `pack`/`grid`/`place` の混在（例: `wrap`/`flow`
 が使う `place` フレームに手動で `pack`/`grid` を混ぜる）は文法では完全に防げないため、
@@ -811,6 +814,41 @@ print(app.check_layout_conflicts())
 # → 混在があれば [{"master_class": "Frame", "managers": ["pack", "place"], ...}]
 #    （各混在に対して warning も発せられます）
 ```
+
+**可視オーバーレイ。** 2 つのヘルパーがデバッグ情報をウィンドウ内に直接
+表示します（`place` 管理のラベルなのでレイアウトを乱しません）:
+
+- `app.show_debug_padding(True)` — 余白の各階層を色分けバッジで表示:
+  ページ余白（`page`）、セクションフレーム（`section`）、ウィジェット自身の
+  外側余白（`widget`）、内部余白（`inner`）。リサイズ時に再配置され、
+  `show()`/`hide()` にも自動追従します。
+- `app.show_debug_layout(True)` — 各ウィジェットの `layout_info()` 情報
+  （クラス、geometry、要求サイズ、pack/grid 詳細）をその位置に表示。
+
+`show_debug_padding(False)` / `show_debug_layout(False)` で無効化できます。
+`TkApp(debug_padding=True)` で起動時から padding オーバーレイを有効化も可能。
+バッジをクリックすると前面に持ち上がります。
+
+**ページ余白とウィジェット解除。**
+
+- `Layout(page_margin=...)` で最外側 `content_frame` のページ余白を上書き
+  （既定 `SPACE[6]` / 24px）。`app.set_page_margin(margin)` で実行時に再スケール
+  できます（例: ウィンドウ高さに比例）。
+- `app.unregister(name)` で登録済みウィジェットの spec を名前で解除
+  （対話環境で有用）。同名の再登録は `ValueError` ではなく既存 spec を置き換えます。
+
+**AI コーディングエージェント向け（ヘッドレス / 非 vision）。** これらのデバッグ機能は
+ウィンドウを表示しなくても動くよう、意図的に機械可読にしています:
+
+- `app.layout_info()` は **JSON 互換データ**を返すので、エージェントは geometry・
+  要求サイズ・pack/grid 詳細を**テキストとして**読めます。
+- ウィジェットはヘッドレスで構築できます（`tk.Tk(); root.withdraw()` と
+  `tests/conftest.py` の `build` フィクスチャのパターン）。`winfo_*` / `pack_info()`
+  で検査し、ユニットテストの `assert` で固定できます。
+- オーバーレイのバッジも同じデータをテキストで公開します: `badge.cget("text")` と
+  `badge.place_info()` で余白ラベルと座標が取れます。人間が視覚で見るバッジを、
+  エージェントは `assert` で検証できる——「**人間に見えるものはエージェントにも
+  見える**」。
 
 ---
 

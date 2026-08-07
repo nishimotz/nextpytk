@@ -4,6 +4,146 @@ All notable changes to nextpytk are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.11] — 2026-08-08
+
+### Added
+
+- `TkApp.unregister(name)` removes a registered widget spec by name, returning
+  `True`/`False`. Useful in interactive sessions to drop a widget (and its
+  callback) before `run()`, e.g. to re-declare it with a different kind or
+  options.
+- Padding debug overlay: pass `debug_padding=True` to `TkApp` (or call
+  `app.show_debug_padding(True)` / `(False)`) to place small colored badges
+  over the layout. Three kinds of padding are color-coded: **section-frame
+  outer padding** (yellow, `section padx 8 / pady 12`), **widget's own outer
+  padding** (cyan, `widget padx 15 / pady 20`), and **widget inner padding**
+  (orange, `inner padx 8 / pady 12` — a label's `padding` option or a text
+  widget's `padx`/`pady`). The badges are `place`-managed labels over the
+  root, so they never disturb the pack/grid layout, and they re-place
+  themselves on window resize. Section badges report the widget names they
+  group (e.g. `section[title,body]`). The `inner` badge is placed just inside
+  the widget's bottom edge so it reads as "inside" the widget rather than
+  stacked with the section/widget badges at the top-left; for a `text` widget
+  it aligns with the first character's top-left corner (offset by the text's
+  `padx`/`pady`). Hidden widgets (via
+  `app.hide()`) are excluded from the overlay, so a no-longer-visible widget
+  leaves no stale badge. `app.show()` / `app.hide()` automatically re-place
+  the badges, so
+  dynamic visibility changes stay in sync without an explicit refresh. While
+  either overlay is active, a 1-second poll re-places the badges whenever any
+  widget's position actually moves (so layout shifts not surfaced to the
+  framework's hooks still track). `app.refresh_debug_overlay()` is still
+  available to force a re-read; it defers the rebuild to the idle task so
+  badges land at the widget's *final* positions after `pack`/`grid` settle.
+  Also added
+  `app.widget_padding(name)` to read a built widget's own layout padding.
+- Layout-debug overlay: `app.show_debug_layout(True)` / `(False)` renders each
+  widget's `debug_layout()` JSON info as a badge at the widget's own location
+  — the visual, in-window counterpart of `debug_layout()` (geometry, requested
+  size, and pack/grid details). Re-places on resize (debounced).
+- `app.set_page_margin(margin)` updates the outer `content_frame` page pad at
+  runtime, so a resize handler can re-scale it proportionally (e.g. to window
+  height). This complements `Layout(page_margin=...)`, which sets the initial
+  value.
+- The padding debug overlay (`show_debug_padding`) now also badges the
+  outermost page margin (a green `page padx 8 / pady 8` badge on the
+  `content_frame`), so the outer safe area is visible alongside the
+  section/widget/inner badges.
+- `debug_layout()` now includes each widget's `padx`/`pady` in its
+  `pack_info` / `grid_info` payloads.
+- `app.layout_info()` is the canonical, non-`debug`-named accessor for the
+  runtime layout snapshot (geometry, requested size, pack/grid details). It
+  aligns with tkinter's `pack_info()` / `grid_info()` convention and pairs with
+  `schema()` (content vs. presentation).
+- `Layout.section()` accepts an optional `name=` so a section frame can be
+  addressed at runtime with `app.hide_section(name)` / `app.show_section(name)`
+  — useful for hiding an entire section (and the empty space it reserved), e.g.
+  swapping between a diagram and a code block. When `name=` is omitted, the
+  section is registered under an auto-derived name `<first widget>_section`
+  (e.g. `diagram_section`).
+- `app.hide_section(name)` / `app.show_section(name)` hide or restore a whole
+  section frame at runtime, keeping its pack options so `show_section` restores
+  it exactly. Unlike `app.hide(name)` (which removes a single widget), these
+  remove the entire section frame including its reserved space.
+- The padding debug overlay is enabled automatically at startup when the
+  `NEXTPYTK_DEBUG_PADDING` environment variable is set to a non-empty value
+  other than `0`, so any app can be inspected without editing its source. This
+  works across all run modes (`run()`, `run_multiview()`, `run_stages()`,
+  `run_async()`).
+- Padding / debug-layout badges now show `side` / `fill` / `expand` / `anchor`
+  pack hints on the badge text (single line), and use the app font rather than
+  a raw `TkDefaultFont` tuple. Badges also skip widgets that are not currently
+  mapped (e.g. inactive multiview tabs), so no stray badge appears over a
+  hidden tab.
+
+### Changed
+
+- `app.debug_layout()` is now a **deprecated alias** for `app.layout_info()`.
+  It will be removed in 0.5.x; prefer `layout_info()`.
+- Re-registering a widget name (e.g. re-decorating `@app.button("next")` in an
+  interactive session) now silently replaces the previous spec in place instead
+  of raising `ValueError`. The latest definition wins. `bind` specs are still
+  exempt: a bind sharing a button's name remains the documented shortcut
+  pairing and never replaces a widget spec.
+- `Layout` accepts a `page_margin` option that overrides the outer
+  `content_frame` page pad (default `SPACE[6]` / 24px). Pass `page_margin=0`
+  to make a top-level layout hug the window edge; the per-block
+  `padx`/`pady` still apply.
+- `_relax_minsize()` no longer pins the window to a fixed `WxH` geometry. It
+  now resets the explicit geometry (`geometry("")`) after lowering the
+  minimum, so a small app still opens at its requested size but the window
+  keeps following its content — e.g. a button label that widens at runtime no
+  longer gets clipped.
+- `_warn_orphan_layout_names()` no longer flags `Layout.frame(name, ...)` /
+  `Layout.target(name, ...)` container names as orphaned widgets. It now uses
+  `Layout.widget_names()`, which correctly excludes self-mounted frame/swap
+  region names and only reports actual widget names.
+
+### Tests
+
+- `tests/test_text.py`: `test_relax_minsize_does_not_pin_window_size` (after
+  relax, growing a button label grows the window's requested width instead of
+  clipping it).
+- `tests/test_api.py`: `test_layout_names_excludes_nested_frame_name` (a
+  `frame(name, ...)` container name is not flagged as an orphan).
+- `tests/test_layout_spacing.py`:
+  `test_layout_page_margin_default_is_space6`,
+  `test_layout_page_margin_zero`,
+  `test_layout_page_margin_explicit` (the outer `content_frame` page pad is
+  overridable via `Layout(page_margin=...)`),
+  `test_set_page_margin_updates_runtime` (`app.set_page_margin()` re-scales
+  the page pad at runtime).
+- `tests/test_errors.py`:
+  `test_duplicate_widget_name_replaces_in_place`,
+  `test_re_register_same_kind_replaces_callback`,
+  `test_unregister_removes_spec`,
+  `test_unregister_then_re_register` (re-registering replaces in place;
+  `app.unregister(name)` removes a spec).
+- `tests/test_debug_layout.py`:
+  `test_show_debug_padding_badges_padded_frames` (badges placed on section
+  frames that carry padding),
+  `test_show_debug_padding_toggle_off_removes_badges`,
+  `test_widget_padding_reports_layout_padding`,
+  `test_show_debug_padding_reports_inner_padding` (label `padding` and text
+  `padx`/`pady` inner badges),
+  `test_show_debug_padding_reports_self_padding` (cyan self badge for a widget
+  packed with explicit `padx`/`pady`),
+  `test_show_debug_padding_section_badge_lists_widgets`,
+  `test_show_debug_padding_rebuilds_after_set_padding`,
+  `test_show_debug_padding_toggle_off_unbinds_resize`,
+  `test_show_debug_layout_badges_render_json_info`,
+  `test_show_debug_layout_toggle_off`,
+  `test_debug_badges_clickable_to_lift`,
+  `test_refresh_debug_overlay_rebuilds_active_badges`,
+  `test_refresh_debug_overlay_noop_when_inactive`,
+  `test_debug_badges_skip_hidden_widgets`,
+  `test_debug_overlay_periodic_poll_moves_badges`,
+  `test_debug_overlay_poll_cancelled_when_off`,
+  `test_inner_badge_placed_inside_widget`,
+  `test_inner_badge_text_aligns_first_character`,
+  `test_show_debug_padding_shows_page_margin_badge`,
+  `test_show_debug_padding_page_badge_tracks_set_page_margin`.
+
 ## [0.4.10] — 2026-08-07
 
 ### Added
