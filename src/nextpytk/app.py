@@ -299,7 +299,7 @@ class TkApp:
         # True while widgets are being built; build-time ``var.set`` calls
         # (e.g. placeholders) must not be ingested into state.
         self._building = False
-        self._widget_masters: dict[str, tk.Misc] = {}
+        self._widget_masters: dict[str, tk.Widget] = {}
         self._row_pack_jobs: list[tuple[tk.Frame, Any]] = []
         self._grid_pack_jobs: list[tuple[tk.Frame, Any]] = []
         self._view_widgets: dict[str, list[str]] = {}
@@ -359,7 +359,7 @@ class TkApp:
         self._current_pane: str | None = None
         # The outermost content_frame (page-margin wrapper) created when a
         # top-level layout is mounted; used to update the page margin at runtime.
-        self._content_frame: tk.Widget | None = None
+        self._content_frame: ttk.Frame | None = None
         self._menubar_submenus: dict[str | int, list[tk.Menu | None]] = {}
         self._declared_state_keys: set[str] = set()
         self._warned_state_keys: set[str] = set()
@@ -654,7 +654,7 @@ class TkApp:
         self._root = root
         self._configure_theme(root)
 
-    def set_widget_master(self, widget_name: str, master: tk.Misc) -> None:
+    def set_widget_master(self, widget_name: str, master: tk.Widget) -> None:
         self._widget_masters[widget_name] = master
 
     def register_swap_target(self, name: str, frame: tk.Frame) -> None:
