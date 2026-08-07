@@ -1217,6 +1217,13 @@ class TkApp:
         Layout padding can change on resize (e.g. ``talk_slides.py`` scales
         ``set_padding`` with window height), so the badges must be re-read
         live instead of keeping a stale snapshot.
+
+        ``<Configure>`` fires very often (moves, layout changes from
+        hide/show, focus, …) — not just real resizes. Rebuilding badges on
+        every event would destroy and recreate them constantly, causing
+        visible flicker. So we only rebuild when the window's width or height
+        actually changed, and we debounce consecutive changes through a single
+        ``after`` so a resize storm settles into one rebuild.
         """
         root = self._root
         if root is None:
@@ -1224,8 +1231,21 @@ class TkApp:
         if self._debug_padding_rebind is not None:
             return
 
+        last = {"w": root.winfo_width(), "h": root.winfo_height()}
+        pending: dict[str, str | None] = {"job": None}
+
         def _rerender(_event=None) -> None:
-            self._build_padding_badges()
+            w = root.winfo_width()
+            h = root.winfo_height()
+            if w == last["w"] and h == last["h"]:
+                return
+            last["w"], last["h"] = w, h
+            if pending["job"] is not None:
+                try:
+                    root.after_cancel(pending["job"])
+                except tk.TclError:
+                    pass
+            pending["job"] = root.after(60, self._build_padding_badges)
 
         self._debug_padding_rebind = root.bind("<Configure>", _rerender, add="+")
 
