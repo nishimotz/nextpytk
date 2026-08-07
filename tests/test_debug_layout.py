@@ -362,8 +362,8 @@ def test_show_debug_padding_reports_inner_padding(build):
     build(app, layout=Layout().section("body").section("code"))
     app.show_debug_padding(True)
     texts = [b.cget("text") for b in app._debug_padding_badges]
-    assert any("inner padx (6, 10)" in s for s in texts)   # label padding
-    assert any("inner padx 8 / pady 12" in s for s in texts)  # text padx/pady
+    assert any("inner[body] padx (6, 10)" in s for s in texts)   # label padding
+    assert any("inner[code] padx 8 / pady 12" in s for s in texts)  # text padx/pady
 
 
 def test_show_debug_padding_reports_self_padding(build):
@@ -378,7 +378,7 @@ def test_show_debug_padding_reports_self_padding(build):
     app.set_padding("body", padx=15, pady=20)
     app.show_debug_padding(True)
     texts = [b.cget("text") for b in app._debug_padding_badges]
-    assert any("self padx 15 / pady 20" in s for s in texts)
+    assert any("self[body] padx 15 / pady 20" in s for s in texts)
 
 
 def test_show_debug_padding_section_badge_lists_widgets(build):
@@ -415,13 +415,13 @@ def test_show_debug_padding_rebuilds_after_set_padding(build):
     build(app, layout=Layout().section("body"))
     app.show_debug_padding(True)
     texts = [b.cget("text") for b in app._debug_padding_badges]
-    assert not any("self padx 15" in s for s in texts)
+    assert not any("self[body] padx 15" in s for s in texts)
 
     # Change padding after the overlay is up, then rebuild (as <Configure> does).
     app.set_padding("body", padx=15, pady=20)
     app._build_padding_badges()
     texts = [b.cget("text") for b in app._debug_padding_badges]
-    assert any("self padx 15 / pady 20" in s for s in texts)
+    assert any("self[body] padx 15 / pady 20" in s for s in texts)
 
 
 def test_show_debug_padding_toggle_off_unbinds_resize(build):

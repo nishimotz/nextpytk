@@ -1103,11 +1103,13 @@ class TkApp:
             if opx or opy:
                 self._debug_padding_badges.append(self._make_padding_badge(
                     root, w, opx, opy, bg="#4dd0ff", label="self",
+                    name=spec.name,
                 ))
             ipx, ipy = self._widget_inner_padding(spec, w)
             if ipx or ipy:
                 self._debug_padding_badges.append(self._make_padding_badge(
                     root, w, ipx, ipy, bg="#ff9d4d", label="inner",
+                    name=spec.name,
                 ))
 
     def _place_badge(self, badge: tk.Label, x: int, y: int) -> None:
