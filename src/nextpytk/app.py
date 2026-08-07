@@ -907,6 +907,9 @@ class TkApp:
             except tk.TclError:
                 pass
             w.pack_forget()
+        # Visibility changed; re-place any active debug-overlay badges at the
+        # widget's final (post-idle) position. No-op when no overlay is shown.
+        self.refresh_debug_overlay()
 
     def show(self, name: str) -> None:
         """Restore a widget previously hidden with ``app.hide(name)``.
@@ -948,6 +951,9 @@ class TkApp:
         pending = self._hidden_padding.pop(name, None)
         if pending and w.winfo_manager() == "pack":
             w.pack_configure(**pending)
+        # Visibility changed; re-place any active debug-overlay badges at the
+        # widget's final (post-idle) position. No-op when no overlay is shown.
+        self.refresh_debug_overlay()
 
     def is_visible(self, name: str) -> bool:
         """Return True if the named widget is currently mapped (not hidden)."""

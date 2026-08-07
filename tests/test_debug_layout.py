@@ -568,16 +568,14 @@ def test_debug_badges_skip_hidden_widgets(build):
     assert "code" in padding_names()
     assert "code" in layout_names()
 
-    # Hide code, refresh → code badge disappears.
+    # hide()/show() auto-refresh the overlay (idle-deferred), so no explicit
+    # refresh_debug_overlay() call is needed.
     app.hide("code")
-    app.refresh_debug_overlay()
     app._root.update_idletasks()
     assert "code" not in padding_names()
     assert "code" not in layout_names()
 
-    # Show code again, refresh → badge returns.
     app.show("code")
-    app.refresh_debug_overlay()
     app._root.update_idletasks()
     assert "code" in padding_names()
     assert "code" in layout_names()
