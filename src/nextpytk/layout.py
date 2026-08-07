@@ -58,6 +58,10 @@ class _Row:
     pady: int | None = _PAD
     minsize: int | None = None
     anchor: AnchorLike | None = None
+    # Optional stable name for the section frame, used to address it with
+    # ``app.hide_section()`` / ``app.show_section()``. When omitted, the
+    # frame is registered as "<first widget>_section".
+    name: str | None = None
     # Per-widget pack opts (for future: individual widget packing hints)
     widget_opts: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Extra markers consumed by chrome helpers (e.g. Kizashi header/status).
@@ -1018,6 +1022,7 @@ class Layout:
         pady: int | None = None,
         minsize: int | None = None,
         anchor: AnchorLike | None = None,
+        name: str | None = None,
     ) -> Layout:
         """Add a pack-based section.
 
@@ -1029,6 +1034,11 @@ class Layout:
         ``anchor``: where a non-filling section sits in the window.
         Defaults to ``\"w\"`` (left) for ``fill=\"none\"`` / ``\"y\"`` —
         pass ``anchor=\"center\"`` to center it.
+
+        ``name``: an optional stable label for the section frame so it can be
+        addressed with ``app.hide_section(name)`` / ``app.show_section(name)``.
+        Only sections with an explicit ``name`` are addressable this way; the
+        name must not collide with a widget name.
         """
         ws = list(widgets)
         # Children of a multi-widget section lay out side-by-side regardless
@@ -1043,6 +1053,7 @@ class Layout:
             pady=pady if pady is not None else self.pady,
             minsize=minsize,
             anchor=anchor,
+            name=name,
         ))
         return self
 
@@ -1515,6 +1526,18 @@ class Layout:
                 for name in block.widgets:
                     _ensure_allowed(name)
                     app._widget_masters[name] = frame
+                # Register the section frame under a stable name so it is
+                # addressable via hide_section()/show_section(). Prefer the
+                # explicit ``name=`` from section(); otherwise derive one from
+                # the first widget ("<first>_section"), which cannot collide
+                # with a real widget name (widgets don't carry that suffix).
+                section_key = block.name or (
+                    f"{block.widgets[0]}_section" if block.widgets else None
+                )
+                if block.name is not None:
+                    app._explicit_section_names.add(block.name)
+                if section_key is not None:
+                    app._section_frames[section_key] = frame
                 frame.configure(bg=t.BG, bd=0, highlightthickness=0)
                 row_jobs.append((frame, block))
             elif isinstance(block, _Paned):
