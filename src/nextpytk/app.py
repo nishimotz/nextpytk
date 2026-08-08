@@ -2063,6 +2063,7 @@ class TkApp:
         view_layouts: dict[str, Layout] | None = None,
         center_kinds: set[str] | None = None,
         on_ready: Callable[[TkApp], None] | None = None,
+        on_resize: Callable[[int, int], None] | None = None,
     ) -> None:
         """Build and run the app with state-driven stage switching.
 
@@ -2079,6 +2080,7 @@ class TkApp:
             view_layouts=view_layouts,
             center_kinds=center_kinds,
             on_ready=on_ready,
+            on_resize=on_resize,
         )
         root.mainloop()
 
@@ -2092,6 +2094,7 @@ class TkApp:
         center_kinds: set[str] | None = None,
         on_tab_change: NotebookTabChange | None = None,
         on_ready: Callable[[TkApp], None] | None = None,
+        on_resize: Callable[[int, int], None] | None = None,
         tabposition: str = "nw",
     ) -> None:
         """Build and run the app in a ttk.Notebook container.
@@ -2110,6 +2113,7 @@ class TkApp:
             center_kinds=center_kinds,
             on_tab_change=on_tab_change,
             on_ready=on_ready,
+            on_resize=on_resize,
             tabposition=tabposition,
         )
         root.mainloop()
@@ -2124,6 +2128,7 @@ class TkApp:
         center_kinds: set[str] | None = None,
         on_tab_change: NotebookTabChange | None = None,
         on_ready: Callable[[TkApp], None] | None = None,
+        on_resize: Callable[[int, int], None] | None = None,
         tabposition: str = "nw",
     ) -> None:
         """Async variant: multiview setup + cooperative asyncio mainloop.
@@ -2140,6 +2145,7 @@ class TkApp:
             center_kinds=center_kinds,
             on_tab_change=on_tab_change,
             on_ready=on_ready,
+            on_resize=on_resize,
             tabposition=tabposition,
         )
         await self._async_mainloop()
@@ -2154,6 +2160,7 @@ class TkApp:
         center_kinds: set[str] | None = None,
         on_tab_change: NotebookTabChange | None = None,
         on_ready: Callable[[TkApp], None] | None = None,
+        on_resize: Callable[[int, int], None] | None = None,
         tabposition: str = "nw",
     ) -> tk.Tk:
         """Build the Notebook UI; everything except entering a mainloop."""
@@ -2325,6 +2332,7 @@ class TkApp:
         self._set_initial_focus()
         if self._debug_padding:
             self.show_debug_padding(True)
+        self._install_resize_hook(on_resize)
         return root
 
     # ── async job registration ──
@@ -2360,6 +2368,7 @@ class TkApp:
         view_layouts: dict[str, Layout] | None = None,
         center_kinds: set[str] | None = None,
         on_ready: Callable[[TkApp], None] | None = None,
+        on_resize: Callable[[int, int], None] | None = None,
     ) -> tk.Tk:
         """Build the state-driven stage UI; everything except entering mainloop."""
         self._stages[name] = {
@@ -2488,6 +2497,7 @@ class TkApp:
         self._set_initial_focus()
         if self._debug_padding:
             self.show_debug_padding(True)
+        self._install_resize_hook(on_resize)
         return root
 
     def _render_stage(self, stage: str, *, key: str, centered: set[str]) -> None:
@@ -4591,6 +4601,61 @@ class TkApp:
         except tk.TclError:
             pass
 
+    def _install_resize_hook(
+        self,
+        on_resize: Callable[[int, int], None] | None,
+    ) -> None:
+        """Install a debounced, size-change-only ``<Configure>`` handler.
+
+        This is the framework-managed counterpart to hand-rolled
+        ``root.bind("<Configure>", ...)`` in user code. It exists so app
+        developers do not have to reason about Tk's ``<Configure>`` semantics
+        (which fire for *every* child widget, not just the toplevel) or about
+        the infinite-loop risk of reconfiguring widgets from inside the
+        handler.
+
+        Guarantees:
+
+        - **Toplevel only**: child-widget ``<Configure>`` events are ignored
+          (``event.widget != root``), so reconfiguring a child from the
+          callback cannot re-trigger the handler.
+        - **Size-change only**: the callback fires only when the window's
+          ``(width, height)`` actually changed, so a callback that calls
+          ``configure``/``pack_configure`` (which can emit ``<Configure>``
+          without changing the toplevel size) does not loop.
+        - **Debounced**: rapid resize storms are coalesced into a single
+          callback via ``after``, so the callback runs at most once per
+          settle window.
+
+        The callback is invoked as ``on_resize(width, height)``.
+        """
+        root = self._root
+        if root is None or on_resize is None:
+            return
+
+        last = {"w": root.winfo_width(), "h": root.winfo_height()}
+        pending: dict[str, str | None] = {"job": None}
+
+        def _on_configure(event: tk.Event[tk.Misc] | None = None) -> None:
+            # Tk fires <Configure> for every child widget too; only react to
+            # the toplevel itself.
+            if event is not None and event.widget != root:
+                return
+            w = root.winfo_width()
+            h = root.winfo_height()
+            if (w, h) == (last["w"], last["h"]):
+                return
+            last["w"], last["h"] = w, h
+            # Debounce: coalesce a burst of <Configure> events into one call.
+            if pending["job"] is not None:
+                try:
+                    root.after_cancel(pending["job"])
+                except tk.TclError:
+                    pass
+            pending["job"] = root.after(60, lambda: on_resize(w, h))
+
+        root.bind("<Configure>", _on_configure, add="+")
+
     # ── a11y choke point ──
 
     def _a11y_target(self, spec: WidgetSpec) -> tk.Widget | None:
@@ -5535,6 +5600,7 @@ class TkApp:
         multiview: str | None = None,
         stages: str | None = None,
         on_ready: Callable[[TkApp], None] | None = None,
+        on_resize: Callable[[int, int], None] | None = None,
         geometry: str | None = None,
     ) -> None:
         """Build and run the Tk application.
@@ -5542,6 +5608,10 @@ class TkApp:
         on_ready is called after widget building and state application,
         just before "mainloop()". Use it for dynamic widget population,
         key bindings, or other imperative setup that needs widgets to exist.
+        on_resize is called with ``(width, height)`` whenever the window is
+        resized. It is debounced and only fires when the size actually
+        changes, so the callback can safely reconfigure widgets without
+        causing an infinite ``<Configure>`` loop.
         geometry: initial window size, e.g. "640x480".
         """
         used = sum(x is not None for x in (layout, multiview, stages))
@@ -5568,6 +5638,7 @@ class TkApp:
                 view_layouts=cfg.get("view_layouts"),
                 center_kinds=cfg.get("center_kinds"),
                 on_ready=on_ready,
+                on_resize=on_resize,
             )
             return
 
@@ -5588,6 +5659,7 @@ class TkApp:
                 center_kinds=cfg.get("center_kinds"),
                 on_tab_change=cfg.get("on_tab_change"),
                 on_ready=on_ready,
+                on_resize=on_resize,
                 tabposition=cfg.get("tabposition", "nw"),
             )
             return
@@ -5641,6 +5713,7 @@ class TkApp:
         self._relax_minsize(explicit_geometry=geometry)
         if self._debug_padding:
             self.show_debug_padding(True)
+        self._install_resize_hook(on_resize)
         self._root.mainloop()
 
     def run_async(
@@ -5651,11 +5724,14 @@ class TkApp:
         multiview: str | None = None,
         stages: str | None = None,
         on_ready: Callable[[TkApp], None] | None = None,
+        on_resize: Callable[[int, int], None] | None = None,
         geometry: str | None = None,
     ) -> None:
         """Build and run the Tk application with asyncio event loop.
 
         Use ``app.spawn(coro)`` inside ``on_ready`` to schedule async tasks.
+        on_resize is called with ``(width, height)`` whenever the window is
+        resized (debounced, size-change only).
         geometry: initial window size, e.g. "640x480".
         """
         used = sum(x is not None for x in (layout, multiview, stages))
@@ -5682,6 +5758,7 @@ class TkApp:
                 view_layouts=cfg.get("view_layouts"),
                 center_kinds=cfg.get("center_kinds"),
                 on_ready=on_ready,
+                on_resize=on_resize,
             ))
             return
 
@@ -5702,11 +5779,12 @@ class TkApp:
                 center_kinds=cfg.get("center_kinds"),
                 on_tab_change=cfg.get("on_tab_change"),
                 on_ready=on_ready,
+                on_resize=on_resize,
                 tabposition=cfg.get("tabposition", "nw"),
             ))
             return
 
-        asyncio.run(self._async_run(layout, initial_state, on_ready, geometry))
+        asyncio.run(self._async_run(layout, initial_state, on_ready, on_resize, geometry))
 
     async def _async_run_stages(
         self,
@@ -5718,6 +5796,7 @@ class TkApp:
         view_layouts: dict[str, Layout] | None = None,
         center_kinds: set[str] | None = None,
         on_ready: Callable[[TkApp], None] | None = None,
+        on_resize: Callable[[int, int], None] | None = None,
     ) -> None:
         """Async variant: stages setup + cooperative asyncio mainloop."""
         self._event_loop = asyncio.get_running_loop()
@@ -5730,6 +5809,7 @@ class TkApp:
             view_layouts=view_layouts,
             center_kinds=center_kinds,
             on_ready=on_ready,
+            on_resize=on_resize,
         )
         await self._async_mainloop()
 
@@ -5738,6 +5818,7 @@ class TkApp:
         layout: Any | None,
         initial_state: dict[str, Any] | None,
         on_ready: Callable[[TkApp], None] | None,
+        on_resize: Callable[[int, int], None] | None,
         geometry: str | None = None,
     ) -> None:
         """Internal: build widgets and enter async mainloop."""
@@ -5779,6 +5860,7 @@ class TkApp:
         self._relax_minsize(explicit_geometry=geometry)
         if self._debug_padding:
             self.show_debug_padding(True)
+        self._install_resize_hook(on_resize)
         await self._async_mainloop()
 
     # ── schema export (for AI agents / LLM Function Calling) ──

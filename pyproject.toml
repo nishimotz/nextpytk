@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nextpytk"
-version = "0.4.11"
+version = "0.4.12"
 description = "Accessible, declarative Tkinter applications from ordinary Python functions."
 readme = "README.md"
 requires-python = ">=3.13"

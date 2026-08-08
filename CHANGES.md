@@ -4,6 +4,24 @@ All notable changes to nextpytk are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.12] — 2026-08-09
+
+### Added
+
+- `on_resize` hook: `run()`, `run_async()`, `run_stages()`, and
+  `run_multiview()` now accept an `on_resize(width, height)` callback that
+  fires whenever the window is resized. The framework manages the underlying
+  Tk `<Configure>` binding so app developers do not have to hand-roll it.
+  Three guarantees make it safe to reconfigure widgets from the callback:
+  - **Toplevel only**: child-widget `<Configure>` events are ignored, so
+    reconfiguring a child cannot re-trigger the handler.
+  - **Size-change only**: the callback fires only when the window's
+    `(width, height)` actually changed, so a callback that calls
+    `configure`/`pack_configure` (which can emit `<Configure>` without
+    changing the toplevel size) does not loop.
+  - **Debounced**: rapid resize storms are coalesced into a single callback
+    via `after`, so the callback runs at most once per settle window.
+
 ## [0.4.11] — 2026-08-08
 
 ### Added
