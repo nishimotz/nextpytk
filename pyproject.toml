@@ -38,6 +38,10 @@ include = ["src/nextpytk", "README.md", "ROADMAP.md"]
 
 [tool.uv]
 package = true
+# uv 管理の 3.14 は Tcl/Tk が同梱されておらず Tk 起動に失敗するため、
+# システム（Homebrew）の Python を優先する。freethreaded で動かしたい
+# 場合は `uv run --python 3.14+freethreaded` で明示的に指定する。
+python-preference = "system"
 
 [dependency-groups]
 dev = [
