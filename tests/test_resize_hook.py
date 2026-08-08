@@ -15,6 +15,12 @@ import tkinter as tk
 
 from nextpytk import TkApp
 
+from .conftest import requires_display
+
+# These tests build a Tk root and fire <Configure> events on it, which needs
+# a display. On headless Linux CI (no $DISPLAY) they are skipped.
+pytestmark = requires_display
+
 
 def _make_app(harness) -> TkApp:
     app = TkApp(title="resize-hook-test")
