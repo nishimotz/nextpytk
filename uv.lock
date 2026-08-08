@@ -22,7 +22,7 @@ wheels = [
 
 [[package]]
 name = "nextpytk"
-version = "0.4.11"
+version = "0.4.12"
 source = { editable = "." }
 
 [package.dev-dependencies]
