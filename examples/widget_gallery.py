@@ -55,11 +55,9 @@ with app.view(
         .grid(fill=Fill.BOTH, expand=True, uniform="buttons")
             .col_weight(0, 1)
             .col_weight(1, 1)
-            .widget("b_primary", sticky=Sticky.EW)
-            .widget("b_secondary", sticky=Sticky.EW)
+            .cell("b_primary", "b_secondary", sticky=Sticky.EW)
             .next_row()
-            .widget("b_click", sticky=Sticky.EW)
-            .widget("b_ok", sticky=Sticky.EW)
+            .cell("b_click", "b_ok", sticky=Sticky.EW)
             .end_grid()
     ),
 ) as v:

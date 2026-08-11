@@ -375,12 +375,12 @@ block it creates:
 ```python
 from nextpytk import tokens
 
-layout = Layout(spacing=2).section("a").section("b").grid().widget("c").end_grid()
+layout = Layout(spacing=2).section("a").section("b").grid().cell("c").end_grid()
 ```
 
 `spacing` accepts a key from `nextpytk.tokens.SPACE` (1, 2, 3, 4, 6, 8). It sets
 the default `padx` and `pady` used by `section()`, `grid()`, `paned()`, grid
-`widget()` placements, and nested frames. Explicit `padx`/`pady` arguments still
+`cell()` placements, and nested frames. Explicit `padx`/`pady` arguments still
 override the default.
 
 For finer control, pass `padx` or `pady` directly to the constructor:
@@ -410,8 +410,8 @@ so it can also be placed inside a grid cell:
 outer = (
     Layout()
     .grid()
-    .widget("label")
-    .widget("group", sticky="nsew")
+    .cell("label")
+    .cell("group", sticky="nsew")
     .end_grid()
     .frame("group", Layout().section("a", "b"))
 )
@@ -595,11 +595,11 @@ from nextpytk.types import Sticky
 layout = (
     Layout()
     .grid()
-    .span(2).widget("title", sticky=Sticky.W)
+    .span(2).cell("title", sticky=Sticky.W)
     .next_row()
-    .widget("label", sticky=Sticky.RIGHT).widget("input", sticky=Sticky.LEFT_RIGHT)
+    .cell("label", sticky=Sticky.RIGHT).cell("input", sticky=Sticky.LEFT_RIGHT)
     .next_row()
-    .span(2).widget("ok")
+    .span(2).cell("ok")
     .end_grid()
 )
 ```
@@ -608,8 +608,8 @@ Grid builder methods:
 
 | Method | Description |
 |--------|-------------|
-| `widget(name, *, sticky, padx, pady, colspan, rowspan)` | Place widget at cursor, advance column |
-| `span(n)` | Set colspan for the next `widget()` call |
+| `cell(*names, *, sticky, padx, pady, colspan, rowspan)` | Place one or more widgets at cursor, advance column |
+| `span(n)` | Set colspan for the next `cell()` call |
 | `next_row()` | Move to next row, reset column |
 | `next_col(n)` | Skip n columns |
 | `at(row, col)` | Jump to absolute position |
@@ -632,9 +632,8 @@ with builder:
     builder.section("title")
     with builder.grid():
         builder.col_weight(0, 0).col_weight(1, 1)
-        builder.widget("celsius", sticky="ew")
-        builder.widget("fahrenheit", sticky="ew")
-        builder.next_row().span(2).widget("note")
+        builder.cell("celsius", "fahrenheit", sticky="ew")
+        builder.next_row().span(2).cell("note")
 app.run(layout=builder.build())
 
 # Via app.layout() shortcut
@@ -642,7 +641,7 @@ with app.layout() as b:
     b.section("title")
     with b.grid():
         b.col_weight(0, 0).col_weight(1, 1)
-        b.widget("celsius", sticky="ew")
+        b.cell("celsius", sticky="ew")
 app.run(layout=b.build())
 ```
 

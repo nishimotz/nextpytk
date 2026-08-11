@@ -128,7 +128,7 @@ def test_nested_layout_has_own_spacing(build):
 
 def test_grid_inside_nested_frame(build):
     app = _label_app()
-    inner = Layout().grid().widget("a").widget("b").end_grid()
+    inner = Layout().grid().cell("a", "b").end_grid()
     build(app, layout=Layout().frame("group", inner))
 
     group = _frame_for(app, "a")
@@ -148,7 +148,7 @@ def test_grid_inside_nested_frame(build):
 def test_frame_inside_grid_block(build):
     app = _label_app()
     inner = Layout().section("c", "d")
-    layout = Layout().grid().widget("a").widget("group", sticky="nsew").end_grid()
+    layout = Layout().grid().cell("a", "group", sticky="nsew").end_grid()
     layout.frame("group", inner)
     build(app, layout=layout)
 
@@ -165,7 +165,7 @@ def test_frame_inside_grid_block(build):
 
 
 def test_widget_names_includes_nested_layout(build):
-    inner = Layout().section("a", "b").grid().widget("c").end_grid()
+    inner = Layout().section("a", "b").grid().cell("c").end_grid()
     outer = Layout().section("d").frame("group", inner)
     names = outer.widget_names()
     assert names == {"a", "b", "c", "d"}

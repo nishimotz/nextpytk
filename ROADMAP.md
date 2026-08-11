@@ -47,7 +47,8 @@
 
 ## Longer term
 
-### ttk Style layer
+##Remove deprecated `Layout().grid().widget(...)`; use `Layout().grid().cell(...)` instead.
+- # ttk Style layer
 
 - [ ] `Layout.style("my_button", background=..., font=...)` style definitions
 

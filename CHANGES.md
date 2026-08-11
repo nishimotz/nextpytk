@@ -4,6 +4,22 @@ All notable changes to nextpytk are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.13] — 2026-08-11
+
+### Added
+
+- `Layout().grid().cell(...)` places one or more widgets in horizontally
+  consecutive cells. `cell("a")` is equivalent to `widget("a")`, and
+  `cell("a", "b", "c")` places three widgets in a single row from the current
+  cursor position with shared options (e.g. `sticky`, `padx`, `pady`).
+
+### Changed
+
+- `Layout().grid().widget(...)` is now deprecated. It continues to work and
+  emits a `DeprecationWarning`. Use `cell(...)` instead. (Note:
+  `app.widget(name)` — the getter that returns a built widget — is unaffected
+  and remains supported.)
+
 ## [0.4.12] — 2026-08-09
 
 ### Added

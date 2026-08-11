@@ -4,9 +4,12 @@ Fluent DSL for arranging widgets registered in TkApp.
 
 Two modes:
 - ``.section(...)`` — pack-based section (one Frame, widgets pack inside)
-- ``.grid()`` → ``_GridBuilder`` — grid-based placement with ``widget`` / ``end_grid``
+- ``.grid()`` → ``_GridBuilder`` — grid-based placement with ``cell`` / ``end_grid``
 
-Both are chainable: ``Layout().section("a").grid().widget("b").end_grid().section("c")``.
+Both are chainable: ``Layout().section("a").grid().cell("b").end_grid().section("c")``.
+
+``GridBuilder.widget()`` is deprecated (0.4.13); use ``GridBuilder.cell()``
+instead.
 
 Types from ``nextpytk.types`` provide IDE autocomplete for options.
 """
@@ -1162,16 +1165,19 @@ class Layout:
         expand: ExpandLike = False,
         uniform: str = "",
     ) -> _GridBuilder:
-        """Start a grid block. Returns a fluent builder: ``widget(...)`` → ``end_grid()``.
+        """Start a grid block. Returns a fluent builder: ``cell(...)`` → ``end_grid()``.
 
         Example::
 
             Layout().grid()
-                .widget("name_lbl", sticky="e")
-                .widget("name", sticky="ew")
+                .cell("name_lbl", sticky="e")
+                .cell("name", sticky="ew")
                 .next_row()
-                .widget("ok", colspan=3)
+                .cell("ok", colspan=3)
                 .end_grid()
+
+        ``GridBuilder.widget()`` is deprecated (0.4.13); use
+        ``GridBuilder.cell()`` instead.
         """
         block = _Grid(
             cells={},
@@ -1859,6 +1865,58 @@ class _GridBuilder:
 
     # ── placement ──
 
+    def cell(
+        self,
+        *names: str,
+        sticky: str = "",
+        padx: int | None = None,
+        pady: int | None = None,
+        colspan: int | None = None,
+        rowspan: int = 1,
+    ) -> _GridBuilder:
+        """Place one or more widgets in horizontally consecutive cells.
+
+        ``cell("a")`` places ``a`` at the current cursor position and is
+        equivalent to ``widget("a")``.
+
+        ``cell("a", "b", ...)`` places multiple widgets in a single row,
+        starting at the current cursor position, one cell each. This is a
+        convenience for the common case where the options are shared:
+
+            Layout().grid().cell("name_lbl", "name", sticky="ew").end_grid()
+
+        Restrictions when more than one name is given:
+
+        * ``colspan`` and ``rowspan`` are not supported — each widget occupies
+          exactly one cell. Passing them (or a pending ``.span(...)`` preset)
+          raises ``ValueError``.
+
+        ``colspan`` (single name only) overrides any previously-set colspan
+        (via ``.span(...)``).
+        """
+        multiple = len(names) > 1
+        if multiple and (colspan is not None or rowspan != 1 or self._colspan != 1):
+            raise ValueError(
+                "cell() with multiple names does not support colspan/rowspan; "
+                "each widget occupies exactly one cell."
+            )
+        cs = colspan if colspan is not None else self._colspan
+        for name in names:
+            opts: dict[str, Any] = {
+                "row": self._row, "column": self._col,
+                "sticky": sticky,
+                "padx": padx if padx is not None else self._layout.padx,
+                "pady": pady if pady is not None else self._layout.pady,
+            }
+            if cs > 1:
+                opts["columnspan"] = cs
+            if rowspan > 1:
+                opts["rowspan"] = rowspan
+            self._block.cells[name] = opts
+            self._col += cs if cs > 1 else 1
+        self._colspan = 1
+        return self
+
     def widget(
         self,
         name: str,
@@ -1871,23 +1929,24 @@ class _GridBuilder:
     ) -> _GridBuilder:
         """Place a widget at the current cursor position, then advance column.
 
+        .. deprecated:: 0.4.13
+           Use ``cell(name, ...)`` instead.
+
         ``colspan`` overrides any previously-set colspan (via ``.span(...)``).
         """
-        cs = colspan if colspan is not None else self._colspan
-        opts: dict[str, Any] = {
-            "row": self._row, "column": self._col,
-            "sticky": sticky,
-            "padx": padx if padx is not None else self._layout.padx,
-            "pady": pady if pady is not None else self._layout.pady,
-        }
-        if cs > 1:
-            opts["columnspan"] = cs
-        if rowspan > 1:
-            opts["rowspan"] = rowspan
-        self._block.cells[name] = opts
-        self._col += cs
-        self._colspan = 1
-        return self
+        warnings.warn(
+            "GridBuilder.widget() is deprecated; use cell(name, ...) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.cell(
+            name,
+            sticky=sticky,
+            padx=padx,
+            pady=pady,
+            colspan=colspan,
+            rowspan=rowspan,
+        )
 
     # ── span preset ──
 
@@ -1997,9 +2056,8 @@ class LayoutBuilder:
             builder.section("title")
             with builder.grid():
                 builder.col_weight(0, 0).col_weight(1, 1)
-                builder.widget("celsius", sticky="ew")
-                builder.widget("fahrenheit", sticky="ew")
-                builder.next_row().span(2).widget("note")
+                builder.cell("celsius", "fahrenheit", sticky="ew")
+                builder.next_row().span(2).cell("note")
         layout = builder.build()
 
     ``LayoutBuilder`` produces a ``Layout`` that can be passed to
@@ -2153,8 +2211,7 @@ class LayoutBuilder:
 
             with builder.grid():
                 builder.col_weight(0, 0).col_weight(1, 1)
-                builder.widget("a")
-                builder.widget("b")
+                builder.cell("a", "b")
 
         Note:
             The ``col_weights`` and ``row_weights`` keyword arguments are
@@ -2208,6 +2265,26 @@ class LayoutBuilder:
         """Called by with-block __exit__ when a grid block ends."""
         self._pop_grid()
 
+    def cell(
+        self,
+        *names: str,
+        sticky: str = "",
+        padx: int | None = None,
+        pady: int | None = None,
+        colspan: int | None = None,
+        rowspan: int = 1,
+    ) -> None:
+        """Place one or more widgets at the current grid cursor.
+
+        ``cell("a", "b")`` places both widgets in horizontally consecutive
+        cells with shared options. Multiple names do not support
+        ``colspan``/``rowspan`` (raises ``ValueError``).
+        """
+        self._current_grid().cell(
+            *names, sticky=sticky, padx=padx, pady=pady,
+            colspan=colspan, rowspan=rowspan,
+        )
+
     def widget(
         self,
         name: str,
@@ -2218,8 +2295,17 @@ class LayoutBuilder:
         colspan: int | None = None,
         rowspan: int = 1,
     ) -> None:
-        """Place a widget at the current grid cursor."""
-        self._current_grid().widget(
+        """Place a widget at the current grid cursor.
+
+        .. deprecated:: 0.4.13
+           Use ``cell(name, ...)`` instead.
+        """
+        warnings.warn(
+            "LayoutBuilder.widget() is deprecated; use cell(name, ...) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.cell(
             name, sticky=sticky, padx=padx, pady=pady,
             colspan=colspan, rowspan=rowspan,
         )
@@ -2240,7 +2326,7 @@ class LayoutBuilder:
         return self
 
     def span(self, cols: int) -> LayoutBuilder:
-        """Set column span for the next widget() call."""
+        """Set column span for the next cell() call."""
         self._current_grid().span(cols)
         return self
 

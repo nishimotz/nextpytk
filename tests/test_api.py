@@ -160,7 +160,7 @@ def test_layout_names_collects_grid_cells(build):
         return {}
 
     from nextpytk import Layout
-    layout = Layout().grid().widget("go").end_grid()
+    layout = Layout().grid().cell("go").end_grid()
     assert "go" in app._layout_names(layout)
 
 

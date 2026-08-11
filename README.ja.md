@@ -378,11 +378,11 @@ Layout.from_list(["a", "b"], fill="both", expand=True)
 ```python
 from nextpytk import tokens
 
-layout = Layout(spacing=2).section("a").section("b").grid().widget("c").end_grid()
+layout = Layout(spacing=2).section("a").section("b").grid().cell("c").end_grid()
 ```
 
 `spacing` は `nextpytk.tokens.SPACE` のキー（1, 2, 3, 4, 6, 8）を受け取り、
-`section()` / `grid()` / `paned()` / grid の `widget()` / ネストフレーム におけるデフォルトの
+`section()` / `grid()` / `paned()` / grid の `cell()` / ネストフレーム におけるデフォルトの
 `padx` / `pady` を決めます。メソッド呼び出しで明示的に `padx` / `pady` を指定した場合は
 それが優先されます。
 
@@ -413,8 +413,8 @@ grid のセル内に配置することも可能です:
 outer = (
     Layout()
     .grid()
-    .widget("label")
-    .widget("group", sticky="nsew")
+    .cell("label")
+    .cell("group", sticky="nsew")
     .end_grid()
     .frame("group", Layout().section("a", "b"))
 )
@@ -590,11 +590,11 @@ from nextpytk.types import Sticky
 layout = (
     Layout()
     .grid()
-    .span(2).widget("title", sticky=Sticky.W)
+    .span(2).cell("title", sticky=Sticky.W)
     .next_row()
-    .widget("label", sticky=Sticky.RIGHT).widget("input", sticky=Sticky.LEFT_RIGHT)
+    .cell("label", sticky=Sticky.RIGHT).cell("input", sticky=Sticky.LEFT_RIGHT)
     .next_row()
-    .span(2).widget("ok")
+    .span(2).cell("ok")
     .end_grid()
 )
 ```
@@ -603,8 +603,8 @@ Grid builder メソッド:
 
 | メソッド | 説明 |
 |----------|------|
-| `widget(name, *, sticky, padx, pady, colspan, rowspan)` | 現在位置に配置し、列を進める |
-| `span(n)` | 次の `widget()` の列スパンを設定 |
+| `cell(*names, *, sticky, padx, pady, colspan, rowspan)` | 現在位置に1つ以上のウィジェットを配置し、列を進める |
+| `span(n)` | 次の `cell()` の列スパンを設定 |
 | `next_row()` | 次の行へ移り、列をリセット |
 | `next_col(n)` | n 列スキップ |
 | `at(row, col)` | 絶対位置へジャンプ |
@@ -628,9 +628,8 @@ with builder:
     builder.section("title")
     with builder.grid():
         builder.col_weight(0, 0).col_weight(1, 1)
-        builder.widget("celsius", sticky="ew")
-        builder.widget("fahrenheit", sticky="ew")
-        builder.next_row().span(2).widget("note")
+        builder.cell("celsius", "fahrenheit", sticky="ew")
+        builder.next_row().span(2).cell("note")
 app.run(layout=builder.build())
 
 # app.layout() ショートカット
@@ -638,7 +637,7 @@ with app.layout() as b:
     b.section("title")
     with b.grid():
         b.col_weight(0, 0).col_weight(1, 1)
-        b.widget("celsius", sticky="ew")
+        b.cell("celsius", sticky="ew")
 app.run(layout=b.build())
 ```
 
