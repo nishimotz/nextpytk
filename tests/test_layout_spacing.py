@@ -93,7 +93,7 @@ def test_section_explicit_padx_pady_override_layout_default(build):
 
 def test_grid_block_inherits_layout_spacing(build):
     app = _label_app()
-    layout = Layout(spacing=3).grid().widget("a").widget("b").end_grid()
+    layout = Layout(spacing=3).grid().cell("a", "b").end_grid()
     build(app, layout=layout)
     info = _pack_info(app, "a")
     assert int(info["padx"]) == t.SPACE[3]
@@ -102,7 +102,7 @@ def test_grid_block_inherits_layout_spacing(build):
 
 def test_grid_widget_inherits_layout_spacing(build):
     app = _label_app()
-    layout = Layout(spacing=3).grid().widget("a").widget("b").end_grid()
+    layout = Layout(spacing=3).grid().cell("a", "b").end_grid()
     build(app, layout=layout)
     a_info = _grid_info_ints(app, "a")
     b_info = _grid_info_ints(app, "b")
@@ -114,7 +114,7 @@ def test_grid_widget_inherits_layout_spacing(build):
 
 def test_grid_widget_explicit_pad_overrides_layout_default(build):
     app = _label_app()
-    layout = Layout(spacing=3).grid().widget("a", padx=t.SPACE[1], pady=t.SPACE[1]).widget("b").end_grid()
+    layout = Layout(spacing=3).grid().cell("a", padx=t.SPACE[1], pady=t.SPACE[1]).cell("b").end_grid()
     build(app, layout=layout)
     a_info = _grid_info_ints(app, "a")
     b_info = _grid_info_ints(app, "b")

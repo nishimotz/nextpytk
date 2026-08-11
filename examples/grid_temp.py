@@ -1,6 +1,6 @@
 """nextpytk grid layout sample: temperature converter.
 
-Demonstrates fluent grid builder with widget/next_row/col_weight/end_grid.
+Demonstrates fluent grid builder with cell/next_row/col_weight/end_grid.
 """
 
 from nextpytk import TkApp, Layout
@@ -61,11 +61,11 @@ layout = (
     .row_weight(0, 1)
     .row_weight(1, 1)
     .row_weight(2, 1)
-    .span(2).widget("note", sticky=Sticky.NSEW)
+    .span(2).cell("note", sticky=Sticky.NSEW)
     .next_row()
-    .widget("celsius_lbl").widget("celsius", sticky=Sticky.EW, padx=SPACE[1])
+    .cell("celsius_lbl", "celsius", sticky=Sticky.EW, padx=SPACE[1])
     .next_row()
-    .widget("fahrenheit_lbl").widget("fahrenheit", sticky=Sticky.EW, padx=SPACE[1])
+    .cell("fahrenheit_lbl", "fahrenheit", sticky=Sticky.EW, padx=SPACE[1])
     .end_grid()
 )
 

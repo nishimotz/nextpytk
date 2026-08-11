@@ -81,8 +81,7 @@ def test_debug_layout_handles_grid_widgets(build):
         app,
         layout=Layout()
         .grid()
-        .widget("a", sticky=Sticky.NSEW)
-        .widget("b", sticky=Sticky.NSEW)
+        .cell("a", "b", sticky=Sticky.NSEW)
         .end_grid(),
     )
 
