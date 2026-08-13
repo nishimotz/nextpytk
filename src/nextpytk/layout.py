@@ -103,6 +103,9 @@ class _Grid:
     # <Shift-Key-Tab> events are intercepted to move focus in this order
     # within the grid frame. Used by cluster blocks.
     order: tuple[str, ...] = ()
+    # Raw tkinter widgets placed via cell_raw().  Each entry is
+    # (widget, {row, column, sticky, padx, pady, columnspan, rowspan}).
+    raw_cells: list[tuple[tk.Widget, dict[str, Any]]] = field(default_factory=list)
 
 
 @dataclass
@@ -1769,6 +1772,13 @@ class Layout:
                 # conflict with packed siblings.
                 grid_opts["in_"] = _frame
                 tk_w.grid(**grid_opts)
+            # Grid raw tkinter widgets placed via cell_raw().
+            for raw_w, opts in gb.raw_cells:
+                grid_opts = {k: v for k, v in opts.items()
+                             if k in ("row", "column", "sticky", "padx", "pady",
+                                      "columnspan", "rowspan")}
+                grid_opts["in_"] = _frame
+                raw_w.grid(**grid_opts)
             # Wire cluster tab order via <Key-Tab> / <Shift-Key-Tab> bindings.
             # Tk has no native API to reorder focus traversal, so we intercept
             # the events and move focus in the visual row-major order.
@@ -1914,6 +1924,50 @@ class _GridBuilder:
                 opts["rowspan"] = rowspan
             self._block.cells[name] = opts
             self._col += cs if cs > 1 else 1
+        self._colspan = 1
+        return self
+
+    def cell_raw(
+        self,
+        widget: tk.Widget,
+        *,
+        sticky: str = "",
+        padx: int | None = None,
+        pady: int | None = None,
+        colspan: int | None = None,
+        rowspan: int = 1,
+    ) -> _GridBuilder:
+        """Place a raw tkinter widget at the current cursor position.
+
+        Unlike ``cell()`` which takes a registered widget name, ``cell_raw()``
+        accepts an already-created ``tk.Widget`` instance and grids it directly
+        into the grid frame.  This is useful for mixing nextpytk's declarative
+        widgets with hand-built tkinter frames or controls.
+
+        Example::
+
+            preview = ttk.Frame(...)
+            Layout().grid()
+                .cell("side_lbl", sticky="e")
+                .cell("side", sticky="ew")
+                .cell_raw(preview, rowspan=8, sticky="nsew")
+                .end_grid()
+
+        ``colspan`` overrides any previously-set colspan (via ``.span(...)``).
+        """
+        cs = colspan if colspan is not None else self._colspan
+        opts: dict[str, Any] = {
+            "row": self._row, "column": self._col,
+            "sticky": sticky,
+            "padx": padx if padx is not None else self._layout.padx,
+            "pady": pady if pady is not None else self._layout.pady,
+        }
+        if cs > 1:
+            opts["columnspan"] = cs
+        if rowspan > 1:
+            opts["rowspan"] = rowspan
+        self._block.raw_cells.append((widget, opts))
+        self._col += cs if cs > 1 else 1
         self._colspan = 1
         return self
 

@@ -1,7 +1,9 @@
-"""Tests for GridBuilder.cell() and deprecation of GridBuilder.widget()."""
+"""Tests for GridBuilder.cell(), cell_raw(), and deprecation of GridBuilder.widget()."""
 
 from __future__ import annotations
 
+import tkinter as tk
+import tkinter.ttk as ttk
 import warnings
 
 import pytest
@@ -13,6 +15,12 @@ def _grid_cells(builder) -> dict:
     """Return the cells dict from a _GridBuilder or the Layout it produced."""
     block = builder._block if hasattr(builder, "_block") else builder._blocks[-1]
     return block.cells
+
+
+def _grid_raw_cells(builder) -> list:
+    """Return the raw_cells list from a _GridBuilder or the Layout it produced."""
+    block = builder._block if hasattr(builder, "_block") else builder._blocks[-1]
+    return block.raw_cells
 
 
 def test_cell_single_is_warning_free():
@@ -97,6 +105,57 @@ def test_cell_equals_widget_for_single_name():
         w_layout = Layout().grid().widget("a", sticky="ew").end_grid()
     c_layout = Layout().grid().cell("a", sticky="ew").end_grid()
     assert _grid_cells(c_layout) == _grid_cells(w_layout)
+
+
+# ── cell_raw tests ──
+
+def test_cell_raw_stores_widget_and_opts():
+    """cell_raw() stores the widget instance and grid options in raw_cells."""
+    w = ttk.Frame()
+    layout = Layout().grid().cell_raw(w, sticky="nsew", rowspan=3).end_grid()
+    raw = _grid_raw_cells(layout)
+    assert len(raw) == 1
+    stored_w, opts = raw[0]
+    assert stored_w is w
+    assert opts["row"] == 0
+    assert opts["column"] == 0
+    assert opts["sticky"] == "nsew"
+    assert opts["rowspan"] == 3
+
+
+def test_cell_raw_advances_cursor():
+    """cell_raw() advances the column cursor like cell()."""
+    w1 = ttk.Frame()
+    w2 = ttk.Frame()
+    layout = Layout().grid().cell_raw(w1).cell_raw(w2).end_grid()
+    raw = _grid_raw_cells(layout)
+    assert raw[0][1]["column"] == 0
+    assert raw[1][1]["column"] == 1
+
+
+def test_cell_raw_supports_colspan():
+    """cell_raw() supports colspan."""
+    w = ttk.Frame()
+    layout = Layout().grid().cell_raw(w, colspan=2).end_grid()
+    assert _grid_raw_cells(layout)[0][1]["columnspan"] == 2
+
+
+def test_cell_raw_supports_span_preset():
+    """cell_raw() respects the .span() preset."""
+    w = ttk.Frame()
+    layout = Layout().grid().span(2).cell_raw(w).end_grid()
+    assert _grid_raw_cells(layout)[0][1]["columnspan"] == 2
+
+
+def test_cell_raw_mixed_with_cell():
+    """cell_raw() and cell() can be mixed in the same grid."""
+    w = ttk.Frame()
+    layout = Layout().grid().cell("a").cell_raw(w).cell("b").end_grid()
+    cells = _grid_cells(layout)
+    raw = _grid_raw_cells(layout)
+    assert cells["a"]["column"] == 0
+    assert raw[0][1]["column"] == 1
+    assert cells["b"]["column"] == 2
 
 
 def test_layout_builder_cell_multiple():
