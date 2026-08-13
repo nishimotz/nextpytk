@@ -9,6 +9,7 @@ import warnings
 import pytest
 
 from nextpytk import Layout, LayoutBuilder
+from .conftest import requires_display
 
 
 def _grid_cells(builder) -> dict:
@@ -109,6 +110,7 @@ def test_cell_equals_widget_for_single_name():
 
 # ── cell_raw tests ──
 
+@requires_display
 def test_cell_raw_stores_widget_and_opts():
     """cell_raw() stores the widget instance and grid options in raw_cells."""
     w = ttk.Frame()
@@ -123,6 +125,7 @@ def test_cell_raw_stores_widget_and_opts():
     assert opts["rowspan"] == 3
 
 
+@requires_display
 def test_cell_raw_advances_cursor():
     """cell_raw() advances the column cursor like cell()."""
     w1 = ttk.Frame()
@@ -133,6 +136,7 @@ def test_cell_raw_advances_cursor():
     assert raw[1][1]["column"] == 1
 
 
+@requires_display
 def test_cell_raw_supports_colspan():
     """cell_raw() supports colspan."""
     w = ttk.Frame()
@@ -140,6 +144,7 @@ def test_cell_raw_supports_colspan():
     assert _grid_raw_cells(layout)[0][1]["columnspan"] == 2
 
 
+@requires_display
 def test_cell_raw_supports_span_preset():
     """cell_raw() respects the .span() preset."""
     w = ttk.Frame()
@@ -147,6 +152,7 @@ def test_cell_raw_supports_span_preset():
     assert _grid_raw_cells(layout)[0][1]["columnspan"] == 2
 
 
+@requires_display
 def test_cell_raw_mixed_with_cell():
     """cell_raw() and cell() can be mixed in the same grid."""
     w = ttk.Frame()
