@@ -109,59 +109,81 @@ def test_cell_equals_widget_for_single_name():
 
 
 # ── cell_raw tests ──
+# These create real tkinter widgets and need a display + a proper Tk root.
+# We use the harness fixture to manage the Tk lifecycle cleanly.
 
 @requires_display
-def test_cell_raw_stores_widget_and_opts():
+def test_cell_raw_stores_widget_and_opts(harness):
     """cell_raw() stores the widget instance and grid options in raw_cells."""
-    w = ttk.Frame()
-    layout = Layout().grid().cell_raw(w, sticky="nsew", rowspan=3).end_grid()
-    raw = _grid_raw_cells(layout)
-    assert len(raw) == 1
-    stored_w, opts = raw[0]
-    assert stored_w is w
-    assert opts["row"] == 0
-    assert opts["column"] == 0
-    assert opts["sticky"] == "nsew"
-    assert opts["rowspan"] == 3
+    root = harness._make_root()
+    try:
+        w = ttk.Frame(root)
+        layout = Layout().grid().cell_raw(w, sticky="nsew", rowspan=3).end_grid()
+        raw = _grid_raw_cells(layout)
+        assert len(raw) == 1
+        stored_w, opts = raw[0]
+        assert stored_w is w
+        assert opts["row"] == 0
+        assert opts["column"] == 0
+        assert opts["sticky"] == "nsew"
+        assert opts["rowspan"] == 3
+    finally:
+        root.destroy()
 
 
 @requires_display
-def test_cell_raw_advances_cursor():
+def test_cell_raw_advances_cursor(harness):
     """cell_raw() advances the column cursor like cell()."""
-    w1 = ttk.Frame()
-    w2 = ttk.Frame()
-    layout = Layout().grid().cell_raw(w1).cell_raw(w2).end_grid()
-    raw = _grid_raw_cells(layout)
-    assert raw[0][1]["column"] == 0
-    assert raw[1][1]["column"] == 1
+    root = harness._make_root()
+    try:
+        w1 = ttk.Frame(root)
+        w2 = ttk.Frame(root)
+        layout = Layout().grid().cell_raw(w1).cell_raw(w2).end_grid()
+        raw = _grid_raw_cells(layout)
+        assert raw[0][1]["column"] == 0
+        assert raw[1][1]["column"] == 1
+    finally:
+        root.destroy()
 
 
 @requires_display
-def test_cell_raw_supports_colspan():
+def test_cell_raw_supports_colspan(harness):
     """cell_raw() supports colspan."""
-    w = ttk.Frame()
-    layout = Layout().grid().cell_raw(w, colspan=2).end_grid()
-    assert _grid_raw_cells(layout)[0][1]["columnspan"] == 2
+    root = harness._make_root()
+    try:
+        w = ttk.Frame(root)
+        layout = Layout().grid().cell_raw(w, colspan=2).end_grid()
+        assert _grid_raw_cells(layout)[0][1]["columnspan"] == 2
+    finally:
+        root.destroy()
 
 
 @requires_display
-def test_cell_raw_supports_span_preset():
+def test_cell_raw_supports_span_preset(harness):
     """cell_raw() respects the .span() preset."""
-    w = ttk.Frame()
-    layout = Layout().grid().span(2).cell_raw(w).end_grid()
-    assert _grid_raw_cells(layout)[0][1]["columnspan"] == 2
+    root = harness._make_root()
+    try:
+        w = ttk.Frame(root)
+        layout = Layout().grid().span(2).cell_raw(w).end_grid()
+        assert _grid_raw_cells(layout)[0][1]["columnspan"] == 2
+    finally:
+        root.destroy()
 
 
 @requires_display
-def test_cell_raw_mixed_with_cell():
+def test_cell_raw_mixed_with_cell(harness):
     """cell_raw() and cell() can be mixed in the same grid."""
-    w = ttk.Frame()
-    layout = Layout().grid().cell("a").cell_raw(w).cell("b").end_grid()
-    cells = _grid_cells(layout)
-    raw = _grid_raw_cells(layout)
-    assert cells["a"]["column"] == 0
-    assert raw[0][1]["column"] == 1
-    assert cells["b"]["column"] == 2
+    root = harness._make_root()
+    try:
+        w = ttk.Frame(root)
+        layout = Layout().grid().cell("a").cell_raw(w).cell("b").end_grid()
+        cells = _grid_cells(layout)
+        raw = _grid_raw_cells(layout)
+        assert cells["a"]["column"] == 0
+        assert raw[0][1]["column"] == 1
+        assert cells["b"]["column"] == 2
+    finally:
+        root.destroy()
 
 
 def test_layout_builder_cell_multiple():
