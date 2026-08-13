@@ -604,6 +604,7 @@ Grid builder メソッド:
 | メソッド | 説明 |
 |----------|------|
 | `cell(*names, *, sticky, padx, pady, colspan, rowspan)` | 現在位置に1つ以上のウィジェットを配置し、列を進める |
+| `cell_raw(widget, *, sticky, padx, pady, colspan, rowspan)` | 生の `tk.Widget` インスタンスを現在位置に配置 |
 | `span(n)` | 次の `cell()` の列スパンを設定 |
 | `next_row()` | 次の行へ移り、列をリセット |
 | `next_col(n)` | n 列スキップ |
