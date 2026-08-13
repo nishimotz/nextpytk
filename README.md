@@ -609,6 +609,7 @@ Grid builder methods:
 | Method | Description |
 |--------|-------------|
 | `cell(*names, *, sticky, padx, pady, colspan, rowspan)` | Place one or more widgets at cursor, advance column |
+| `cell_raw(widget, *, sticky, padx, pady, colspan, rowspan)` | Place a raw `tk.Widget` instance at cursor |
 | `span(n)` | Set colspan for the next `cell()` call |
 | `next_row()` | Move to next row, reset column |
 | `next_col(n)` | Skip n columns |

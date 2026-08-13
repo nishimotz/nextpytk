@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nextpytk"
-version = "0.4.13"
+version = "0.4.14"
 description = "Accessible, declarative Tkinter applications from ordinary Python functions."
 readme = "README.md"
 requires-python = ">=3.13"
@@ -28,13 +28,13 @@ dependencies = []
 Homepage = "https://github.com/nishimotz/nextpytk"
 Repository = "https://github.com/nishimotz/nextpytk"
 Issues = "https://github.com/nishimotz/nextpytk/issues"
-Changelog = "https://github.com/nishimotz/nextpytk/blob/main/ROADMAP.md"
+Changelog = "https://github.com/nishimotz/nextpytk/blob/main/CHANGES.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nextpytk"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/nextpytk", "README.md", "ROADMAP.md"]
+include = ["src/nextpytk", "README.md", "CHANGES.md"]
 
 [tool.uv]
 package = true

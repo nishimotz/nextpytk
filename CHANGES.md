@@ -4,6 +4,20 @@ All notable changes to nextpytk are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.14] — 2026-08-13
+
+### Added
+
+- `Layout().grid().cell_raw(widget, *, sticky, padx, pady, colspan, rowspan)`
+  places a raw `tk.Widget` instance directly into a grid cell. Unlike `cell()`
+  which takes a registered widget name, `cell_raw()` accepts an already-created
+  widget — useful for mixing nextpytk's declarative widgets with hand-built
+  tkinter frames or controls.
+
+### Fixed
+
+- `pyproject.toml` Changelog URL now points to `CHANGES.md` (was `ROADMAP.md`).
+
 ## [0.4.13] — 2026-08-11
 
 ### Added
