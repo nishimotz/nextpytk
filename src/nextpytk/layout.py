@@ -1505,6 +1505,11 @@ class Layout:
         ``name``. You can access the frame with ``app.get_widget(name)`` or
         ``app.container(name)`` to pack, grid, or draw raw tkinter widgets,
         Matplotlib plots, or OpenGL contexts manually.
+
+        If *minsize* is a positive integer, ``pack_propagate(False)`` is
+        called and the frame height is fixed to *minsize* pixels. A value
+        of ``0`` or ``None`` leaves the frame free to shrink to its
+        children's natural size.
         """
         self._unmanaged_containers.add(name)
         self._blocks.append(_Container(

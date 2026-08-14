@@ -10,12 +10,6 @@ from tkinter import ttk
 
 from . import tokens as t
 
-# Shared internal padding for all ttk button variants (TButton, Primary, Secondary).
-# 16x12 + h5 (15px) keeps the requested height above MIN_TARGET (44px, WCAG 2.5.5)
-# across macOS/Windows default fonts without forcing every button section to
-# reserve 60+ px. Declared once here so the three button styles stay in lock-step.
-_BUTTON_PADDING = (t.SPACE[4], t.SPACE[3])  # (16, 12)
-
 
 def apply_theme(root: tk.Misc, tokens: t.ThemeTokens | None = None) -> ttk.Style:
     """Configure ttk styles from ThemeTokens. Call once on root."""
