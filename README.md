@@ -77,13 +77,8 @@ from nextpytk import TkApp
 
 app = TkApp(title="Hello")
 
-@app.entry("name", placeholder="Name")
-def on_name():
-    return {}
-
-@app.status("msg")
-def msg():
-    return "Enter your name"
+app.add_entry("name", placeholder="Name")
+app.add_status("msg", text="Enter your name")
 
 @app.button("greet", label="Greet")
 def on_greet(values):
@@ -93,14 +88,8 @@ def on_greet(values):
 app.run(layout=["name", "greet", "msg"])
 ```
 
-`entry` registers a text field.
-
-```python
-@app.entry("name", placeholder="Name")
-```
-
-Again, `"name"` is the widget name. An on-change callback is required; if you
-only read the field from a button, a no-arg callback that returns `{}` is enough.
+When you only need to read field values on button click without subscribing to live typing events, you can use direct registration methods like `app.add_entry(...)` and `app.add_status(...)` to avoid writing empty callback functions.
+(To react to keystrokes in real time, decorate with `@app.entry("name") def on_name(value): ...`).
 
 In the button callback, read the current field value from `values`:
 
@@ -886,6 +875,118 @@ async def scan(vals):
 
 app.run_async(layout=Layout().section("status"))
 ```
+
+---
+
+## Escape Hatches (Interoperating with Raw Tkinter)
+
+nextpytk is declarative, but it does not restrict raw Tkinter flexibility. When you need low-level Tk operations or custom drawing, the following escape hatches are available:
+
+1. **Accessing underlying widget instances**:
+   `app.widget(name)` / `app.get_widget(name)` returns the built `tk.Widget` / `ttk.Widget` instance.
+   ```python
+   raw_entry = app.get_widget("my_entry")
+   raw_entry.icursor(0)
+   ```
+
+2. **Embedding raw Tkinter widgets into layouts**:
+   `Layout().grid().cell_raw(widget)` allows embedding hand-built Tkinter frames or third-party controls directly into nextpytk's Grid layout.
+   ```python
+   custom_frame = ttk.Frame(app.root)
+   Layout().grid().cell("lbl").cell_raw(custom_frame).end_grid()
+   ```
+
+3. **Direct root window control**:
+   The `app.root` property gives full access to the `tk.Tk` root window for window protocols (`protocol("WM_DELETE_WINDOW", ...)`), geometry control, and window attributes.
+
+4. **Direct access to the underlying Tcl interpreter**:
+   `app.eval(script)` / `app.call(*args)` / `app.tcl` allow directly sending scripts and commands to the embedded Tcl interpreter underneath Tkinter. This provides the ultimate escape hatch for Tcl macros, high-performance scripting, or loading external Tcl/Tk packages.
+   ```python
+   # Direct Tcl command execution
+   app.eval('puts "hello from Tcl"')
+   app.call('wm', 'attributes', '.', '-topmost', '1')
+   ```
+
+5. **State Sync Opt-Out (`sync=False`)**:
+   Pass `sync=False` to any widget registration to isolate it from `apply_state` reactive overwrites. Perfect for imperatively streamed logs or custom canvas drawings.
+   ```python
+   # Log viewer that is never reset by apply_state
+   app.add_text("log_stream", sync=False)
+   ```
+
+6. **Free Frame Container Slots (`Layout().container()` / `app.container()` )**:
+   Reserve an unmanaged `tk.Frame` with proper margins and theme styling for embedding raw Tkinter controls, Matplotlib plots (`FigureCanvasTkAgg`), or third-party widgets.
+   ```python
+   # Reserve a container in the layout
+   Layout().grid().cell("lbl").container("chart_area").end_grid()
+
+   # Mount Matplotlib canvas imperatively
+   chart_frame = app.container("chart_area")
+   # FigureCanvasTkAgg(fig, master=chart_frame).get_tk_widget().pack(...)
+   ```
+
+7. **Temporary Reactive Suppression (`with app.untracked():`)**:
+   Temporarily silence reactive trace listeners and updates during heavy batch operations or Tcl script evaluations.
+   ```python
+   with app.untracked():
+       app.eval('...')
+   ```
+
+---
+
+## Customizing Themes & Design Tokens
+
+nextpytk includes the cohesive **Kizashi design system** out of the box, but allows straightforward theme customization, custom color palettes, and external ttk theme loading.
+
+### 1. Dark Mode
+Switch to dark mode with a single argument (automatically configures Windows dark titlebars as well):
+```python
+app = TkApp(title="Dark App", theme="kizashi-dark")
+```
+
+### 2. Custom Color Palettes (`ThemeTokens`)
+Use the `ThemeTokens` dataclass to customize branding and accent colors type-safely:
+```python
+from dataclasses import replace
+from nextpytk import TkApp, KIZASHI_LIGHT
+
+# Inherit Kizashi defaults and override branding colors
+my_theme = replace(
+    KIZASHI_LIGHT,
+    name="my-brand",
+    accent="#0066cc",      # Brand blue
+    on_accent="#ffffff",
+    bg="#f4f7fa",
+)
+
+app = TkApp(title="Brand App", theme=my_theme)
+```
+
+### 3. Loading External Tcl / ttk Themes (`load_theme_tcl`)
+Load third-party ttk themes (e.g. Azure, Sun Valley, Forest) from `.tcl` files or inline scripts:
+```python
+app = TkApp(title="Modern App")
+
+# Load and activate an external Tcl theme file
+app.load_theme_tcl("azure.tcl", theme_name="azure-dark")
+```
+
+---
+
+## When to use nextpytk
+
+### Sweet spots for nextpytk
+* **Forms, Settings & Internal Dashboards**: State management (`state`) and `values` deliver predictable, one-way data flow, validation, and async background tasks without GUI freezes.
+* **Accessibility-First Desktop Apps**: Built-in screen reader support (Tk 9.1 `set_acc_*`), keyboard focus navigation (Tab order), and ARIA live regions with zero boilerplate.
+* **LLM & AI Agent Tooling**: `app.schema()` exports the complete UI structure as machine-readable JSON schemas (Function Calling tool definitions) for automated testing and agent interaction.
+* **Async-Native Tools**: Seamless `asyncio` integration via `app.run_async()` and `@app.job` prevents threading headaches.
+
+### When raw Tkinter or other approaches are better suited
+* **Canvas-Heavy Drawing & Painting Tools**: High-frequency mouse drag events and coordinate-based item manipulation are inherently imperative and best written with raw `tk.Canvas`.
+* **Real-time Games & High-framerate Animations**: Dedicated graphics frameworks or game engines are better suited.
+* **Highly Dynamic Node Graph Editors**: UIs where widget trees are created and destroyed every few milliseconds benefit more from imperative lifecycle management.
+
+---
 
 ## Examples
 

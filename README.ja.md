@@ -77,13 +77,8 @@ from nextpytk import TkApp
 
 app = TkApp(title="Hello")
 
-@app.entry("name", placeholder="名前")
-def on_name():
-    return {}
-
-@app.status("msg")
-def msg():
-    return "名前を入力してください"
+app.add_entry("name", placeholder="名前")
+app.add_status("msg", text="名前を入力してください")
 
 @app.button("greet", label="あいさつ")
 def on_greet(values):
@@ -93,14 +88,8 @@ def on_greet(values):
 app.run(layout=["name", "greet", "msg"])
 ```
 
-`entry` は入力欄を登録します。
-
-```python
-@app.entry("name", placeholder="名前")
-```
-
-ここでも `"name"` がウィジェット名です。変更時コールバックは必須なので、
-ボタンからだけ読む場合は引数なしで空の `dict` を返しておけば十分です。
+入力イベントを直接購読せずボタンから `values` を読むだけの場合は、空関数デコレータを書かずに `app.add_entry(...)` や `app.add_status(...)` 等の直接登録メソッドを使うと簡潔に書けます。
+（タイピングの都度リアルタイムに状態更新したい場合は、`@app.entry("name") def on_name(value): ...` とデコレータで記述します）
 
 ボタンのコールバックでは、入力欄の現在値を `values` から取得できます。
 
@@ -867,6 +856,119 @@ async def scan(vals):
 
 app.run_async(layout=Layout().section("status"))
 ```
+
+---
+
+## Escape Hatches（素の Tkinter との連携）
+
+nextpytk は宣言型フレームワークですが、素の Tkinter の柔軟性を制限しません。特殊な描画や Tkinter 固有の低レベル操作が必要な場合は、以下のエスケープハッチを利用できます。
+
+1. **ウィジェットインスタンスの直接取得**:
+   `app.widget(name)` / `app.get_widget(name)` により、構築された素の `tk.Widget` / `ttk.Widget` インスタンスを取得できます。
+   ```python
+   # 例: 素の Tkinter API でカスタム設定やバインドを行う
+   raw_entry = app.get_widget("my_entry")
+   raw_entry.icursor(0)
+   ```
+
+2. **素の Tkinter ウィジェットのレイアウト埋め込み**:
+   `Layout().grid().cell_raw(widget)` により、手動で作成したカスタム Frame やサードパーティ製ウィジェットを nextpytk の Grid レイアウト内に直接配置できます。
+   ```python
+   custom_frame = ttk.Frame(app.root)
+   Layout().grid().cell("lbl").cell_raw(custom_frame).end_grid()
+   ```
+
+3. **ルートウィンドウの直接操作**:
+   `app.root` プロパティからメインウィンドウ `tk.Tk` インスタンスにアクセスできます。ウィンドウプロトコル（`protocol("WM_DELETE_WINDOW", ...)`）やジオメトリの直接制御が可能です。
+
+4. **Tcl 処理系への直接アクセス**:
+   `app.eval(script)` / `app.call(*args)` / `app.tcl` により、Tkinter の土台である組み込み Tcl インタープリタへ直接スクリプトを流し込んだりコマンドを呼び出せます。Tcl マクロの活用や Tcl/Tk 拡張パッケージの利用など、低レベルな高速処理への究極のエスケープハッチを提供します。
+   ```python
+   # 例: Tcl コマンドを直接実行
+   app.eval('puts "hello from Tcl"')
+   app.call('wm', 'attributes', '.', '-topmost', '1')
+   ```
+
+5. **状態同期のオプトアウト (`sync=False`)**:
+   ウィジェット登録時に `sync=False` を指定すると、`apply_state` による内容の上書き・再同期からそのウィジェットを隔離できます。命令型にログを追記するテキストや自前で描画する Canvas に最適です。
+   ```python
+   # apply_state で内容がリセットされないログビューア
+   app.add_text("log_stream", sync=False)
+   ```
+
+6. **フリーコンテナの予約 (`Layout().container()` / `app.container()` )**:
+   Matplotlib グラフ（`FigureCanvasTkAgg`）や独自描画領域のために、余白とテーマ背景色を持つ空の `tk.Frame` をレイアウト内に予約できます。
+   ```python
+   # レイアウト側でコンテナ枠を予約
+   Layout().grid().cell("lbl").container("chart_area").end_grid()
+
+   # アプリ側で Frame を取得して Matplotlib を直接マウント
+   chart_frame = app.container("chart_area")
+   # FigureCanvasTkAgg(fig, master=chart_frame).get_tk_widget().pack(...)
+   ```
+
+7. **一時的なリアクティブ抑制 (`with app.untracked():`)**:
+   大量のデータを一括で流し込む際や、命令型のバッチ処理中にリアクティブ通知や Tcl trace を一時停止できます。
+   ```python
+   with app.untracked():
+       app.eval('...')
+   ```
+
+---
+
+## テーマとデザインシステムのカスタマイズ
+
+nextpytk は、美しく統一された **Kizashi（兆）デザインシステム** をデフォルトで備えていますが、テーマや配色のカスタマイズ、外部 ttk テーマの導入も自由に行えます。
+
+### 1. ダークテーマの利用
+ワンライナーでダークテーマに切り替えられます（Windows のタイトルバーも自動でダークモードに対応します）。
+```python
+app = TkApp(title="Dark App", theme="kizashi-dark")
+```
+
+### 2. カスタムカラーパレット（`ThemeTokens`）
+`ThemeTokens` データクラスにより、ブランドカラーや独自の色設定を型安全に適用できます。
+```python
+from dataclasses import replace
+from nextpytk import TkApp, KIZASHI_LIGHT
+
+# Kizashi のベースを継承しつつ、アクセントカラーと背景色を変更
+my_theme = replace(
+    KIZASHI_LIGHT,
+    name="my-brand",
+    accent="#0066cc",      # ブランドブルー
+    on_accent="#ffffff",
+    bg="#f4f7fa",
+)
+
+app = TkApp(title="Brand App", theme=my_theme)
+```
+
+### 3. 外部 Tcl / ttk テーマの読み込み（`load_theme_tcl`）
+コミュニティで作成された有名な ttk テーマ（Azure, Sun Valley, Forest 等）の `.tcl` ファイルや Tcl スタイルスクリプトを 1 行で読み込んで適用できます。
+```python
+app = TkApp(title="Modern App")
+
+# 外部の Tcl テーマファイルをロードして適用
+app.load_theme_tcl("azure.tcl", theme_name="azure-dark")
+```
+
+---
+
+## 設計思想と適用領域（When to use nextpytk）
+
+### nextpytk が最適な用途
+* **データ入力フォーム・設定画面・管理ツール**: 状態管理（`state`）と `values` による一方向データフロー、入力バリデーション、非同期タスク連携が最も活きます。
+* **アクセシビリティ（A11y）重視のアプリ**: スクリーンリーダー対応（Tk 9.1 `set_acc_*`）、フォーカス順（Tab order）、ARIA live-region 相当の動作をゼロ設定で担保できます。
+* **LLM / AI エージェント連携**: `app.schema()` により、GUI ウィジェットの構造とアクションを JSON 互換スキーマ（Function Calling 語彙）として即座にエクスポート・自動操作できます。
+* **asyncio を使ったモダンなデスクトップツール**: `app.run_async()` や `@app.job` により、Tkinter のメインスレッドをブロックせず非同期 I/O を安全に処理できます。
+
+### 素の Tkinter や他アプローチが向いている用途
+* **高頻度な Canvas 描画・お絵かきソフト**: 毎フレームの座標計算やマウスドラッグによる自由描画は、命令型（Imperative）に素の `tk.Canvas` を操作する方が適しています。
+* **リアルタイムゲーム・高フレームレートアニメーション**: 専用のグラフィックス描画環境やゲームエンジンを推奨します。
+* **ミリ秒単位でウィジェットツリーが動的増減するノードエディタ**: 静的なスキーマ定義よりも、命令型にウィジェットを生成・破棄するアプローチが適しています。
+
+---
 
 ## Examples
 

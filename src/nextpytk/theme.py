@@ -10,18 +10,13 @@ from tkinter import ttk
 
 from . import tokens as t
 
-# Shared internal padding for all ttk button variants (TButton, Primary, Secondary).
-# 16x12 + h5 (15px) keeps the requested height above MIN_TARGET (44px, WCAG 2.5.5)
-# across macOS/Windows default fonts without forcing every button section to
-# reserve 60+ px. Declared once here so the three button styles stay in lock-step.
-_BUTTON_PADDING = (t.SPACE[4], t.SPACE[3])  # (16, 12)
 
+def apply_theme(root: tk.Misc, tokens: t.ThemeTokens | None = None) -> ttk.Style:
+    """Configure ttk styles from ThemeTokens. Call once on root."""
+    tok = tokens or t.KIZASHI_LIGHT
 
-def apply_theme(root):
-    """Configure ttk styles from the Kizashi tokens. Call once on root."""
     # Ensure FONT_FAMILY is resolved against the real font list now that Tk
-    # is initialized.  If nextpytk was imported before tk.Tk(), it may have
-    # fallen back to TkDefaultFont and produced undersized labels/buttons.
+    # is initialized.
     t.resolve_font_family()
 
     style = ttk.Style(root)
@@ -33,166 +28,147 @@ def apply_theme(root):
     except tk.TclError:
         pass
 
-    root.configure(bg=t.BG)
+    try:
+        root.configure({"bg": tok.bg})
+    except tk.TclError:
+        pass
 
     # Apply the ::selection and keyboard focus colors to core tk widgets
-    # (Text, Listbox, Entry). highlightColor is the classic-tk focus indicator
-    # (WCAG 2.4.7 Focus Visible). Option-database settings affect widgets
-    # created afterwards.
-    root.option_add("*selectBackground", t.SELECTION_BG)
-    root.option_add("*selectForeground", t.SELECTION_FG)
-    root.option_add("*highlightColor", t.FOCUS)
+    # (Text, Listbox, Entry). Option-database settings affect widgets created afterwards.
+    root.option_add("*selectBackground", tok.selection_bg)
+    root.option_add("*selectForeground", tok.selection_fg)
+    root.option_add("*highlightColor", tok.focus)
+    root.option_add("*Frame.background", tok.bg)
+    root.option_add("*Label.background", tok.bg)
+    root.option_add("*Label.foreground", tok.text)
+    root.option_add("*Text.background", tok.surface)
+    root.option_add("*Text.foreground", tok.text)
+    root.option_add("*Text.insertBackground", tok.text)
+    root.option_add("*Canvas.background", tok.surface)
+    root.option_add("*Listbox.background", tok.bg)
+    root.option_add("*Listbox.foreground", tok.text)
 
     # --- base -------------------------------------------------------------
-    style.configure(".", background=t.BG, foreground=t.TEXT, font=t.font("body"))
-    style.configure("TFrame", background=t.BG)
-    style.configure("Surface.TFrame", background=t.SURFACE)
+    style.configure(".", background=tok.bg, foreground=tok.text, font=tok.font("body"))
+    style.configure("TFrame", background=tok.bg)
+    style.configure("Surface.TFrame", background=tok.surface)
 
-    style.configure("TLabel", background=t.BG, foreground=t.TEXT, font=t.font("body"))
-    style.configure("Heading.TLabel", font=t.font("h3"))
-    style.configure("Subheading.TLabel", font=t.font("h5"))
-    style.configure("Muted.TLabel", foreground=t.TEXT_MUTED, font=t.font("body"))
-    style.configure("FieldLabel.TLabel", foreground=t.NEUTRAL[700], font=t.font("small"))
+    style.configure("TLabel", background=tok.bg, foreground=tok.text, font=tok.font("body"))
+    style.configure("Heading.TLabel", font=tok.font("h3"))
+    style.configure("Subheading.TLabel", font=tok.font("h5"))
+    style.configure("Muted.TLabel", foreground=tok.text_muted, font=tok.font("body"))
+    style.configure("FieldLabel.TLabel", foreground=tok.neutral.get(700, tok.text_muted), font=tok.font("small"))
 
     # --- divider (strong 2px rule) ----------------------------------------
-    style.configure("Divider.TSeparator", background=t.DIVIDER)
+    style.configure("Divider.TSeparator", background=tok.divider)
 
     # --- entries ------------------------------------------------------------
     style.configure(
         "TEntry",
-        fieldbackground=t.BG,
-        foreground=t.TEXT,
-        bordercolor=t.DIVIDER,
-        lightcolor=t.DIVIDER,
-        darkcolor=t.DIVIDER,
+        fieldbackground=tok.bg,
+        foreground=tok.text,
+        bordercolor=tok.divider,
+        lightcolor=tok.divider,
+        darkcolor=tok.divider,
         borderwidth=1,
         relief="solid",
-        padding=(t.SPACE[2], t.SPACE[2] - 2),
-        insertcolor=t.TEXT,
+        padding=(tok.space[2], tok.space[2] - 2),
+        insertcolor=tok.text,
     )
     style.map(
         "TEntry",
-        bordercolor=[("focus", t.FOCUS), ("hover", t.NEUTRAL[600])],
-        lightcolor=[("focus", t.FOCUS)],
-        darkcolor=[("focus", t.FOCUS)],
+        bordercolor=[("focus", tok.focus), ("hover", tok.neutral.get(600, tok.text_muted))],
+        lightcolor=[("focus", tok.focus)],
+        darkcolor=[("focus", tok.focus)],
     )
 
     # --- buttons ------------------------------------------------------------
-    # Primary = borderless ACCENT with ON_ACCENT text, hover ACCENT_HOVER;
-    # secondary = white card with accent border, hover surface.
-    # padding 16x12 + 15px h5 keeps the requested height above MIN_TARGET
-    # (44px, WCAG 2.5.5) across macOS/Windows default fonts, without forcing every
-    # button section to reserve 60+ px.  borderwidth=SPACE[2] (8px) draws the
-    # native ttk focus ring well inside the border so it does not sit on the
-    # edge (WCAG 2.4.7 Focus Visible).
-    # ``width=0`` cancels clam's default ``width=-11`` (a minimum of 11 text
-    # characters ~182px) so button width tracks the label instead of being
-    # locked to a minimum. In a grid, ``col_weight`` provides uniform width;
-    # in a cluster, each button keeps its natural text width.
+    btn_padding = (tok.space[4], tok.space[3])
     style.configure(
         "TButton",
-        font=t.font("h5", weight="bold"),
-        borderwidth=t.SPACE[2],
+        font=tok.font("h5", weight="bold"),
+        borderwidth=tok.space[2],
         relief="solid",
-        padding=_BUTTON_PADDING,
-        bordercolor=t.NEUTRAL[500],
+        padding=btn_padding,
+        bordercolor=tok.neutral.get(500, tok.accent),
         anchor="center",
         width=0,
     )
     style.map(
         "TButton",
         bordercolor=[
-            ("active", t.NEUTRAL[600]),
-            ("pressed", t.NEUTRAL[700]),
-            ("focus", t.FOCUS),
+            ("active", tok.neutral.get(600, tok.accent_hover)),
+            ("pressed", tok.neutral.get(700, tok.accent_pressed)),
+            ("focus", tok.focus),
         ],
     )
     style.configure(
         "Primary.TButton",
-        font=t.font("h5", weight="bold"),
+        font=tok.font("h5", weight="bold"),
         relief="solid",
-        padding=_BUTTON_PADDING,
-        background=t.ACCENT, foreground=t.ON_ACCENT, bordercolor=t.ACCENT,
-        borderwidth=t.SPACE[2],
-        focuscolor=t.ON_ACCENT,
+        padding=btn_padding,
+        background=tok.accent, foreground=tok.on_accent, bordercolor=tok.accent,
+        borderwidth=tok.space[2],
+        focuscolor=tok.on_accent,
         anchor="center",
         width=0,
     )
     style.map(
         "Primary.TButton",
-        background=[("pressed", t.ACCENT_PRESSED), ("active", t.ACCENT_HOVER),
-                    ("focus", t.ACCENT)],
-        foreground=[("focus", t.ON_ACCENT)],
-        bordercolor=[("pressed", t.ACCENT_PRESSED), ("active", t.ACCENT_HOVER),
-                    ("focus", t.ACCENT)],
+        background=[("pressed", tok.accent_pressed), ("active", tok.accent_hover),
+                    ("focus", tok.accent)],
+        foreground=[("focus", tok.on_accent)],
+        bordercolor=[("pressed", tok.accent_pressed), ("active", tok.accent_hover),
+                    ("focus", tok.accent)],
     )
     style.configure(
         "Secondary.TButton",
-        font=t.font("h5", weight="bold"),
+        font=tok.font("h5", weight="bold"),
         relief="solid",
-        padding=_BUTTON_PADDING,
-        background=t.CARD, foreground=t.TEXT, bordercolor=t.ACCENT,
-        borderwidth=t.SPACE[2],
+        padding=btn_padding,
+        background=tok.card, foreground=tok.text, bordercolor=tok.accent,
+        borderwidth=tok.space[2],
         anchor="center",
         width=0,
     )
     style.map(
         "Secondary.TButton",
-        background=[("pressed", t.NEUTRAL[300]), ("active", t.SURFACE)],
+        background=[("pressed", tok.neutral.get(300, tok.surface)), ("active", tok.surface)],
         bordercolor=[
-            ("active", t.ACCENT_HOVER),
-            ("pressed", t.ACCENT_PRESSED),
-            ("focus", t.FOCUS),
+            ("active", tok.accent_hover),
+            ("pressed", tok.accent_pressed),
+            ("focus", tok.focus),
         ],
     )
 
     # --- notebook -----------------------------------------------------------
-    # Give the tab row a small horizontal margin so the first/last tab borders
-    # are not clipped by the notebook edge.
-    style.configure("TNotebook", background=t.BG, tabmargins=(t.SPACE[1], t.SPACE[1], t.SPACE[1], t.SPACE[1]))
+    style.configure("TNotebook", background=tok.bg, tabmargins=(tok.space[1], tok.space[1], tok.space[1], tok.space[1]))
     style.configure(
         "TNotebook.Tab",
-        background=t.NEUTRAL[200],
-        foreground=t.TEXT,
-        font=t.font("small", weight="bold"),
-        padding=(t.SPACE[3], t.SPACE[2]),
+        background=tok.neutral.get(200, tok.surface),
+        foreground=tok.text,
+        font=tok.font("small", weight="bold"),
+        padding=(tok.space[3], tok.space[2]),
         uniform="tabs",
-        # No hard-coded width: the multiview setup fits the tab width to
-        # the longest view label via tkinter.font.measure, so the tab
-        # area never crops long names and never wastes space for short
-        # ones. The default ``uniform="tabs"`` keeps all tabs the same
-        # width within one notebook.
         anchor="w",
     )
     style.map(
         "TNotebook.Tab",
-        background=[("selected", t.BG), ("active", t.NEUTRAL[300])],
-        foreground=[("selected", t.TEXT)],
-        # Selected tab gets a little extra vertical padding so it does not
-        # shrink visually when the default clam theme removes its expansion.
-        padding=[("selected", (t.SPACE[3], t.SPACE[4]))],
+        background=[("selected", tok.bg), ("active", tok.neutral.get(300, tok.surface))],
+        foreground=[("selected", tok.text)],
+        padding=[("selected", (tok.space[3], tok.space[4]))],
     )
 
     # --- check / radio ----------------------------------------------------
-    # Padding increases the ttk layout box around the indicator + label so the
-    # effective click/tap target is larger and neighbouring controls don't feel
-    # cramped. The indicator itself stays its native size; WCAG 2.5.5 is best met
-    # by touch-friendly surrounding space rather than scaling the glyph.
-    # Use the same (16,12) as buttons so check/radio align visually with
-    # buttons in a cluster row.
-    _check_radio_padding = (t.SPACE[4], t.SPACE[3])  # (16, 12), matches buttons
+    check_radio_padding = (tok.space[4], tok.space[3])
     style.configure(
         "TCheckbutton",
-        background=t.BG,
-        foreground=t.TEXT,
-        font=t.font("body"),
-        focuscolor=t.FOCUS,
-        padding=_check_radio_padding,
-        # clam's checkbutton gap between indicator and label is driven by
-        # ``indicatormargin`` (default "0.75p 0.75p 3p 0.75p"; right=3px).
-        # ``indicatorpadding`` is ignored by clam, so widen the right margin
-        # to SPACE[2] (8px) for a cleaner indicator/text separation.
-        indicatormargin=(0, 0, t.SPACE[2], 0),
+        background=tok.bg,
+        foreground=tok.text,
+        font=tok.font("body"),
+        focuscolor=tok.focus,
+        padding=check_radio_padding,
+        indicatormargin=(0, 0, tok.space[2], 0),
     )
     style.layout(
         "TCheckbutton",
@@ -220,16 +196,12 @@ def apply_theme(root):
     )
     style.configure(
         "TRadiobutton",
-        background=t.BG,
-        foreground=t.TEXT,
-        font=t.font("body"),
-        focuscolor=t.FOCUS,
-        padding=_check_radio_padding,
-        # clam's radiobutton gap between indicator and label is driven by
-        # ``indicatormargin`` (indicatorpadding is ignored by clam). Widen the
-        # right margin to SPACE[2] (8px) to match TCheckbutton, so the symbol
-        # and label read as separate without crowding.
-        indicatormargin=(0, 0, t.SPACE[2], 0),
+        background=tok.bg,
+        foreground=tok.text,
+        font=tok.font("body"),
+        focuscolor=tok.focus,
+        padding=check_radio_padding,
+        indicatormargin=(0, 0, tok.space[2], 0),
     )
     style.layout(
         "TRadiobutton",
@@ -257,173 +229,156 @@ def apply_theme(root):
     )
 
     # --- scale --------------------------------------------------------------
-    # "Card" thumb: page-ground (BG) fill with an ACCENT border. The border
-    # provides the non-text contrast needed to pick the thumb out of the
-    # SURFACE trough (~5.3:1, WCAG 1.4.11); the BG fill against the ACCENT
-    # border stays legible too (~5.9:1). Hover/pressed shift the border.
     style.configure(
         "TScale",
-        background=t.BG,
-        troughcolor=t.SURFACE,
-        bordercolor=t.ACCENT,
-        lightcolor=t.ACCENT,
-        darkcolor=t.ACCENT,
-        padding=(t.SPACE[1], t.SPACE[2]),
+        background=tok.bg,
+        troughcolor=tok.surface,
+        bordercolor=tok.accent,
+        lightcolor=tok.accent,
+        darkcolor=tok.accent,
+        padding=(tok.space[1], tok.space[2]),
     )
     style.map(
         "TScale",
-        bordercolor=[("active", t.ACCENT_HOVER), ("pressed", t.ACCENT_PRESSED)],
-        lightcolor=[("active", t.ACCENT_HOVER), ("pressed", t.ACCENT_PRESSED)],
-        darkcolor=[("active", t.ACCENT_HOVER), ("pressed", t.ACCENT_PRESSED)],
+        bordercolor=[("active", tok.accent_hover), ("pressed", tok.accent_pressed)],
+        lightcolor=[("active", tok.accent_hover), ("pressed", tok.accent_pressed)],
+        darkcolor=[("active", tok.accent_hover), ("pressed", tok.accent_pressed)],
     )
 
     # --- spinbox ------------------------------------------------------------
     style.configure(
         "TSpinbox",
-        fieldbackground=t.BG,
-        foreground=t.TEXT,
-        bordercolor=t.DIVIDER,
-        lightcolor=t.DIVIDER,
-        darkcolor=t.DIVIDER,
-        arrowcolor=t.ACCENT,
+        fieldbackground=tok.bg,
+        foreground=tok.text,
+        bordercolor=tok.divider,
+        lightcolor=tok.divider,
+        darkcolor=tok.divider,
+        arrowcolor=tok.accent,
         borderwidth=1,
         relief="solid",
-        padding=(t.SPACE[2], t.SPACE[2]),
-        insertcolor=t.TEXT,
+        padding=(tok.space[2], tok.space[2]),
+        insertcolor=tok.text,
     )
     style.map(
         "TSpinbox",
-        bordercolor=[("focus", t.FOCUS), ("hover", t.NEUTRAL[600])],
-        lightcolor=[("focus", t.FOCUS)],
-        darkcolor=[("focus", t.FOCUS)],
-        arrowcolor=[("active", t.ACCENT_HOVER), ("pressed", t.ACCENT_PRESSED)],
+        bordercolor=[("focus", tok.focus), ("hover", tok.neutral.get(600, tok.text_muted))],
+        lightcolor=[("focus", tok.focus)],
+        darkcolor=[("focus", tok.focus)],
+        arrowcolor=[("active", tok.accent_hover), ("pressed", tok.accent_pressed)],
     )
 
     # --- combobox -----------------------------------------------------------
     style.configure(
         "TCombobox",
-        fieldbackground=t.BG,
-        foreground=t.TEXT,
-        bordercolor=t.DIVIDER,
-        lightcolor=t.DIVIDER,
-        darkcolor=t.DIVIDER,
-        arrowcolor=t.ACCENT,
+        fieldbackground=tok.bg,
+        foreground=tok.text,
+        bordercolor=tok.divider,
+        lightcolor=tok.divider,
+        darkcolor=tok.divider,
+        arrowcolor=tok.accent,
         borderwidth=1,
         relief="solid",
-        padding=(t.SPACE[2], t.SPACE[2]),
-        insertcolor=t.TEXT,
+        padding=(tok.space[2], tok.space[2]),
+        insertcolor=tok.text,
     )
     style.map(
         "TCombobox",
-        bordercolor=[("focus", t.FOCUS), ("hover", t.NEUTRAL[600])],
-        lightcolor=[("focus", t.FOCUS)],
-        darkcolor=[("focus", t.FOCUS)],
-        arrowcolor=[("active", t.ACCENT_HOVER), ("pressed", t.ACCENT_PRESSED)],
-        fieldbackground=[("readonly", t.BG), ("active", t.BG)],
-        selectbackground=[("focus", t.ACCENT_RAMP[200])],
-        selectforeground=[("focus", t.TEXT)],
+        bordercolor=[("focus", tok.focus), ("hover", tok.neutral.get(600, tok.text_muted))],
+        lightcolor=[("focus", tok.focus)],
+        darkcolor=[("focus", tok.focus)],
+        arrowcolor=[("active", tok.accent_hover), ("pressed", tok.accent_pressed)],
+        fieldbackground=[("readonly", tok.bg), ("active", tok.bg)],
+        selectbackground=[("focus", tok.accent_ramp.get(200, tok.surface))],
+        selectforeground=[("focus", tok.text)],
     )
 
-    # macOS Aqua renders the read-only combobox selection with a strong
-    # native highlight that can override the regular foreground color and
-    # leave white text on a very light field. Give read-only comboboxes a
-    # dedicated style with a darker field and an explicit dark selection
-    # foreground so the current value stays readable.
     style.configure(
         "Readonly.TCombobox",
-        fieldbackground=t.BG,
-        foreground=t.TEXT,
-        bordercolor=t.DIVIDER,
-        lightcolor=t.DIVIDER,
-        darkcolor=t.DIVIDER,
-        arrowcolor=t.ACCENT,
+        fieldbackground=tok.bg,
+        foreground=tok.text,
+        bordercolor=tok.divider,
+        lightcolor=tok.divider,
+        darkcolor=tok.divider,
+        arrowcolor=tok.accent,
         borderwidth=1,
         relief="solid",
-        padding=(t.SPACE[2], t.SPACE[2]),
-        insertcolor=t.TEXT,
+        padding=(tok.space[2], tok.space[2]),
+        insertcolor=tok.text,
     )
     style.map(
         "Readonly.TCombobox",
-        bordercolor=[("focus", t.FOCUS), ("hover", t.NEUTRAL[600])],
-        lightcolor=[("focus", t.FOCUS)],
-        darkcolor=[("focus", t.FOCUS)],
-        arrowcolor=[("active", t.ACCENT_HOVER), ("pressed", t.ACCENT_PRESSED)],
-        fieldbackground=[("readonly", t.BG), ("active", t.BG)],
-        selectbackground=[("focus", t.ACCENT_RAMP[300])],
-        selectforeground=[("focus", t.TEXT)],
-        foreground=[("readonly", t.TEXT), ("active", t.TEXT)],
+        bordercolor=[("focus", tok.focus), ("hover", tok.neutral.get(600, tok.text_muted))],
+        lightcolor=[("focus", tok.focus)],
+        darkcolor=[("focus", tok.focus)],
+        arrowcolor=[("active", tok.accent_hover), ("pressed", tok.accent_pressed)],
+        fieldbackground=[("readonly", tok.bg), ("active", tok.bg)],
+        selectbackground=[("focus", tok.accent_ramp.get(300, tok.surface))],
+        selectforeground=[("focus", tok.text)],
+        foreground=[("readonly", tok.text), ("active", tok.text)],
     )
 
     # --- progressbar --------------------------------------------------------
     style.configure(
         "TProgressbar",
-        background=t.ACCENT,
-        troughcolor=t.SURFACE,
-        bordercolor=t.DIVIDER,
-        lightcolor=t.DIVIDER,
-        darkcolor=t.DIVIDER,
+        background=tok.accent,
+        troughcolor=tok.surface,
+        bordercolor=tok.divider,
+        lightcolor=tok.divider,
+        darkcolor=tok.divider,
         borderwidth=0,
     )
     style.map(
         "TProgressbar",
-        background=[("active", t.ACCENT_HOVER)],
+        background=[("active", tok.accent_hover)],
     )
 
     # --- scrollbar ----------------------------------------------------------
-    # Thumb matches the scale thumb: BG fill with an ACCENT border on a
-    # SURFACE trough. The border gives the non-text contrast to pick the
-    # thumb out of the trough; hover/pressed shift the border accent ramp.
     style.configure(
         "TScrollbar",
-        background=t.BG,
-        troughcolor=t.SURFACE,
-        bordercolor=t.ACCENT,
-        arrowcolor=t.TEXT,
+        background=tok.bg,
+        troughcolor=tok.surface,
+        bordercolor=tok.accent,
+        arrowcolor=tok.text,
         gripcount=0,
         borderwidth=0,
     )
     style.map(
         "TScrollbar",
-        bordercolor=[("active", t.ACCENT_HOVER), ("pressed", t.ACCENT_PRESSED)],
-        background=[("active", t.NEUTRAL[100]), ("pressed", t.NEUTRAL[200])],
-        arrowcolor=[("active", t.TEXT), ("pressed", t.TEXT)],
+        bordercolor=[("active", tok.accent_hover), ("pressed", tok.accent_pressed)],
+        background=[("active", tok.neutral.get(100, tok.surface)), ("pressed", tok.neutral.get(200, tok.surface))],
+        arrowcolor=[("active", tok.text), ("pressed", tok.text)],
     )
 
     # --- treeview -----------------------------------------------------------
     style.configure(
         "Treeview",
-        background=t.BG,
-        foreground=t.TEXT,
-        fieldbackground=t.BG,
-        font=t.font("body"),
-        rowheight=t.SPACE[8],  # 16px body font line with descender clearance
+        background=tok.bg,
+        foreground=tok.text,
+        fieldbackground=tok.bg,
+        font=tok.font("body"),
+        rowheight=tok.space[8],
         borderwidth=0,
     )
     style.configure(
         "Treeview.Heading",
-        background=t.SURFACE,
-        foreground=t.TEXT,
-        font=t.font("small", weight="bold"),
+        background=tok.surface,
+        foreground=tok.text,
+        font=tok.font("small", weight="bold"),
         borderwidth=0,
         relief="flat",
-        padding=t.SPACE[2],
+        padding=tok.space[2],
     )
     style.map(
         "Treeview",
-        background=[("selected", t.ACCENT_RAMP[100])],
-        foreground=[("selected", t.ACCENT_RAMP[700])],
+        background=[("selected", tok.accent_ramp.get(100, tok.surface))],
+        foreground=[("selected", tok.accent_ramp.get(700, tok.accent))],
     )
 
     return style
 
 
 def _set_windows_dpi_aware():
-    """Opt into system-DPI awareness before creating any Tk windows on Windows.
-
-    This makes Tkinter respect the display scaling factor on Windows,
-    otherwise widgets, fonts, and the window chrome render at 96-DPI logical
-    pixels and look blurry or too small on high-DPI displays.
-    """
+    """Opt into system-DPI awareness before creating any Tk windows on Windows."""
     if not sys.platform.startswith("win"):
         return
     try:
@@ -431,20 +386,17 @@ def _set_windows_dpi_aware():
         from typing import Any, cast
         _ctypes: Any = cast(Any, ctypes)
         windll: Any = _ctypes.windll
-        # Windows 10 1703+ per-monitor v2 (preferred)
         try:
-            awareness = ctypes.c_int(-4)  # PROCESS_PER_MONITOR_DPI_AWARE_V2
-            windll.user32.SetProcessDpiAwarenessContext(awareness)
+            awareness = ctypes.c_int(-4)
+            windll.SetProcessDpiAwarenessContext(awareness)
             return
         except Exception:
             pass
-        # Windows 10 1607+ per-monitor
         try:
-            windll.shcore.SetProcessDpiAwareness(2)  # PerMonitor
+            windll.shcore.SetProcessDpiAwareness(2)
             return
         except Exception:
             pass
-        # Fallback for Windows 8.1/10 up to 1607
         try:
             windll.user32.SetProcessDPIAware()
         except Exception:
@@ -453,23 +405,29 @@ def _set_windows_dpi_aware():
         pass
 
 
-def configure_window(root, title, min_width=380, min_height=260, resizable=True):
-    """Apply consistent window chrome: background, title, sizing, margins.
-
-    Sets a light title bar on Windows to match the light theme background.
-    """
+def configure_window(root, title, min_width=380, min_height=260, resizable=True, tokens: t.ThemeTokens | None = None):
+    """Apply consistent window chrome: background, title, sizing, margins."""
+    tok = tokens or t.KIZASHI_LIGHT
     root.title(title)
-    root.configure(bg=t.BG)
+    try:
+        root.configure({"bg": tok.bg})
+    except tk.TclError:
+        pass
     root.minsize(min_width, min_height)
     root.resizable(resizable, resizable)
 
     if sys.platform.startswith("win"):
         try:
             import ctypes
+            from typing import Any, cast
+            _ctypes: Any = cast(Any, ctypes)
+            windll: Any = _ctypes.windll
             DWMWA_USE_IMMERSIVE_DARK_MODE = 20
-            hwnd = ctypes.windll.user32.GetParent(root.winfo_id())  # type: ignore[attr-defined]
-            value = ctypes.c_int(0)
-            ctypes.windll.dwmapi.DwmSetWindowAttribute(  # type: ignore[attr-defined]
+            hwnd = windll.user32.GetParent(root.winfo_id())
+            # Enable dark titlebar if theme is dark
+            is_dark = tok.name.endswith("-dark") or tok.bg.startswith(("#1", "#2", "#0"))
+            value = ctypes.c_int(1 if is_dark else 0)
+            windll.dwmapi.DwmSetWindowAttribute(
                 hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(value), ctypes.sizeof(value)
             )
         except Exception:

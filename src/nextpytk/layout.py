@@ -137,6 +137,18 @@ class _Target:
 
 
 @dataclass
+class _Container:
+    """Internal: a reserved unmanaged frame container for custom widgets or Matplotlib."""
+    name: str
+    side: SideLike = "top"
+    fill: FillLike = "both"
+    expand: ExpandLike = True
+    padx: int | None = _PAD
+    pady: int | None = _PAD
+    minsize: int | None = None
+
+
+@dataclass
 class _Wrap:
     """Internal: a wrapping-flow block (Flutter ``Wrap`` analog).
 
@@ -252,7 +264,7 @@ class _Paired:
     pady: int | None = _PAD
 
 
-_Block = _Row | _Grid | _Paned | _Nested | _Cluster | _Paired | _Target | _Flow
+_Block = _Row | _Grid | _Paned | _Nested | _Cluster | _Paired | _Target | _Container | _Flow
 
 
 
@@ -997,6 +1009,7 @@ class Layout:
     page_margin: int | None = None
 
     _blocks: list[_Block] = field(default_factory=list)
+    _unmanaged_containers: set[str] = field(default_factory=set)
 
     # Sentinel names used by chrome helpers; they are never registered as
     # real widgets, so they cannot collide with user widget names.
@@ -1475,6 +1488,41 @@ class Layout:
         ))
         return self
 
+    def container(
+        self,
+        name: str,
+        *,
+        side: SideLike = "top",
+        fill: FillLike = "both",
+        expand: ExpandLike = True,
+        padx: int | None = None,
+        pady: int | None = None,
+        minsize: int | None = None,
+    ) -> Layout:
+        """Reserve an unmanaged frame container for custom widgets or Matplotlib.
+
+        nextpytk mounts a styled, empty ``tk.Frame`` and registers it under
+        ``name``. You can access the frame with ``app.get_widget(name)`` or
+        ``app.container(name)`` to pack, grid, or draw raw tkinter widgets,
+        Matplotlib plots, or OpenGL contexts manually.
+
+        If *minsize* is a positive integer, ``pack_propagate(False)`` is
+        called and the frame height is fixed to *minsize* pixels. A value
+        of ``0`` or ``None`` leaves the frame free to shrink to its
+        children's natural size.
+        """
+        self._unmanaged_containers.add(name)
+        self._blocks.append(_Container(
+            name=name,
+            side=side,
+            fill=fill,
+            expand=expand,
+            padx=padx if padx is not None else self.padx,
+            pady=pady if pady is not None else self.pady,
+            minsize=minsize,
+        ))
+        return self
+
     def mount_frames_into(
         self,
         app: TkApp,
@@ -1505,13 +1553,15 @@ class Layout:
         if page_margin is None:
             page_margin = t.SPACE[6]
         is_toplevel = isinstance(parent, tk.Tk) or getattr(parent, "winfo_toplevel", lambda: parent)() is parent
+        bg_color = getattr(app, "theme_tokens", t.KIZASHI_LIGHT).bg
+
         if is_toplevel:
             body = content_frame(parent, padding=page_margin)
             app._content_frame = body
         else:
             # View/tab pages breathe too: inner content margin so sections
             # don't hug the notebook border (SPACE[6] / 24px page pad).
-            body = tk.Frame(parent, bg=t.BG, bd=0, highlightthickness=0)
+            body = tk.Frame(parent, bg=bg_color, bd=0, highlightthickness=0)
             body.pack(fill="both", expand=True,
                       padx=t.SPACE[6], pady=t.SPACE[4])
 
@@ -1547,7 +1597,7 @@ class Layout:
                     app._explicit_section_names.add(block.name)
                 if section_key is not None:
                     app._section_frames[section_key] = frame
-                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                frame.configure(bg=bg_color, bd=0, highlightthickness=0)
                 row_jobs.append((frame, block))
             elif isinstance(block, _Paned):
                 _ensure_allowed(block.name)
@@ -1556,7 +1606,7 @@ class Layout:
                     side=block.side, fill=block.fill, expand=block.expand,
                     padx=block.padx or 0, pady=block.pady or 0,
                 )
-                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                frame.configure(bg=bg_color, bd=0, highlightthickness=0)
                 app._widget_masters[block.name] = frame
                 opts: dict[str, Any] = {
                     "minsizes": block.minsizes,
@@ -1577,7 +1627,7 @@ class Layout:
                     side="top", fill=block.fill, expand=block.expand,
                     padx=block.padx or 0, pady=block.pady or 0,
                 )
-                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                frame.configure(bg=bg_color, bd=0, highlightthickness=0)
                 for col, w in block.col_weights.items():
                     frame.columnconfigure(col, weight=w, uniform=block.uniform or "")
                 for col, ms in block.col_minsize.items():
@@ -1587,8 +1637,13 @@ class Layout:
                 for row, ms in block.row_minsize.items():
                     frame.rowconfigure(row, minsize=ms)
                 for name in block.cells:
-                    _ensure_allowed(name)
-                    app._widget_masters[name] = frame
+                    if name in self._unmanaged_containers:
+                        cframe = tk.Frame(frame, bg=bg_color, bd=0, highlightthickness=0)
+                        app._tk_widgets[name] = cframe
+                        app._widget_masters[name] = frame
+                    else:
+                        _ensure_allowed(name)
+                        app._widget_masters[name] = frame
                 grid_jobs.append((frame, block))
             elif isinstance(block, _Cluster):
                 frame = tk.Frame(body)
@@ -1597,7 +1652,7 @@ class Layout:
                     padx=block.padx if block.padx is not None else 0,
                     pady=block.pady if block.pady is not None else 0,
                 )
-                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                frame.configure(bg=bg_color, bd=0, highlightthickness=0)
                 for entry in block.widgets:
                     name = entry.widget if isinstance(entry, Flex) else entry
                     _ensure_allowed(name)
@@ -1613,7 +1668,7 @@ class Layout:
                     padx=block.padx if block.padx is not None else 0,
                     pady=block.pady if block.pady is not None else 0,
                 )
-                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                frame.configure(bg=bg_color, bd=0, highlightthickness=0)
                 for name in block.widgets:
                     _ensure_allowed(name)
                     app._widget_masters[name] = frame
@@ -1628,7 +1683,7 @@ class Layout:
                     padx=block.padx if block.padx is not None else 0,
                     pady=block.pady if block.pady is not None else 0,
                 )
-                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                frame.configure(bg=bg_color, bd=0, highlightthickness=0)
                 # Two-column grid: left and right share the width by weight.
                 frame.columnconfigure(0, weight=block.weight[0])
                 frame.columnconfigure(1, weight=block.weight[1])
@@ -1649,7 +1704,7 @@ class Layout:
                     padx=block.padx if block.padx is not None else 0,
                     pady=block.pady if block.pady is not None else 0,
                 )
-                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                frame.configure(bg=bg_color, bd=0, highlightthickness=0)
                 frame._swap_target = block.name  # type: ignore[attr-defined]
                 app.register_swap_target(block.name, frame)
                 row_jobs.append((frame, _Row(
@@ -1665,7 +1720,7 @@ class Layout:
                     padx=block.padx if block.padx is not None else 0,
                     pady=block.pady if block.pady is not None else 0,
                 )
-                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                frame.configure(bg=bg_color, bd=0, highlightthickness=0)
                 nested_row_jobs, nested_grid_jobs = block.layout.mount_frames_into(
                     app, frame, allowed_widgets=allowed_widgets
                 )
@@ -1673,6 +1728,20 @@ class Layout:
                 grid_jobs.extend(nested_grid_jobs)
                 # Register the nested frame so the parent can place it inside a
                 # grid cell, and so it is not repacked as a regular child.
+                app._tk_widgets[block.name] = frame
+                app._widget_masters[block.name] = frame
+            elif isinstance(block, _Container):
+                _ensure_allowed(block.name)
+                frame = tk.Frame(body)
+                frame.pack(
+                    side=block.side, fill=block.fill, expand=block.expand,
+                    padx=block.padx if block.padx is not None else 0,
+                    pady=block.pady if block.pady is not None else 0,
+                )
+                frame.configure(bg=bg_color, bd=0, highlightthickness=0)
+                if block.minsize is not None and block.minsize > 0:
+                    frame.pack_propagate(False)
+                    frame.configure(height=block.minsize)
                 app._tk_widgets[block.name] = frame
                 app._widget_masters[block.name] = frame
 
@@ -1970,6 +2039,20 @@ class _GridBuilder:
         self._col += cs if cs > 1 else 1
         self._colspan = 1
         return self
+
+    def container(
+        self,
+        name: str,
+        *,
+        sticky: str = "nsew",
+        padx: int | None = None,
+        pady: int | None = None,
+        colspan: int | None = None,
+        rowspan: int = 1,
+    ) -> _GridBuilder:
+        """Reserve an unmanaged frame container at the current cursor position."""
+        self._layout._unmanaged_containers.add(name)
+        return self.cell(name, sticky=sticky, padx=padx, pady=pady, colspan=colspan, rowspan=rowspan)
 
     def widget(
         self,
@@ -2383,6 +2466,32 @@ class LayoutBuilder:
         """Set column span for the next cell() call."""
         self._current_grid().span(cols)
         return self
+
+    def container(
+        self,
+        name: str,
+        *,
+        side: SideLike = "top",
+        fill: FillLike = "both",
+        expand: ExpandLike = True,
+        sticky: str = "nsew",
+        padx: int | None = None,
+        pady: int | None = None,
+        colspan: int | None = None,
+        rowspan: int = 1,
+        minsize: int | None = None,
+    ) -> None:
+        """Reserve an unmanaged frame container."""
+        if len(self._stack) > 1 and isinstance(self._stack[-1], _GridBuilder):
+            self._stack[-1].container(
+                name, sticky=sticky, padx=padx, pady=pady,
+                colspan=colspan, rowspan=rowspan,
+            )
+        else:
+            self._layout.container(
+                name, side=side, fill=fill, expand=expand,
+                padx=padx, pady=pady, minsize=minsize,
+            )
 
     # ── build ──
 

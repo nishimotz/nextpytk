@@ -11,79 +11,119 @@ Do not hard-code a color, font, or spacing number in application code:
 import from here instead.
 """
 
+from dataclasses import dataclass, field
+from typing import Any
 import tkinter.font as tkfont
 
 # ---------------------------------------------------------------------------
-# Color
+# ThemeTokens dataclass & Built-in Themes
 # ---------------------------------------------------------------------------
 
-# Palette: nextpytk design system.
-# Warm neutral ground with brown interaction accent.
-# Contrast pairs are regression-tested in tests/test_tokens.py
-# (WCAG 1.4.3 Contrast (Minimum), 1.4.11 Non-text Contrast).
-BG = "#faf8f4"            # Background (page ground)
-SURFACE = "#f1ece3"       # Surface (fields, panels) — Kizashi spec
-CARD = "#ffffff"          # Card background (design uses pure white on BG)
-TEXT = "#302b24"          # Text Primary
-TEXT_SECONDARY = "#4a4339"  # Paragraph text on cards/sections
-ACCENT = "#7a5a34"        # Accent Text: links, interaction (AA on BG/CARD)
-ON_ACCENT = "#ffffff"     # Text on ACCENT surfaces (primary buttons)
-DIVIDER = "#e3d9c8"       # Border: rules and card borders
-FOCUS = "#21201c"         # Focus Ring (3px; WCAG 2.4.7 Focus Visible)
-ACCENT_BADGE = "#efc53e"  # Accent Moon: badge/highlight, decorative use only
-ACCENT_BADGE_TEXT = "#3d2f0a"  # Text on ACCENT_BADGE
-SELECTION_BG = "#e8b93a"  # ::selection background
-SELECTION_FG = "#21201c"  # ::selection text
+@dataclass(frozen=True)
+class ThemeTokens:
+    """Design tokens defining colors, typography, and spacing for a theme."""
 
-# Neutral tonal ramp -- --color-neutral-100..900 (warm)
-NEUTRAL = {
-    100: "#f7f3ec", 200: "#f1eae0", 300: "#e3d9c8", 400: "#c4b7a3",
-    500: "#9c8f7c", 600: "#6e655a", 700: "#544c41", 800: "#3d2f20", 900: "#302b24",
-}
+    name: str = "kizashi"
+    bg: str = "#faf8f4"
+    surface: str = "#f1ece3"
+    card: str = "#ffffff"
+    text: str = "#302b24"
+    text_secondary: str = "#4a4339"
+    text_muted: str = "#6e655a"
+    accent: str = "#7a5a34"
+    on_accent: str = "#ffffff"
+    accent_hover: str = "#5f4527"
+    accent_pressed: str = "#513d24"
+    divider: str = "#e3d9c8"
+    focus: str = "#21201c"
+    accent_badge: str = "#efc53e"
+    accent_badge_text: str = "#3d2f0a"
+    selection_bg: str = "#e8b93a"
+    selection_fg: str = "#21201c"
+    neutral: dict[int, str] = field(default_factory=lambda: {
+        100: "#f7f3ec", 200: "#f1eae0", 300: "#e3d9c8", 400: "#c4b7a3",
+        500: "#9c8f7c", 600: "#6e655a", 700: "#544c41", 800: "#3d2f20", 900: "#302b24",
+    })
+    accent_ramp: dict[int, str] = field(default_factory=lambda: {
+        100: "#f5efe6", 200: "#eadfcd", 300: "#d6c3a5", 400: "#b99a72",
+        500: "#7a5a34", 600: "#5f4527", 700: "#513d24", 800: "#43301a", 900: "#332413",
+    })
+    space: dict[int, int] = field(default_factory=lambda: {1: 4, 2: 8, 3: 12, 4: 16, 6: 24, 8: 32})
+    min_target: int = 44
+    radius: int = 0
+    font_family: str = "TkDefaultFont"
+    type_scale: dict[str, int] = field(default_factory=lambda: {
+        "display": -44, "h1": -32, "h2": -24, "h3": -19,
+        "h4": -16, "h5": -15, "h6": -13, "body": -16, "small": -14,
+    })
 
-# Accent tonal ramp (400 = Accent Tan: decorative only, not for borders/text —
-# 2.65:1 on white. 500 = ACCENT. 600/700 = hover / link-hover)
-ACCENT_RAMP = {
-    100: "#f5efe6", 200: "#eadfcd", 300: "#d6c3a5", 400: "#b99a72",
-    500: "#7a5a34", 600: "#5f4527", 700: "#513d24", 800: "#43301a", 900: "#332413",
-}
+    def font(self, scale: str = "body", weight: str | None = None, family: str | None = None) -> tuple[Any, ...]:
+        fam = family or (self.font_family if self.font_family != "TkDefaultFont" else FONT_FAMILY)
+        size = self.type_scale.get(scale, self.type_scale.get("body", -16))
+        w = weight or ("bold" if scale in ("h1", "h2", "h3", "h4") else "normal")
+        return (fam, size, w) if w and w != "normal" else (fam, size)
 
-ACCENT_HOVER = ACCENT_RAMP[600]
-ACCENT_PRESSED = ACCENT_RAMP[700]
-TEXT_MUTED = NEUTRAL[600]
+
+KIZASHI_LIGHT = ThemeTokens(name="kizashi")
+
+KIZASHI_DARK = ThemeTokens(
+    name="kizashi-dark",
+    bg="#1e1e1e",
+    surface="#282828",
+    card="#2d2d2d",
+    text="#f0ebe4",
+    text_secondary="#c4b7a3",
+    text_muted="#9c8f7c",
+    accent="#d4a373",
+    on_accent="#1e1e1e",
+    accent_hover="#e2be9b",
+    accent_pressed="#b98858",
+    divider="#3d3830",
+    focus="#efc53e",
+    accent_badge="#544c41",
+    accent_badge_text="#f7f3ec",
+    selection_bg="#5f4527",
+    selection_fg="#ffffff",
+    neutral={
+        100: "#302b24", 200: "#3d2f20", 300: "#544c41", 400: "#6e655a",
+        500: "#9c8f7c", 600: "#c4b7a3", 700: "#e3d9c8", 800: "#f1eae0", 900: "#f7f3ec",
+    },
+    accent_ramp={
+        100: "#332413", 200: "#43301a", 300: "#513d24", 400: "#5f4527",
+        500: "#7a5a34", 600: "#b99a72", 700: "#d6c3a5", 800: "#eadfcd", 900: "#f5efe6",
+    },
+)
+
+# ---------------------------------------------------------------------------
+# Backward-compatible module-level constants (Kizashi Light)
+# ---------------------------------------------------------------------------
+
+BG = KIZASHI_LIGHT.bg
+SURFACE = KIZASHI_LIGHT.surface
+CARD = KIZASHI_LIGHT.card
+TEXT = KIZASHI_LIGHT.text
+TEXT_SECONDARY = KIZASHI_LIGHT.text_secondary
+ACCENT = KIZASHI_LIGHT.accent
+ON_ACCENT = KIZASHI_LIGHT.on_accent
+DIVIDER = KIZASHI_LIGHT.divider
+FOCUS = KIZASHI_LIGHT.focus
+ACCENT_BADGE = KIZASHI_LIGHT.accent_badge
+ACCENT_BADGE_TEXT = KIZASHI_LIGHT.accent_badge_text
+SELECTION_BG = KIZASHI_LIGHT.selection_bg
+SELECTION_FG = KIZASHI_LIGHT.selection_fg
+NEUTRAL = KIZASHI_LIGHT.neutral
+ACCENT_RAMP = KIZASHI_LIGHT.accent_ramp
+ACCENT_HOVER = KIZASHI_LIGHT.accent_hover
+ACCENT_PRESSED = KIZASHI_LIGHT.accent_pressed
+TEXT_MUTED = KIZASHI_LIGHT.text_muted
 DISABLED_OPACITY = 0.45
-
-# Backwards-compatible placeholder color used by nextpytk entry hints.
 PLACEHOLDER_FG = TEXT_MUTED
 
-# ---------------------------------------------------------------------------
-# Spacing -- 4px base unit. Use these for every pad/gap; never a bare integer.
-# ---------------------------------------------------------------------------
-
-SPACE = {1: 4, 2: 8, 3: 12, 4: 16, 6: 24, 8: 32}
-
-# Minimum interactive target size (buttons and links must be at least 44px).
-# Regression-tested in tests/test_target_size.py (WCAG 2.5.5 Target Size).
-MIN_TARGET = 44
-
-# ---------------------------------------------------------------------------
-# Radius -- the web spec uses 8px (buttons) / 14px (cards), but ttk's clam
-# theme cannot render rounded corners; Tk stays square. Kept for schema
-# parity and future custom widgets.
-# ---------------------------------------------------------------------------
-
-RADIUS = 0
-
-# ---------------------------------------------------------------------------
-# Widget defaults -- shared by builders when the app does not override.
-# ---------------------------------------------------------------------------
-
+SPACE = KIZASHI_LIGHT.space
+MIN_TARGET = KIZASHI_LIGHT.min_target
+RADIUS = KIZASHI_LIGHT.radius
 DEFAULT_LISTBOX_ROWS = 18
-DEFAULT_COMBOBOX_WIDTH = 24  # character columns, matches Entry default feel
-
-# ---------------------------------------------------------------------------
-# Type -- Japanese Noto Sans JP / Latin Work Sans, with system fallbacks.
-# ---------------------------------------------------------------------------
+DEFAULT_COMBOBOX_WIDTH = 24
 
 _FALLBACKS = ["Noto Sans JP", "Work Sans", "Hiragino Sans", "Yu Gothic UI",
               "Segoe UI", "Helvetica Neue", "DejaVu Sans"]
@@ -104,32 +144,14 @@ FONT_FAMILY = _resolve_font_family()
 
 
 def resolve_font_family():
-    """Re-resolve the preferred font family after Tk has initialized fonts.
-
-    When nextpytk is imported before ``tk.Tk()`` has run (common in tests
-    and when modules are imported at interpreter startup), ``tkfont.families()``
-    may be empty and ``FONT_FAMILY`` falls back to ``TkDefaultFont``.  Call this
-    before applying the theme to pick the best installed UI font.
-    """
+    """Re-resolve the preferred font family after Tk has initialized fonts."""
     global FONT_FAMILY
     FONT_FAMILY = _resolve_font_family()
     return FONT_FAMILY
-FONT_WEIGHT_HEADING = "bold"
 
-# Type scale -- pixel sizes (Tk negative size = px):
-# Display 44/700, H1 32/700, H2 24/600, H3 19/600, Body 16/400, Small 14/400.
-# h5 = button size (15/600).
-TYPE_SCALE = {
-    "display": -44,
-    "h1": -32,
-    "h2": -24,
-    "h3": -19,
-    "h4": -16,
-    "h5": -15,
-    "h6": -13,
-    "body": -16,
-    "small": -14,
-}
+
+FONT_WEIGHT_HEADING = "bold"
+TYPE_SCALE = KIZASHI_LIGHT.type_scale
 
 
 def font(scale="body", weight=None, family=None):

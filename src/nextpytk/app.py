@@ -15,6 +15,7 @@ Core idea:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import os
 import sys
@@ -23,7 +24,7 @@ import tkinter.ttk as ttk
 import traceback
 import unicodedata
 import warnings
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Generator, Mapping
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
 ProgressModeLike = Literal["determinate", "indeterminate"]
@@ -38,6 +39,7 @@ from nextpytk.types import (
     ComboboxOptions,
     EntryOptions,
     EventSeq,
+    FilepickerCallback,
     FilepickerOptions,
     FillLike,
     LabelOptions,
@@ -160,7 +162,7 @@ def _validate_positive_int(
 
 
 def _normalize_treeview_columns(
-    columns: list[Any],
+    columns: list[Any] | tuple[Any, ...],
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """Parse column specs into Treeview column ids and heading configs."""
     ids: list[str] = []
@@ -186,6 +188,10 @@ def _normalize_treeview_columns(
             if len(col) > 3:
                 cfg["anchor"] = col[3]
             configs.append(cfg)
+        elif isinstance(col, str):
+            cid = col
+            ids.append(cid)
+            configs.append({"id": cid, "heading": cid, "stretch": False})
         else:
             raise TypeError(f"Invalid treeview column: {col!r}")
     return ids, configs
@@ -232,6 +238,10 @@ class ViewContext:
         "checkbutton", "radiobutton", "text", "scale", "spinbox",
         "listbox", "combobox", "treeview", "paned", "progressbar", "canvas",
         "menubar", "filepicker",
+        "add_label", "add_status", "add_message", "add_button", "add_entry",
+        "add_checkbutton", "add_radiobutton", "add_text", "add_scale", "add_spinbox",
+        "add_listbox", "add_combobox", "add_treeview", "add_canvas",
+        "add_filepicker", "add_progressbar",
     })
 
     def pane(self, pane_id: str) -> _PaneContext:
@@ -264,7 +274,7 @@ class TkApp:
         title: str = "nextpytk",
         *,
         debug: bool = False,
-        theme: bool | str = "kizashi",
+        theme: bool | str | t.ThemeTokens = "kizashi",
         ingest_trace: bool = False,
         debug_padding: bool | None = None,
     ):
@@ -276,8 +286,9 @@ class TkApp:
         if debug_padding is None:
             debug_padding = os.environ.get("NEXTPYTK_DEBUG_PADDING", "").strip() not in ("", "0")
         self._debug_padding = debug_padding
-        self._theme = self._normalize_theme(theme)
-        self._kizashi = self._theme == "kizashi"
+        self._theme, self._theme_tokens = self._normalize_theme(theme)
+        self._kizashi = self._theme in ("kizashi", "kizashi-dark") or isinstance(theme, t.ThemeTokens)
+        self._deferred_tcl_scripts: list[tuple[str, str | None]] = []
         # When True, a ``trace_add("write", ...)`` is installed on every
         # registered Tcl variable. User edits (e.g. typing into an entry)
         # are ingested back into ``state`` (kept as the single source of
@@ -381,16 +392,13 @@ class TkApp:
         self._debug_overlay_last_pos: dict[str, tuple[int, int]] = {}
         self._register_default_builders()
 
-    def _normalize_theme(self, theme: bool | str) -> str:
-        """Convert the legacy bool ``theme=`` parameter to theme names.
-
-        - ``True`` -> ``"kizashi"`` (the nextpytk design system theme)
-        - ``False`` -> ``"none"`` (do not touch ttk styles at all)
-        - ``str`` -> passed through; use ``"kizashi"``, ``"none"``,
-          or any built-in ttk theme name (``"clam"``, ``"vista"``, ...).
-
-        Passing a bool is deprecated and will be removed in v0.5.0.
-        """
+    def _normalize_theme(
+        self,
+        theme: bool | str | t.ThemeTokens,
+    ) -> tuple[str, t.ThemeTokens]:
+        """Normalize theme argument to (theme_name, ThemeTokens)."""
+        if isinstance(theme, t.ThemeTokens):
+            return theme.name, theme
         if isinstance(theme, bool):
             warnings.warn(
                 "theme=True/False is deprecated; use theme='kizashi' or "
@@ -398,10 +406,14 @@ class TkApp:
                 DeprecationWarning,
                 stacklevel=3,
             )
-            return "kizashi" if theme else "none"
-        if not isinstance(theme, str):
-            raise TypeError(f"theme must be bool or str, got {type(theme).__name__}")
-        return theme
+            return ("kizashi", t.KIZASHI_LIGHT) if theme else ("none", t.KIZASHI_LIGHT)
+        if isinstance(theme, str):
+            if theme == "kizashi":
+                return "kizashi", t.KIZASHI_LIGHT
+            if theme == "kizashi-dark":
+                return "kizashi-dark", t.KIZASHI_DARK
+            return theme, t.KIZASHI_LIGHT
+        raise TypeError(f"theme must be bool, str, or ThemeTokens, got {type(theme).__name__}")
 
     def clear_runtime(self) -> None:
         self._tk_widgets.clear()
@@ -621,22 +633,27 @@ class TkApp:
         return self._title
 
     def _configure_theme(self, root: tk.Tk) -> None:
-        """Apply the configured theme and window chrome to ``root``.
+        """Apply the configured theme and window chrome to ``root``."""
+        if self._deferred_tcl_scripts:
+            for script_or_path, theme_name in self._deferred_tcl_scripts:
+                content: str
+                if os.path.isfile(script_or_path):
+                    with open(script_or_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                else:
+                    content = script_or_path
+                root.tk.eval(content)
+                if theme_name:
+                    self._theme = theme_name
+                    self._kizashi = False
 
-        - ``"kizashi"`` applies the Kizashi design system.
-        - any other theme name applies it via ``ttk.Style.theme_use``.
-        - ``"none"`` does not touch ttk styles at all.
-
-        Unknown theme names are silently ignored; a warning would be a
-        future improvement.
-        """
         if self._theme == "none":
             return
         from nextpytk.theme import _set_windows_dpi_aware, configure_window
         _set_windows_dpi_aware()
         if self._kizashi:
             from nextpytk.theme import apply_theme
-            apply_theme(root)
+            apply_theme(root, self._theme_tokens)
         else:
             style = ttk.Style(root)
             try:
@@ -648,7 +665,7 @@ class TkApp:
                     UserWarning,
                     stacklevel=3,
                 )
-        configure_window(root, title=self._title)
+        configure_window(root, title=self._title, tokens=self._theme_tokens)
 
     def set_root(self, root: tk.Tk) -> None:
         self._root = root
@@ -756,7 +773,7 @@ class TkApp:
             pack_jobs: dict[str, Any] = {}
             for vname, layout in variants.items():
                 vframe = tk.Frame(target, name=f"swapvar_{vname}",
-                                  bg=t.BG, bd=0, highlightthickness=0)
+                                  bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
                 vframe.pack(fill="both", expand=True)
                 allowed = set(layout.widget_names())
                 row_jobs, grid_jobs = layout.mount_frames_into(
@@ -910,7 +927,18 @@ class TkApp:
         self._build_widgets()
 
     def widget(self, name: str) -> tk.Widget | None:
+        """Return the underlying Tkinter/ttk widget instance for *name*, or ``None``.
+
+        This serves as an escape hatch when you need to access raw Tkinter or
+        ttk APIs directly (e.g. custom event bindings, direct item manipulation,
+        custom tag configurations, or third-party controls). Returns ``None`` if
+        widgets have not been built yet.
+        """
         return self._tk_widgets.get(name)
+
+    def get_widget(self, name: str) -> tk.Widget | None:
+        """Alias for :meth:`widget`."""
+        return self.widget(name)
 
     def hide(self, name: str) -> None:
         """Hide a built widget, keeping its layout geometry.
@@ -1808,8 +1836,96 @@ class TkApp:
 
     @property
     def root(self) -> tk.Tk | None:
-        """Return the root Tk window (available after run)."""
+        """Return the root Tk window (available after run or build_widgets).
+
+        This serves as an escape hatch to access window-level Tk APIs directly
+        (e.g. ``root.title()``, ``root.geometry()``, ``root.protocol()``,
+        ``root.wm_*``, or custom Tcl commands).
+        """
         return self._root
+
+    @property
+    def tcl(self) -> Any:
+        """Return the underlying Tcl interpreter (``root.tk``), or ``None``."""
+        return self._root.tk if self._root is not None else None
+
+    def eval(self, script: str) -> Any:
+        """Evaluate a raw Tcl script in the underlying Tcl interpreter.
+
+        This serves as a first-class escape hatch to run arbitrary Tcl code,
+        load packages, invoke Tcl macros, or perform high-performance bulk
+        operations.
+        """
+        if self._root is None:
+            raise RuntimeError("Cannot eval Tcl script before app is built or run.")
+        return self._root.tk.eval(script)
+
+    def call(self, *args: Any) -> Any:
+        """Invoke a Tcl command directly with arguments via ``root.tk.call()``."""
+        if self._root is None:
+            raise RuntimeError("Cannot call Tcl command before app is built or run.")
+        return self._root.tk.call(*args)
+
+    @property
+    def theme_tokens(self) -> t.ThemeTokens:
+        """Return the active ThemeTokens instance for this application."""
+        return self._theme_tokens
+
+    def load_theme_tcl(
+        self,
+        script_or_path: str,
+        theme_name: str | None = None,
+    ) -> None:
+        """Load and evaluate a Tcl theme definition script or file.
+
+        *script_or_path* can be either a path to a ``.tcl`` theme file or a raw
+        Tcl script string. If *theme_name* is provided, it is automatically
+        activated via ``ttk.Style().theme_use(theme_name)``.
+
+        Can be called before or after the app starts running.
+        """
+        if self._root is not None:
+            content: str
+            if os.path.isfile(script_or_path):
+                with open(script_or_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+            else:
+                content = script_or_path
+            self.eval(content)
+            if theme_name:
+                style = ttk.Style(self._root)
+                style.theme_use(theme_name)
+                self._theme = theme_name
+        else:
+            self._deferred_tcl_scripts.append((script_or_path, theme_name))
+
+    def container(self, name: str) -> tk.Frame:
+        """Return an unmanaged tk.Frame container created via Layout.container().
+
+        This provides an explicit escape hatch for embedding custom raw tkinter
+        widgets, Matplotlib canvas instances, or third-party GUI components.
+        """
+        w = self.get_widget(name)
+        if not isinstance(w, tk.Frame):
+            raise TypeError(
+                f"Widget '{name}' is not a tk.Frame container (got {type(w).__name__})"
+            )
+        return w
+
+    @contextlib.contextmanager
+    def untracked(self) -> Generator[None, None, None]:
+        """Temporarily suppress reactive state traces and updates within this block.
+
+        Useful when executing high-throughput batch operations, streaming raw data
+        into text/canvas widgets, or running bulk Tcl scripts without triggering
+        reactive state passes.
+        """
+        prev = self._ingest_trace
+        self._ingest_trace = False
+        try:
+            yield
+        finally:
+            self._ingest_trace = prev
 
     def widget_kind(self, name: str) -> str | None:
         for w in self._widgets:
@@ -2231,7 +2347,7 @@ class TkApp:
                 header_widgets.append(name)
 
         if header_widgets or status_widgets:
-            chrome = tk.Frame(body, bg=t.BG, bd=0, highlightthickness=0)
+            chrome = tk.Frame(body, bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
             chrome.pack(fill="x", pady=(0, t.SPACE[3]))
             self._multiview_header_container = chrome
             from nextpytk.theme import window_header
@@ -2242,7 +2358,7 @@ class TkApp:
             self._multiview_header_fn = None
 
         if status_widgets:
-            status_bar_frame = tk.Frame(body, bg=t.BG, bd=0, highlightthickness=0)
+            status_bar_frame = tk.Frame(body, bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
             status_bar_frame.pack(side="bottom", fill="x", pady=(t.SPACE[3], 0), padx=t.SPACE[6])
             self._multiview_status_container = status_bar_frame
         else:
@@ -2256,7 +2372,7 @@ class TkApp:
 
         for view in views:
             frame = tk.Frame(nb, name=f"tabframe_{view}")
-            frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+            frame.configure(bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
             frames[view] = frame
             if view in layouts:
                 layout = layouts[view]
@@ -2266,7 +2382,7 @@ class TkApp:
                 jobs_by_view[view] = (layout, row_jobs, grid_jobs)
             else:
                 # Same inner content margin as layout-managed views.
-                inner = tk.Frame(frame, bg=t.BG, bd=0, highlightthickness=0)
+                inner = tk.Frame(frame, bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
                 inner.pack(fill="both", expand=True,
                            padx=t.SPACE[6], pady=t.SPACE[4])
                 for wname in self.view_widget_names(view):
@@ -2400,7 +2516,7 @@ class TkApp:
                 header_widgets.append(name)
 
         if header_widgets or status_widgets:
-            chrome = tk.Frame(body, bg=t.BG, bd=0, highlightthickness=0)
+            chrome = tk.Frame(body, bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
             chrome.pack(fill="x", pady=(0, t.SPACE[3]))
             self._multiview_header_container = chrome
         else:
@@ -2409,7 +2525,7 @@ class TkApp:
         self._multiview_header_fn = None
 
         if status_widgets:
-            status_bar_frame = tk.Frame(body, bg=t.BG, bd=0, highlightthickness=0)
+            status_bar_frame = tk.Frame(body, bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
             status_bar_frame.pack(side="bottom", fill="x", pady=(t.SPACE[3], 0), padx=t.SPACE[6])
             self._multiview_status_container = status_bar_frame
         else:
@@ -2421,7 +2537,7 @@ class TkApp:
         for name in status_widgets:
             self.set_widget_master(name, status_bar_frame if status_bar_frame is not None else body)
 
-        stage_container = tk.Frame(body, bg=t.BG, bd=0, highlightthickness=0)
+        stage_container = tk.Frame(body, bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
         stage_container.pack(fill="both", expand=True, pady=(t.SPACE[2], 0))
         self._stage_container = stage_container
 
@@ -2440,7 +2556,7 @@ class TkApp:
         self._stage_frames: dict[str, tk.Frame] = {}
 
         for stage in stages:
-            frame = tk.Frame(stage_container, name=f"stageframe_{stage}", bg=t.BG, bd=0, highlightthickness=0)
+            frame = tk.Frame(stage_container, name=f"stageframe_{stage}", bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
             self._stage_frames[stage] = frame
             if stage in layouts:
                 layout = layouts[stage]
@@ -2448,7 +2564,7 @@ class TkApp:
                 row_jobs, grid_jobs = layout.mount_frames_into(self, frame, allowed_widgets=allowed)
                 jobs_by_stage[stage] = (layout, row_jobs, grid_jobs)
             else:
-                inner = tk.Frame(frame, bg=t.BG, bd=0, highlightthickness=0)
+                inner = tk.Frame(frame, bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
                 inner.pack(fill="both", expand=True, padx=t.SPACE[6], pady=t.SPACE[4])
                 for wname in self.view_widget_names(stage):
                     self.set_widget_master(wname, inner)
@@ -2644,6 +2760,7 @@ class TkApp:
                 role=options.get("role"),
                 description=options.get("description"),
                 on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=options.get("takefocus"),
@@ -2721,6 +2838,7 @@ class TkApp:
                 role=options.get("role"),
                 description=options.get("description"),
                 on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=options.get("takefocus"),
@@ -3058,6 +3176,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="filepicker", label_text=label, role="button",
                 description=description, on_click=fn, enabled_if=enabled_if,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3100,6 +3219,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="button", label_text=label, role=role,
                 description=description, on_click=fn, enabled_if=enabled_if,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3156,6 +3276,7 @@ class TkApp:
                 name=name, kind="entry", placeholder=placeholder,
                 placeholder_as_hint=placeholder_as_hint,
                 role=role, description=description, on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3186,6 +3307,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="checkbutton", label_text=text,
                 description=description, on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3217,6 +3339,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="radiobutton", label_text=text,
                 description=description, on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3260,6 +3383,7 @@ class TkApp:
         )
         h_scroll = options.get("h_scroll", False)
         scrollbar = options.get("scrollbar", True)
+        content = options.get("content")
         def decorator(fn: ValueCallback) -> ValueCallback:
             extras: dict[str, Any] = {"width": width, "height": height, "tab_inserts": tab_inserts}
             if state != "normal":
@@ -3278,9 +3402,12 @@ class TkApp:
                 extras["h_scroll"] = True
             if not scrollbar:
                 extras["scrollbar"] = False
+            if content is not None:
+                extras["content"] = str(content)
             self._add_spec(WidgetSpec(
                 name=name, kind="text", description=description,
                 on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3312,6 +3439,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="scale", description=description,
                 on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras({
                     "state_key": actual_key, "from": from_,
                     "to": to, "orient": orient,
@@ -3350,6 +3478,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="spinbox", description=description,
                 on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3408,6 +3537,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="combobox", description=description,
                 on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3480,6 +3610,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="listbox", description=description,
                 on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3536,6 +3667,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="treeview", description=description,
                 on_update=fn, on_click=activate,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3618,6 +3750,7 @@ class TkApp:
         description = options.get("description")
         self._add_spec(WidgetSpec(
             name=name, kind="progressbar", description=description,
+            sync=options.get("sync", True),
             extras={
                 "state_key": actual_key,
                 "maximum": maximum,
@@ -3648,6 +3781,7 @@ class TkApp:
                 extras["items"] = items
             self._add_spec(WidgetSpec(
                 name=name, kind="canvas", description=description,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3656,6 +3790,173 @@ class TkApp:
             ))
             return fn  # type: ignore[return-value]
         return decorator
+
+    # ── direct widget registration methods (no dummy callback needed) ──
+
+    def add_label(
+        self,
+        name: str,
+        **options: Unpack[LabelOptions],
+    ) -> None:
+        """Register a label without a callback decorator.
+
+        ``text`` in *options* sets the initial display text. Updates can still
+        be driven via ``apply_state({name: "new text"})``.
+        """
+        text = options.get("text", "")
+        self.label(name, **options)(lambda: text)
+
+    def add_status(
+        self,
+        name: str,
+        **options: Unpack[LabelOptions],
+    ) -> None:
+        """Register a status label (``role="status"``) without a callback decorator."""
+        options["role"] = options.get("role", "status")
+        self.add_label(name, **options)
+
+    def add_message(
+        self,
+        name: str,
+        **options: Unpack[MessageOptions],
+    ) -> None:
+        """Register a message widget without a callback decorator."""
+        text = options.get("text", "")
+        self.message(name, **options)(lambda: text)
+
+    def add_button(
+        self,
+        name: str,
+        on_click: ButtonCallback | None = None,
+        **options: Unpack[ButtonOptions],
+    ) -> None:
+        """Register a button with an optional click callback."""
+        fn = on_click if on_click is not None else (lambda *_: {})
+        self.button(name, **options)(fn)
+
+    def add_entry(
+        self,
+        name: str,
+        on_update: ValueCallback | None = None,
+        **options: Unpack[EntryOptions],
+    ) -> None:
+        """Register an entry without requiring a decorator.
+
+        If *on_update* is omitted, a no-op handler is used. Its value can be
+        read anytime from button callbacks via ``values[name]`` or ``state``.
+        """
+        fn = on_update if on_update is not None else (lambda *_: {})
+        self.entry(name, **options)(fn)
+
+    def add_checkbutton(
+        self,
+        name: str,
+        on_update: BoolCallback | None = None,
+        **options: Unpack[CheckbuttonOptions],
+    ) -> None:
+        """Register a checkbutton without requiring a decorator."""
+        fn = on_update if on_update is not None else (lambda *_: {})
+        self.checkbutton(name, **options)(fn)
+
+    def add_radiobutton(
+        self,
+        name: str,
+        on_update: ValueCallback | None = None,
+        **options: Unpack[RadiobuttonOptions],
+    ) -> None:
+        """Register a radiobutton without requiring a decorator."""
+        fn = on_update if on_update is not None else (lambda *_: {})
+        self.radiobutton(name, **options)(fn)
+
+    def add_text(
+        self,
+        name: str,
+        on_update: ValueCallback | None = None,
+        **options: Unpack[TextOptions],
+    ) -> None:
+        """Register a text area without requiring a decorator.
+
+        ``content`` in *options* sets the initial text content.
+        """
+        fn = on_update if on_update is not None else (lambda *_: {})
+        self.text(name, **options)(fn)
+
+    def add_scale(
+        self,
+        name: str,
+        on_update: ValueCallback | None = None,
+        **options: Unpack[ScaleOptions],
+    ) -> None:
+        """Register a scale slider without requiring a decorator."""
+        fn = on_update if on_update is not None else (lambda *_: {})
+        self.scale(name, **options)(fn)
+
+    def add_spinbox(
+        self,
+        name: str,
+        on_update: ValueCallback | None = None,
+        **options: Unpack[SpinboxOptions],
+    ) -> None:
+        """Register a spinbox without requiring a decorator."""
+        fn = on_update if on_update is not None else (lambda *_: {})
+        self.spinbox(name, **options)(fn)
+
+    def add_combobox(
+        self,
+        name: str,
+        on_select: ValueCallback | None = None,
+        **options: Unpack[ComboboxOptions],
+    ) -> None:
+        """Register a combobox without requiring a decorator."""
+        fn = on_select if on_select is not None else (lambda *_: {})
+        self.combobox(name, **options)(fn)
+
+    def add_listbox(
+        self,
+        name: str,
+        on_select: ListboxSelectCallback | None = None,
+        **options: Unpack[ListboxOptions],
+    ) -> None:
+        """Register a listbox without requiring a decorator."""
+        fn = on_select if on_select is not None else (lambda *_: {})
+        self.listbox(name, **options)(fn)
+
+    def add_treeview(
+        self,
+        name: str,
+        on_select: TreeviewSelectCallback | None = None,
+        **options: Unpack[TreeviewOptions],
+    ) -> None:
+        """Register a treeview without requiring a decorator."""
+        fn = on_select if on_select is not None else (lambda *_: {})
+        self.treeview(name, **options)(fn)
+
+    def add_canvas(
+        self,
+        name: str,
+        **options: Unpack[CanvasOptions],
+    ) -> None:
+        """Register a canvas without requiring a decorator."""
+        self.canvas(name, **options)(lambda: None)
+
+    def add_filepicker(
+        self,
+        name: str,
+        on_pick: FilepickerCallback | None = None,
+        **options: Unpack[FilepickerOptions],
+    ) -> None:
+        """Register a file picker button without requiring a decorator."""
+        fn = on_pick if on_pick is not None else (lambda *_: {})
+        self.filepicker(name, **options)(fn)
+
+    def add_progressbar(
+        self,
+        name: str,
+        **options: Unpack[ProgressbarOptions],
+    ) -> None:
+        """Alias for :meth:`progressbar`."""
+        self.progressbar(name, **options)
+
     # ── state management ──
 
     def _apply_state(self, update: dict[str, Any]) -> None:
@@ -3692,6 +3993,9 @@ class TkApp:
         self._syncing_var_keys.update(update_to_apply)
         try:
             for key, val in update_to_apply.items():
+                spec = self._spec(key)
+                if spec is not None and not spec.sync:
+                    continue
                 var = self._tk_vars.get(key)
                 if var is None:
                     continue
@@ -4027,6 +4331,8 @@ class TkApp:
     def _sync_widgets(self) -> None:
         """Push state to label, button, text, and listbox widgets."""
         for spec in self._widgets:
+            if not spec.sync:
+                continue
             if spec.kind in ("label", "status", "message"):
                 tk_w = self._tk_widgets.get(spec.name)
                 if tk_w is None:
@@ -4061,7 +4367,7 @@ class TkApp:
 
     def _sync_text_widget(self, spec: WidgetSpec) -> None:
         """Update a text widget from state if the content changed."""
-        if spec.name not in self._state:
+        if not spec.sync or spec.name not in self._state:
             return
         inner = self._text_inner.get(spec.name)
         if inner is None:
@@ -4102,7 +4408,7 @@ class TkApp:
 
     def _treeview_update_touches_rows(self, update: dict[str, Any]) -> bool:
         for spec in self._widgets:
-            if spec.kind != "treeview":
+            if spec.kind != "treeview" or not spec.sync:
                 continue
             rows_key = spec.extras.get("rows_key", f"{spec.name}_rows")
             if rows_key in update:
@@ -4112,13 +4418,15 @@ class TkApp:
     def _treeview_update_touches_selection(self, update: dict[str, Any]) -> bool:
         """True when *update* carries a treeview selection index (not row data)."""
         for spec in self._widgets:
-            if spec.kind == "treeview" and spec.name in update:
+            if spec.kind == "treeview" and spec.sync and spec.name in update:
                 return True
         return False
 
     def _sync_widgets_for_keys(self, update: dict[str, Any]) -> None:
         """Update only label/status/message/button/text widgets named in *update*."""
         for spec in self._widgets:
+            if not spec.sync:
+                continue
             if spec.kind in ("label", "status", "message", "button"):
                 if spec.name not in update:
                     continue
@@ -5100,6 +5408,9 @@ class TkApp:
         if tags:
             for tag_name, tag_kw in tags.items():
                 w.tag_config(tag_name, **tag_kw)
+
+        if "content" in e and e["content"]:
+            w.insert("1.0", str(e["content"]))
 
         if e.get("readonly"):
             # Read-only: block user edits while keeping the widget focusable,
