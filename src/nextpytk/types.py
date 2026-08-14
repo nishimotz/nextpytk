@@ -531,6 +531,7 @@ class EntryOptions(CommonWidgetOptions, total=False):
 
 
 class LabelOptions(CommonWidgetOptions, total=False):
+    text: str
     role: str
     font: tuple[str, int] | tuple[str, int, str]
     anchor: str
@@ -540,6 +541,7 @@ class LabelOptions(CommonWidgetOptions, total=False):
 
 
 class MessageOptions(CommonWidgetOptions, total=False):
+    text: str
     role: str
     width: int
     auto_width: bool
@@ -578,6 +580,7 @@ class TextOptions(CommonWidgetOptions, total=False):
     font: tuple[str, int] | tuple[str, int, str]
     wrap: WrapLike
     h_scroll: bool
+    content: str
     # Hide the vertical scrollbar entirely. Useful for read-only,
     # single-purpose text panes (e.g. code listings in a slide deck)
     # that should render as a plain, borderless surface.
@@ -595,13 +598,13 @@ class SpinboxOptions(CommonWidgetOptions, total=False):
     key: str
     from_: float | None
     to: float | None
-    values: list[str]
+    values: list[str] | tuple[str, ...]
     width: int
     font: tuple[str, int] | tuple[str, int, str]
 
 
 class ListboxOptions(CommonWidgetOptions, total=False):
-    items: list[str]
+    items: list[str] | tuple[str, ...]
     items_key: str
     font: tuple[str, int] | tuple[str, int, str]
     selectmode: SelectModeLike
@@ -611,7 +614,7 @@ class ListboxOptions(CommonWidgetOptions, total=False):
 
 
 class ComboboxOptions(CommonWidgetOptions, total=False):
-    values: list[str]
+    values: list[str] | tuple[str, ...]
     values_key: str
     key: str
     width: int
@@ -628,7 +631,7 @@ class TreeviewColumn(TypedDict, total=False):
 
 
 class TreeviewOptions(CommonWidgetOptions, total=False):
-    columns: Required[list[Any]]
+    columns: Required[list[Any] | tuple[Any, ...]]
     rows_key: str
     selectmode: SelectModeLike
     height: int

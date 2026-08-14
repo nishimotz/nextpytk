@@ -4,6 +4,38 @@ All notable changes to nextpytk are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.15] — 2026-08-14
+
+### Added
+
+- `TkApp.add_*` direct widget registration methods: `add_label`, `add_status`,
+  `add_message`, `add_button`, `add_entry`, `add_checkbutton`, `add_radiobutton`,
+  `add_text`, `add_scale`, `add_spinbox`, `add_combobox`, `add_listbox`,
+  `add_treeview`, `add_canvas`, `add_filepicker`, and `add_progressbar`.
+  These allow registering widgets without boilerplate dummy callback functions
+  (e.g. ``def on_name(): return {}`` is no longer needed for read-only or
+  button-driven entries and static labels).
+- `ViewContext` (``with app.view(...) as v:``) now proxies all ``add_*`` methods.
+- `TkApp.get_widget(name)` added as an explicit alias for `TkApp.widget(name)`
+  to provide a clear, first-class escape hatch for accessing underlying
+  `tk.Widget` / `ttk.Widget` instances.
+- `TkApp.eval(script)`, `TkApp.call(*args)`, and `TkApp.tcl` added to expose
+  direct access to the embedded Tcl interpreter underneath Tkinter as a first-class
+  escape hatch for high-performance scripting and low-level Tcl commands.
+- `content=` option for `@app.text` and `add_text` to set initial text content
+  declaratively during widget registration.
+- `treeview` column definitions now support simple string sequences
+  (e.g. `columns=["id", "name"]`), automatically converting them to column headers.
+
+### Documentation
+
+- Added "Escape Hatches (Interoperating with Raw Tkinter)" guide to READMEs
+  explaining how to access raw Tkinter widgets (`app.widget()`, `app.get_widget()`,
+  `Layout().grid().cell_raw()`, `app.root`, `app.eval()`, `app.call()`, and `app.tcl`).
+- Added "When to use nextpytk" architectural guidance to clarify sweet spots
+  (forms, settings, dashboards, LLM agents, a11y apps) and distinguish them from
+  canvas-heavy / game-loop use cases.
+
 ## [0.4.14] — 2026-08-13
 
 ### Added

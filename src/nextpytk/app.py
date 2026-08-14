@@ -38,6 +38,7 @@ from nextpytk.types import (
     ComboboxOptions,
     EntryOptions,
     EventSeq,
+    FilepickerCallback,
     FilepickerOptions,
     FillLike,
     LabelOptions,
@@ -160,7 +161,7 @@ def _validate_positive_int(
 
 
 def _normalize_treeview_columns(
-    columns: list[Any],
+    columns: list[Any] | tuple[Any, ...],
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """Parse column specs into Treeview column ids and heading configs."""
     ids: list[str] = []
@@ -186,6 +187,10 @@ def _normalize_treeview_columns(
             if len(col) > 3:
                 cfg["anchor"] = col[3]
             configs.append(cfg)
+        elif isinstance(col, str):
+            cid = col
+            ids.append(cid)
+            configs.append({"id": cid, "heading": cid, "stretch": False})
         else:
             raise TypeError(f"Invalid treeview column: {col!r}")
     return ids, configs
@@ -232,6 +237,10 @@ class ViewContext:
         "checkbutton", "radiobutton", "text", "scale", "spinbox",
         "listbox", "combobox", "treeview", "paned", "progressbar", "canvas",
         "menubar", "filepicker",
+        "add_label", "add_status", "add_message", "add_button", "add_entry",
+        "add_checkbutton", "add_radiobutton", "add_text", "add_scale", "add_spinbox",
+        "add_listbox", "add_combobox", "add_treeview", "add_canvas",
+        "add_filepicker", "add_progressbar",
     })
 
     def pane(self, pane_id: str) -> _PaneContext:
@@ -910,7 +919,18 @@ class TkApp:
         self._build_widgets()
 
     def widget(self, name: str) -> tk.Widget | None:
+        """Return the underlying Tkinter/ttk widget instance for *name*, or ``None``.
+
+        This serves as an escape hatch when you need to access raw Tkinter or
+        ttk APIs directly (e.g. custom event bindings, direct item manipulation,
+        custom tag configurations, or third-party controls). Returns ``None`` if
+        widgets have not been built yet.
+        """
         return self._tk_widgets.get(name)
+
+    def get_widget(self, name: str) -> tk.Widget | None:
+        """Alias for :meth:`widget`."""
+        return self.widget(name)
 
     def hide(self, name: str) -> None:
         """Hide a built widget, keeping its layout geometry.
@@ -1808,8 +1828,35 @@ class TkApp:
 
     @property
     def root(self) -> tk.Tk | None:
-        """Return the root Tk window (available after run)."""
+        """Return the root Tk window (available after run or build_widgets).
+
+        This serves as an escape hatch to access window-level Tk APIs directly
+        (e.g. ``root.title()``, ``root.geometry()``, ``root.protocol()``,
+        ``root.wm_*``, or custom Tcl commands).
+        """
         return self._root
+
+    @property
+    def tcl(self) -> Any:
+        """Return the underlying Tcl interpreter (``root.tk``), or ``None``."""
+        return self._root.tk if self._root is not None else None
+
+    def eval(self, script: str) -> Any:
+        """Evaluate a raw Tcl script in the underlying Tcl interpreter.
+
+        This serves as a first-class escape hatch to run arbitrary Tcl code,
+        load packages, invoke Tcl macros, or perform high-performance bulk
+        operations.
+        """
+        if self._root is None:
+            raise RuntimeError("Cannot eval Tcl script before app is built or run.")
+        return self._root.tk.eval(script)
+
+    def call(self, *args: Any) -> Any:
+        """Invoke a Tcl command directly with arguments via ``root.tk.call()``."""
+        if self._root is None:
+            raise RuntimeError("Cannot call Tcl command before app is built or run.")
+        return self._root.tk.call(*args)
 
     def widget_kind(self, name: str) -> str | None:
         for w in self._widgets:
@@ -3260,6 +3307,7 @@ class TkApp:
         )
         h_scroll = options.get("h_scroll", False)
         scrollbar = options.get("scrollbar", True)
+        content = options.get("content")
         def decorator(fn: ValueCallback) -> ValueCallback:
             extras: dict[str, Any] = {"width": width, "height": height, "tab_inserts": tab_inserts}
             if state != "normal":
@@ -3278,6 +3326,8 @@ class TkApp:
                 extras["h_scroll"] = True
             if not scrollbar:
                 extras["scrollbar"] = False
+            if content is not None:
+                extras["content"] = str(content)
             self._add_spec(WidgetSpec(
                 name=name, kind="text", description=description,
                 on_update=fn,
@@ -3656,6 +3706,173 @@ class TkApp:
             ))
             return fn  # type: ignore[return-value]
         return decorator
+
+    # ── direct widget registration methods (no dummy callback needed) ──
+
+    def add_label(
+        self,
+        name: str,
+        **options: Unpack[LabelOptions],
+    ) -> None:
+        """Register a label without a callback decorator.
+
+        ``text`` in *options* sets the initial display text. Updates can still
+        be driven via ``apply_state({name: "new text"})``.
+        """
+        text = options.get("text", "")
+        self.label(name, **options)(lambda: text)
+
+    def add_status(
+        self,
+        name: str,
+        **options: Unpack[LabelOptions],
+    ) -> None:
+        """Register a status label (``role="status"``) without a callback decorator."""
+        options["role"] = options.get("role", "status")
+        self.add_label(name, **options)
+
+    def add_message(
+        self,
+        name: str,
+        **options: Unpack[MessageOptions],
+    ) -> None:
+        """Register a message widget without a callback decorator."""
+        text = options.get("text", "")
+        self.message(name, **options)(lambda: text)
+
+    def add_button(
+        self,
+        name: str,
+        on_click: ButtonCallback | None = None,
+        **options: Unpack[ButtonOptions],
+    ) -> None:
+        """Register a button with an optional click callback."""
+        fn = on_click if on_click is not None else (lambda *_: {})
+        self.button(name, **options)(fn)
+
+    def add_entry(
+        self,
+        name: str,
+        on_update: ValueCallback | None = None,
+        **options: Unpack[EntryOptions],
+    ) -> None:
+        """Register an entry without requiring a decorator.
+
+        If *on_update* is omitted, a no-op handler is used. Its value can be
+        read anytime from button callbacks via ``values[name]`` or ``state``.
+        """
+        fn = on_update if on_update is not None else (lambda *_: {})
+        self.entry(name, **options)(fn)
+
+    def add_checkbutton(
+        self,
+        name: str,
+        on_update: BoolCallback | None = None,
+        **options: Unpack[CheckbuttonOptions],
+    ) -> None:
+        """Register a checkbutton without requiring a decorator."""
+        fn = on_update if on_update is not None else (lambda *_: {})
+        self.checkbutton(name, **options)(fn)
+
+    def add_radiobutton(
+        self,
+        name: str,
+        on_update: ValueCallback | None = None,
+        **options: Unpack[RadiobuttonOptions],
+    ) -> None:
+        """Register a radiobutton without requiring a decorator."""
+        fn = on_update if on_update is not None else (lambda *_: {})
+        self.radiobutton(name, **options)(fn)
+
+    def add_text(
+        self,
+        name: str,
+        on_update: ValueCallback | None = None,
+        **options: Unpack[TextOptions],
+    ) -> None:
+        """Register a text area without requiring a decorator.
+
+        ``content`` in *options* sets the initial text content.
+        """
+        fn = on_update if on_update is not None else (lambda *_: {})
+        self.text(name, **options)(fn)
+
+    def add_scale(
+        self,
+        name: str,
+        on_update: ValueCallback | None = None,
+        **options: Unpack[ScaleOptions],
+    ) -> None:
+        """Register a scale slider without requiring a decorator."""
+        fn = on_update if on_update is not None else (lambda *_: {})
+        self.scale(name, **options)(fn)
+
+    def add_spinbox(
+        self,
+        name: str,
+        on_update: ValueCallback | None = None,
+        **options: Unpack[SpinboxOptions],
+    ) -> None:
+        """Register a spinbox without requiring a decorator."""
+        fn = on_update if on_update is not None else (lambda *_: {})
+        self.spinbox(name, **options)(fn)
+
+    def add_combobox(
+        self,
+        name: str,
+        on_select: ValueCallback | None = None,
+        **options: Unpack[ComboboxOptions],
+    ) -> None:
+        """Register a combobox without requiring a decorator."""
+        fn = on_select if on_select is not None else (lambda *_: {})
+        self.combobox(name, **options)(fn)
+
+    def add_listbox(
+        self,
+        name: str,
+        on_select: ListboxSelectCallback | None = None,
+        **options: Unpack[ListboxOptions],
+    ) -> None:
+        """Register a listbox without requiring a decorator."""
+        fn = on_select if on_select is not None else (lambda *_: {})
+        self.listbox(name, **options)(fn)
+
+    def add_treeview(
+        self,
+        name: str,
+        on_select: TreeviewSelectCallback | None = None,
+        **options: Unpack[TreeviewOptions],
+    ) -> None:
+        """Register a treeview without requiring a decorator."""
+        fn = on_select if on_select is not None else (lambda *_: {})
+        self.treeview(name, **options)(fn)
+
+    def add_canvas(
+        self,
+        name: str,
+        **options: Unpack[CanvasOptions],
+    ) -> None:
+        """Register a canvas without requiring a decorator."""
+        self.canvas(name, **options)(lambda: None)
+
+    def add_filepicker(
+        self,
+        name: str,
+        on_pick: FilepickerCallback | None = None,
+        **options: Unpack[FilepickerOptions],
+    ) -> None:
+        """Register a file picker button without requiring a decorator."""
+        fn = on_pick if on_pick is not None else (lambda *_: {})
+        self.filepicker(name, **options)(fn)
+
+    def add_progressbar(
+        self,
+        name: str,
+        **options: Unpack[ProgressbarOptions],
+    ) -> None:
+        """Alias for :meth:`progressbar`."""
+        self.progressbar(name, **options)
+
     # ── state management ──
 
     def _apply_state(self, update: dict[str, Any]) -> None:
@@ -5100,6 +5317,9 @@ class TkApp:
         if tags:
             for tag_name, tag_kw in tags.items():
                 w.tag_config(tag_name, **tag_kw)
+
+        if "content" in e and e["content"]:
+            w.insert("1.0", str(e["content"]))
 
         if e.get("readonly"):
             # Read-only: block user edits while keeping the widget focusable,
