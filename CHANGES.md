@@ -34,12 +34,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `TkApp.load_theme_tcl(script_or_path, theme_name)` method to load external Tcl /
   ttk theme scripts or `.tcl` theme files (e.g. Azure, Sun Valley).
 - `TkApp.theme_tokens` property to inspect the active theme token set.
+- `sync=False` option for widget registration to opt out of reactive state
+  synchronization (preventing `apply_state` from overwriting imperatively managed
+  contents such as log streams or custom drawings).
+- `Layout.container(name)` and `GridBuilder.container(name)` to reserve unmanaged
+  `tk.Frame` slots with consistent theme margins for embedding raw Tkinter controls,
+  Matplotlib canvases (`FigureCanvasTkAgg`), or external GUI components.
+- `TkApp.container(name)` convenience method to retrieve unmanaged container frames.
+- `TkApp.untracked()` context manager to temporarily suppress reactive trace listeners
+  and state updates during high-throughput batch operations.
 
 ### Documentation
 
 - Added "Escape Hatches (Interoperating with Raw Tkinter)" guide to READMEs
   explaining how to access raw Tkinter widgets (`app.widget()`, `app.get_widget()`,
-  `Layout().grid().cell_raw()`, `app.root`, `app.eval()`, `app.call()`, and `app.tcl`).
+  `Layout().grid().cell_raw()`, `Layout.container()`, `sync=False`, `app.untracked()`,
+  `app.root`, `app.eval()`, `app.call()`, and `app.tcl`).
 - Added "Customizing Themes & Design Tokens" guide to READMEs detailing dark mode,
   `ThemeTokens` customizations, and `load_theme_tcl`.
 - Added "When to use nextpytk" architectural guidance to clarify sweet spots

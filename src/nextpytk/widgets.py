@@ -46,6 +46,9 @@ class WidgetSpec:
     # e.g. [("<Control-s>", "Ctrl+S"), ("<Alt-Down>", "Alt+Down")]
     bindings: list[tuple[str, str]] = field(default_factory=list)
 
+    # Reactive state sync: when False, apply_state will not overwrite widget contents
+    sync: bool = True
+
     # Extra widget-type-specific parameters (checkbutton values, listbox items,
     # spinbox range, scale range, text dimensions, takefocus for Tab order, etc.)
     extras: dict[str, Any] = field(default_factory=dict)

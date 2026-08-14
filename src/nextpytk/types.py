@@ -492,6 +492,7 @@ class CommonWidgetOptions(TypedDict, total=False):
     description: str | None
     takefocus: TakeFocusLike | None
     enabled_if: Callable[[dict[str, Any]], bool] | None
+    sync: bool
     # Per-widget design-token/style overrides, applied after construction.
     # Keys are widget-native tk/ttk options (``padx``, ``pady``, ``bg``,
     # ``fg``, ``font``, …); values are the native values.

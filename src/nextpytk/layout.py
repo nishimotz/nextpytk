@@ -137,6 +137,18 @@ class _Target:
 
 
 @dataclass
+class _Container:
+    """Internal: a reserved unmanaged frame container for custom widgets or Matplotlib."""
+    name: str
+    side: SideLike = "top"
+    fill: FillLike = "both"
+    expand: ExpandLike = True
+    padx: int | None = _PAD
+    pady: int | None = _PAD
+    minsize: int | None = None
+
+
+@dataclass
 class _Wrap:
     """Internal: a wrapping-flow block (Flutter ``Wrap`` analog).
 
@@ -252,7 +264,7 @@ class _Paired:
     pady: int | None = _PAD
 
 
-_Block = _Row | _Grid | _Paned | _Nested | _Cluster | _Paired | _Target | _Flow
+_Block = _Row | _Grid | _Paned | _Nested | _Cluster | _Paired | _Target | _Container | _Flow
 
 
 
@@ -997,6 +1009,7 @@ class Layout:
     page_margin: int | None = None
 
     _blocks: list[_Block] = field(default_factory=list)
+    _unmanaged_containers: set[str] = field(default_factory=set)
 
     # Sentinel names used by chrome helpers; they are never registered as
     # real widgets, so they cannot collide with user widget names.
@@ -1475,6 +1488,36 @@ class Layout:
         ))
         return self
 
+    def container(
+        self,
+        name: str,
+        *,
+        side: SideLike = "top",
+        fill: FillLike = "both",
+        expand: ExpandLike = True,
+        padx: int | None = None,
+        pady: int | None = None,
+        minsize: int | None = None,
+    ) -> Layout:
+        """Reserve an unmanaged frame container for custom widgets or Matplotlib.
+
+        nextpytk mounts a styled, empty ``tk.Frame`` and registers it under
+        ``name``. You can access the frame with ``app.get_widget(name)`` or
+        ``app.container(name)`` to pack, grid, or draw raw tkinter widgets,
+        Matplotlib plots, or OpenGL contexts manually.
+        """
+        self._unmanaged_containers.add(name)
+        self._blocks.append(_Container(
+            name=name,
+            side=side,
+            fill=fill,
+            expand=expand,
+            padx=padx if padx is not None else self.padx,
+            pady=pady if pady is not None else self.pady,
+            minsize=minsize,
+        ))
+        return self
+
     def mount_frames_into(
         self,
         app: TkApp,
@@ -1589,8 +1632,13 @@ class Layout:
                 for row, ms in block.row_minsize.items():
                     frame.rowconfigure(row, minsize=ms)
                 for name in block.cells:
-                    _ensure_allowed(name)
-                    app._widget_masters[name] = frame
+                    if name in self._unmanaged_containers:
+                        cframe = tk.Frame(frame, bg=bg_color, bd=0, highlightthickness=0)
+                        app._tk_widgets[name] = cframe
+                        app._widget_masters[name] = frame
+                    else:
+                        _ensure_allowed(name)
+                        app._widget_masters[name] = frame
                 grid_jobs.append((frame, block))
             elif isinstance(block, _Cluster):
                 frame = tk.Frame(body)
@@ -1675,6 +1723,20 @@ class Layout:
                 grid_jobs.extend(nested_grid_jobs)
                 # Register the nested frame so the parent can place it inside a
                 # grid cell, and so it is not repacked as a regular child.
+                app._tk_widgets[block.name] = frame
+                app._widget_masters[block.name] = frame
+            elif isinstance(block, _Container):
+                _ensure_allowed(block.name)
+                frame = tk.Frame(body)
+                frame.pack(
+                    side=block.side, fill=block.fill, expand=block.expand,
+                    padx=block.padx if block.padx is not None else 0,
+                    pady=block.pady if block.pady is not None else 0,
+                )
+                frame.configure(bg=bg_color, bd=0, highlightthickness=0)
+                if block.minsize is not None and block.minsize > 0:
+                    frame.pack_propagate(False)
+                    frame.configure(height=block.minsize)
                 app._tk_widgets[block.name] = frame
                 app._widget_masters[block.name] = frame
 
@@ -1972,6 +2034,20 @@ class _GridBuilder:
         self._col += cs if cs > 1 else 1
         self._colspan = 1
         return self
+
+    def container(
+        self,
+        name: str,
+        *,
+        sticky: str = "nsew",
+        padx: int | None = None,
+        pady: int | None = None,
+        colspan: int | None = None,
+        rowspan: int = 1,
+    ) -> _GridBuilder:
+        """Reserve an unmanaged frame container at the current cursor position."""
+        self._layout._unmanaged_containers.add(name)
+        return self.cell(name, sticky=sticky, padx=padx, pady=pady, colspan=colspan, rowspan=rowspan)
 
     def widget(
         self,
@@ -2385,6 +2461,32 @@ class LayoutBuilder:
         """Set column span for the next cell() call."""
         self._current_grid().span(cols)
         return self
+
+    def container(
+        self,
+        name: str,
+        *,
+        side: SideLike = "top",
+        fill: FillLike = "both",
+        expand: ExpandLike = True,
+        sticky: str = "nsew",
+        padx: int | None = None,
+        pady: int | None = None,
+        colspan: int | None = None,
+        rowspan: int = 1,
+        minsize: int | None = None,
+    ) -> None:
+        """Reserve an unmanaged frame container."""
+        if len(self._stack) > 1 and isinstance(self._stack[-1], _GridBuilder):
+            self._stack[-1].container(
+                name, sticky=sticky, padx=padx, pady=pady,
+                colspan=colspan, rowspan=rowspan,
+            )
+        else:
+            self._layout.container(
+                name, side=side, fill=fill, expand=expand,
+                padx=padx, pady=pady, minsize=minsize,
+            )
 
     # ── build ──
 

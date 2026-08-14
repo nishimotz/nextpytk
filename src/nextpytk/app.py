@@ -15,6 +15,7 @@ Core idea:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import os
 import sys
@@ -23,7 +24,7 @@ import tkinter.ttk as ttk
 import traceback
 import unicodedata
 import warnings
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Generator, Mapping
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
 ProgressModeLike = Literal["determinate", "indeterminate"]
@@ -1898,6 +1899,34 @@ class TkApp:
         else:
             self._deferred_tcl_scripts.append((script_or_path, theme_name))
 
+    def container(self, name: str) -> tk.Frame:
+        """Return an unmanaged tk.Frame container created via Layout.container().
+
+        This provides an explicit escape hatch for embedding custom raw tkinter
+        widgets, Matplotlib canvas instances, or third-party GUI components.
+        """
+        w = self.get_widget(name)
+        if not isinstance(w, tk.Frame):
+            raise TypeError(
+                f"Widget '{name}' is not a tk.Frame container (got {type(w).__name__})"
+            )
+        return w
+
+    @contextlib.contextmanager
+    def untracked(self) -> Generator[None, None, None]:
+        """Temporarily suppress reactive state traces and updates within this block.
+
+        Useful when executing high-throughput batch operations, streaming raw data
+        into text/canvas widgets, or running bulk Tcl scripts without triggering
+        reactive state passes.
+        """
+        prev = self._ingest_trace
+        self._ingest_trace = False
+        try:
+            yield
+        finally:
+            self._ingest_trace = prev
+
     def widget_kind(self, name: str) -> str | None:
         for w in self._widgets:
             if w.name == name:
@@ -2731,6 +2760,7 @@ class TkApp:
                 role=options.get("role"),
                 description=options.get("description"),
                 on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=options.get("takefocus"),
@@ -2808,6 +2838,7 @@ class TkApp:
                 role=options.get("role"),
                 description=options.get("description"),
                 on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=options.get("takefocus"),
@@ -3145,6 +3176,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="filepicker", label_text=label, role="button",
                 description=description, on_click=fn, enabled_if=enabled_if,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3187,6 +3219,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="button", label_text=label, role=role,
                 description=description, on_click=fn, enabled_if=enabled_if,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3243,6 +3276,7 @@ class TkApp:
                 name=name, kind="entry", placeholder=placeholder,
                 placeholder_as_hint=placeholder_as_hint,
                 role=role, description=description, on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3273,6 +3307,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="checkbutton", label_text=text,
                 description=description, on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3304,6 +3339,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="radiobutton", label_text=text,
                 description=description, on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3371,6 +3407,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="text", description=description,
                 on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3402,6 +3439,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="scale", description=description,
                 on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras({
                     "state_key": actual_key, "from": from_,
                     "to": to, "orient": orient,
@@ -3440,6 +3478,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="spinbox", description=description,
                 on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3498,6 +3537,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="combobox", description=description,
                 on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3570,6 +3610,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="listbox", description=description,
                 on_update=fn,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3626,6 +3667,7 @@ class TkApp:
             self._add_spec(WidgetSpec(
                 name=name, kind="treeview", description=description,
                 on_update=fn, on_click=activate,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3708,6 +3750,7 @@ class TkApp:
         description = options.get("description")
         self._add_spec(WidgetSpec(
             name=name, kind="progressbar", description=description,
+            sync=options.get("sync", True),
             extras={
                 "state_key": actual_key,
                 "maximum": maximum,
@@ -3738,6 +3781,7 @@ class TkApp:
                 extras["items"] = items
             self._add_spec(WidgetSpec(
                 name=name, kind="canvas", description=description,
+                sync=options.get("sync", True),
                 extras=self._widget_extras(
                     extras,
                     takefocus=takefocus,
@@ -3949,6 +3993,9 @@ class TkApp:
         self._syncing_var_keys.update(update_to_apply)
         try:
             for key, val in update_to_apply.items():
+                spec = self._spec(key)
+                if spec is not None and not spec.sync:
+                    continue
                 var = self._tk_vars.get(key)
                 if var is None:
                     continue
@@ -4284,6 +4331,8 @@ class TkApp:
     def _sync_widgets(self) -> None:
         """Push state to label, button, text, and listbox widgets."""
         for spec in self._widgets:
+            if not spec.sync:
+                continue
             if spec.kind in ("label", "status", "message"):
                 tk_w = self._tk_widgets.get(spec.name)
                 if tk_w is None:
@@ -4318,7 +4367,7 @@ class TkApp:
 
     def _sync_text_widget(self, spec: WidgetSpec) -> None:
         """Update a text widget from state if the content changed."""
-        if spec.name not in self._state:
+        if not spec.sync or spec.name not in self._state:
             return
         inner = self._text_inner.get(spec.name)
         if inner is None:
@@ -4359,7 +4408,7 @@ class TkApp:
 
     def _treeview_update_touches_rows(self, update: dict[str, Any]) -> bool:
         for spec in self._widgets:
-            if spec.kind != "treeview":
+            if spec.kind != "treeview" or not spec.sync:
                 continue
             rows_key = spec.extras.get("rows_key", f"{spec.name}_rows")
             if rows_key in update:
@@ -4369,13 +4418,15 @@ class TkApp:
     def _treeview_update_touches_selection(self, update: dict[str, Any]) -> bool:
         """True when *update* carries a treeview selection index (not row data)."""
         for spec in self._widgets:
-            if spec.kind == "treeview" and spec.name in update:
+            if spec.kind == "treeview" and spec.sync and spec.name in update:
                 return True
         return False
 
     def _sync_widgets_for_keys(self, update: dict[str, Any]) -> None:
         """Update only label/status/message/button/text widgets named in *update*."""
         for spec in self._widgets:
+            if not spec.sync:
+                continue
             if spec.kind in ("label", "status", "message", "button"):
                 if spec.name not in update:
                     continue

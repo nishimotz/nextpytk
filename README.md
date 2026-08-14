@@ -907,6 +907,31 @@ nextpytk is declarative, but it does not restrict raw Tkinter flexibility. When 
    app.call('wm', 'attributes', '.', '-topmost', '1')
    ```
 
+5. **State Sync Opt-Out (`sync=False`)**:
+   Pass `sync=False` to any widget registration to isolate it from `apply_state` reactive overwrites. Perfect for imperatively streamed logs or custom canvas drawings.
+   ```python
+   # Log viewer that is never reset by apply_state
+   app.add_text("log_stream", sync=False)
+   ```
+
+6. **Free Frame Container Slots (`Layout().container()` / `app.container()` )**:
+   Reserve an unmanaged `tk.Frame` with proper margins and theme styling for embedding raw Tkinter controls, Matplotlib plots (`FigureCanvasTkAgg`), or third-party widgets.
+   ```python
+   # Reserve a container in the layout
+   Layout().grid().cell("lbl").container("chart_area").end_grid()
+
+   # Mount Matplotlib canvas imperatively
+   chart_frame = app.container("chart_area")
+   # FigureCanvasTkAgg(fig, master=chart_frame).get_tk_widget().pack(...)
+   ```
+
+7. **Temporary Reactive Suppression (`with app.untracked():`)**:
+   Temporarily silence reactive trace listeners and updates during heavy batch operations or Tcl script evaluations.
+   ```python
+   with app.untracked():
+       app.eval('...')
+   ```
+
 ---
 
 ## Customizing Themes & Design Tokens

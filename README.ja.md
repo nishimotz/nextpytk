@@ -889,6 +889,31 @@ nextpytk は宣言型フレームワークですが、素の Tkinter の柔軟�
    app.call('wm', 'attributes', '.', '-topmost', '1')
    ```
 
+5. **状態同期のオプトアウト (`sync=False`)**:
+   ウィジェット登録時に `sync=False` を指定すると、`apply_state` による内容の上書き・再同期からそのウィジェットを隔離できます。命令型にログを追記するテキストや自前で描画する Canvas に最適です。
+   ```python
+   # apply_state で内容がリセットされないログビューア
+   app.add_text("log_stream", sync=False)
+   ```
+
+6. **フリーコンテナの予約 (`Layout().container()` / `app.container()` )**:
+   Matplotlib グラフ（`FigureCanvasTkAgg`）や独自描画領域のために、余白とテーマ背景色を持つ空の `tk.Frame` をレイアウト内に予約できます。
+   ```python
+   # レイアウト側でコンテナ枠を予約
+   Layout().grid().cell("lbl").container("chart_area").end_grid()
+
+   # アプリ側で Frame を取得して Matplotlib を直接マウント
+   chart_frame = app.container("chart_area")
+   # FigureCanvasTkAgg(fig, master=chart_frame).get_tk_widget().pack(...)
+   ```
+
+7. **一時的なリアクティブ抑制 (`with app.untracked():`)**:
+   大量のデータを一括で流し込む際や、命令型のバッチ処理中にリアクティブ通知や Tcl trace を一時停止できます。
+   ```python
+   with app.untracked():
+       app.eval('...')
+   ```
+
 ---
 
 ## テーマとデザインシステムのカスタマイズ
