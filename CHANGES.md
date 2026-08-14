@@ -4,6 +4,18 @@ All notable changes to nextpytk are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.16] — unreleased
+
+### Changed
+
+- Refactored monolithic `app.py` into cohesive internal subsystems while maintaining 100% backward compatibility of all public APIs and 352 test cases:
+  - `a11y/` (`A11yEngine`): Accessibility choke point and TIP 733 / Tk 9.1+ attribute management.
+  - `schema/` (`SchemaExporter`): JSON schema generation for introspection and tooling.
+  - `async_engine/` (`AsyncEngine`): Asyncio event loop integration, `@app.job`, `spawn()`, and cooperative async main loop runner.
+  - `state/` (`StateStore`): Reactive state storage, Tcl write trace ingestion, and Levenshtein validation.
+  - `widget_ops/` (`WidgetRegistrationMixin`, `WidgetBuildersMixin`, `EventHandlersMixin`): Declarative widget registration DSL, Tkinter/ttk widget construction, and GUI event dispatchers.
+  - `app.py`: Streamlined `TkApp` facade coordinating the modular subsystems.
+
 ## [0.4.15] — 2026-08-14
 
 ### Added
