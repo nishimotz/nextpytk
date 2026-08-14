@@ -273,7 +273,7 @@ class TkApp:
         title: str = "nextpytk",
         *,
         debug: bool = False,
-        theme: bool | str = "kizashi",
+        theme: bool | str | t.ThemeTokens = "kizashi",
         ingest_trace: bool = False,
         debug_padding: bool | None = None,
     ):
@@ -285,8 +285,9 @@ class TkApp:
         if debug_padding is None:
             debug_padding = os.environ.get("NEXTPYTK_DEBUG_PADDING", "").strip() not in ("", "0")
         self._debug_padding = debug_padding
-        self._theme = self._normalize_theme(theme)
-        self._kizashi = self._theme == "kizashi"
+        self._theme, self._theme_tokens = self._normalize_theme(theme)
+        self._kizashi = self._theme in ("kizashi", "kizashi-dark") or isinstance(theme, t.ThemeTokens)
+        self._deferred_tcl_scripts: list[tuple[str, str | None]] = []
         # When True, a ``trace_add("write", ...)`` is installed on every
         # registered Tcl variable. User edits (e.g. typing into an entry)
         # are ingested back into ``state`` (kept as the single source of
@@ -390,16 +391,13 @@ class TkApp:
         self._debug_overlay_last_pos: dict[str, tuple[int, int]] = {}
         self._register_default_builders()
 
-    def _normalize_theme(self, theme: bool | str) -> str:
-        """Convert the legacy bool ``theme=`` parameter to theme names.
-
-        - ``True`` -> ``"kizashi"`` (the nextpytk design system theme)
-        - ``False`` -> ``"none"`` (do not touch ttk styles at all)
-        - ``str`` -> passed through; use ``"kizashi"``, ``"none"``,
-          or any built-in ttk theme name (``"clam"``, ``"vista"``, ...).
-
-        Passing a bool is deprecated and will be removed in v0.5.0.
-        """
+    def _normalize_theme(
+        self,
+        theme: bool | str | t.ThemeTokens,
+    ) -> tuple[str, t.ThemeTokens]:
+        """Normalize theme argument to (theme_name, ThemeTokens)."""
+        if isinstance(theme, t.ThemeTokens):
+            return theme.name, theme
         if isinstance(theme, bool):
             warnings.warn(
                 "theme=True/False is deprecated; use theme='kizashi' or "
@@ -407,10 +405,14 @@ class TkApp:
                 DeprecationWarning,
                 stacklevel=3,
             )
-            return "kizashi" if theme else "none"
-        if not isinstance(theme, str):
-            raise TypeError(f"theme must be bool or str, got {type(theme).__name__}")
-        return theme
+            return ("kizashi", t.KIZASHI_LIGHT) if theme else ("none", t.KIZASHI_LIGHT)
+        if isinstance(theme, str):
+            if theme == "kizashi":
+                return "kizashi", t.KIZASHI_LIGHT
+            if theme == "kizashi-dark":
+                return "kizashi-dark", t.KIZASHI_DARK
+            return theme, t.KIZASHI_LIGHT
+        raise TypeError(f"theme must be bool, str, or ThemeTokens, got {type(theme).__name__}")
 
     def clear_runtime(self) -> None:
         self._tk_widgets.clear()
@@ -630,22 +632,27 @@ class TkApp:
         return self._title
 
     def _configure_theme(self, root: tk.Tk) -> None:
-        """Apply the configured theme and window chrome to ``root``.
+        """Apply the configured theme and window chrome to ``root``."""
+        if self._deferred_tcl_scripts:
+            for script_or_path, theme_name in self._deferred_tcl_scripts:
+                content: str
+                if os.path.isfile(script_or_path):
+                    with open(script_or_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                else:
+                    content = script_or_path
+                root.tk.eval(content)
+                if theme_name:
+                    self._theme = theme_name
+                    self._kizashi = False
 
-        - ``"kizashi"`` applies the Kizashi design system.
-        - any other theme name applies it via ``ttk.Style.theme_use``.
-        - ``"none"`` does not touch ttk styles at all.
-
-        Unknown theme names are silently ignored; a warning would be a
-        future improvement.
-        """
         if self._theme == "none":
             return
         from nextpytk.theme import _set_windows_dpi_aware, configure_window
         _set_windows_dpi_aware()
         if self._kizashi:
             from nextpytk.theme import apply_theme
-            apply_theme(root)
+            apply_theme(root, self._theme_tokens)
         else:
             style = ttk.Style(root)
             try:
@@ -657,7 +664,7 @@ class TkApp:
                     UserWarning,
                     stacklevel=3,
                 )
-        configure_window(root, title=self._title)
+        configure_window(root, title=self._title, tokens=self._theme_tokens)
 
     def set_root(self, root: tk.Tk) -> None:
         self._root = root
@@ -765,7 +772,7 @@ class TkApp:
             pack_jobs: dict[str, Any] = {}
             for vname, layout in variants.items():
                 vframe = tk.Frame(target, name=f"swapvar_{vname}",
-                                  bg=t.BG, bd=0, highlightthickness=0)
+                                  bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
                 vframe.pack(fill="both", expand=True)
                 allowed = set(layout.widget_names())
                 row_jobs, grid_jobs = layout.mount_frames_into(
@@ -1858,6 +1865,39 @@ class TkApp:
             raise RuntimeError("Cannot call Tcl command before app is built or run.")
         return self._root.tk.call(*args)
 
+    @property
+    def theme_tokens(self) -> t.ThemeTokens:
+        """Return the active ThemeTokens instance for this application."""
+        return self._theme_tokens
+
+    def load_theme_tcl(
+        self,
+        script_or_path: str,
+        theme_name: str | None = None,
+    ) -> None:
+        """Load and evaluate a Tcl theme definition script or file.
+
+        *script_or_path* can be either a path to a ``.tcl`` theme file or a raw
+        Tcl script string. If *theme_name* is provided, it is automatically
+        activated via ``ttk.Style().theme_use(theme_name)``.
+
+        Can be called before or after the app starts running.
+        """
+        if self._root is not None:
+            content: str
+            if os.path.isfile(script_or_path):
+                with open(script_or_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+            else:
+                content = script_or_path
+            self.eval(content)
+            if theme_name:
+                style = ttk.Style(self._root)
+                style.theme_use(theme_name)
+                self._theme = theme_name
+        else:
+            self._deferred_tcl_scripts.append((script_or_path, theme_name))
+
     def widget_kind(self, name: str) -> str | None:
         for w in self._widgets:
             if w.name == name:
@@ -2278,7 +2318,7 @@ class TkApp:
                 header_widgets.append(name)
 
         if header_widgets or status_widgets:
-            chrome = tk.Frame(body, bg=t.BG, bd=0, highlightthickness=0)
+            chrome = tk.Frame(body, bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
             chrome.pack(fill="x", pady=(0, t.SPACE[3]))
             self._multiview_header_container = chrome
             from nextpytk.theme import window_header
@@ -2289,7 +2329,7 @@ class TkApp:
             self._multiview_header_fn = None
 
         if status_widgets:
-            status_bar_frame = tk.Frame(body, bg=t.BG, bd=0, highlightthickness=0)
+            status_bar_frame = tk.Frame(body, bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
             status_bar_frame.pack(side="bottom", fill="x", pady=(t.SPACE[3], 0), padx=t.SPACE[6])
             self._multiview_status_container = status_bar_frame
         else:
@@ -2303,7 +2343,7 @@ class TkApp:
 
         for view in views:
             frame = tk.Frame(nb, name=f"tabframe_{view}")
-            frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+            frame.configure(bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
             frames[view] = frame
             if view in layouts:
                 layout = layouts[view]
@@ -2313,7 +2353,7 @@ class TkApp:
                 jobs_by_view[view] = (layout, row_jobs, grid_jobs)
             else:
                 # Same inner content margin as layout-managed views.
-                inner = tk.Frame(frame, bg=t.BG, bd=0, highlightthickness=0)
+                inner = tk.Frame(frame, bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
                 inner.pack(fill="both", expand=True,
                            padx=t.SPACE[6], pady=t.SPACE[4])
                 for wname in self.view_widget_names(view):
@@ -2447,7 +2487,7 @@ class TkApp:
                 header_widgets.append(name)
 
         if header_widgets or status_widgets:
-            chrome = tk.Frame(body, bg=t.BG, bd=0, highlightthickness=0)
+            chrome = tk.Frame(body, bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
             chrome.pack(fill="x", pady=(0, t.SPACE[3]))
             self._multiview_header_container = chrome
         else:
@@ -2456,7 +2496,7 @@ class TkApp:
         self._multiview_header_fn = None
 
         if status_widgets:
-            status_bar_frame = tk.Frame(body, bg=t.BG, bd=0, highlightthickness=0)
+            status_bar_frame = tk.Frame(body, bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
             status_bar_frame.pack(side="bottom", fill="x", pady=(t.SPACE[3], 0), padx=t.SPACE[6])
             self._multiview_status_container = status_bar_frame
         else:
@@ -2468,7 +2508,7 @@ class TkApp:
         for name in status_widgets:
             self.set_widget_master(name, status_bar_frame if status_bar_frame is not None else body)
 
-        stage_container = tk.Frame(body, bg=t.BG, bd=0, highlightthickness=0)
+        stage_container = tk.Frame(body, bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
         stage_container.pack(fill="both", expand=True, pady=(t.SPACE[2], 0))
         self._stage_container = stage_container
 
@@ -2487,7 +2527,7 @@ class TkApp:
         self._stage_frames: dict[str, tk.Frame] = {}
 
         for stage in stages:
-            frame = tk.Frame(stage_container, name=f"stageframe_{stage}", bg=t.BG, bd=0, highlightthickness=0)
+            frame = tk.Frame(stage_container, name=f"stageframe_{stage}", bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
             self._stage_frames[stage] = frame
             if stage in layouts:
                 layout = layouts[stage]
@@ -2495,7 +2535,7 @@ class TkApp:
                 row_jobs, grid_jobs = layout.mount_frames_into(self, frame, allowed_widgets=allowed)
                 jobs_by_stage[stage] = (layout, row_jobs, grid_jobs)
             else:
-                inner = tk.Frame(frame, bg=t.BG, bd=0, highlightthickness=0)
+                inner = tk.Frame(frame, bg=self._theme_tokens.bg, bd=0, highlightthickness=0)
                 inner.pack(fill="both", expand=True, padx=t.SPACE[6], pady=t.SPACE[4])
                 for wname in self.view_widget_names(stage):
                     self.set_widget_master(wname, inner)

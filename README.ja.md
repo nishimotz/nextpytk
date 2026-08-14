@@ -891,6 +891,45 @@ nextpytk は宣言型フレームワークですが、素の Tkinter の柔軟�
 
 ---
 
+## テーマとデザインシステムのカスタマイズ
+
+nextpytk は、美しく統一された **Kizashi（兆）デザインシステム** をデフォルトで備えていますが、テーマや配色のカスタマイズ、外部 ttk テーマの導入も自由に行えます。
+
+### 1. ダークテーマの利用
+ワンライナーでダークテーマに切り替えられます（Windows のタイトルバーも自動でダークモードに対応します）。
+```python
+app = TkApp(title="Dark App", theme="kizashi-dark")
+```
+
+### 2. カスタムカラーパレット（`ThemeTokens`）
+`ThemeTokens` データクラスにより、ブランドカラーや独自の色設定を型安全に適用できます。
+```python
+from dataclasses import replace
+from nextpytk import TkApp, KIZASHI_LIGHT
+
+# Kizashi のベースを継承しつつ、アクセントカラーと背景色を変更
+my_theme = replace(
+    KIZASHI_LIGHT,
+    name="my-brand",
+    accent="#0066cc",      # ブランドブルー
+    on_accent="#ffffff",
+    bg="#f4f7fa",
+)
+
+app = TkApp(title="Brand App", theme=my_theme)
+```
+
+### 3. 外部 Tcl / ttk テーマの読み込み（`load_theme_tcl`）
+コミュニティで作成された有名な ttk テーマ（Azure, Sun Valley, Forest 等）の `.tcl` ファイルや Tcl スタイルスクリプトを 1 行で読み込んで適用できます。
+```python
+app = TkApp(title="Modern App")
+
+# 外部の Tcl テーマファイルをロードして適用
+app.load_theme_tcl("azure.tcl", theme_name="azure-dark")
+```
+
+---
+
 ## 設計思想と適用領域（When to use nextpytk）
 
 ### nextpytk が最適な用途

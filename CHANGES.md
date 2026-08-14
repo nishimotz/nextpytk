@@ -26,12 +26,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   declaratively during widget registration.
 - `treeview` column definitions now support simple string sequences
   (e.g. `columns=["id", "name"]`), automatically converting them to column headers.
+- `ThemeTokens` dataclass and built-in `KIZASHI_LIGHT` and `KIZASHI_DARK` themes.
+  `TkApp(theme="kizashi-dark")` or `TkApp(theme=custom_theme)` allows type-safe
+  color palette customization and dark mode out of the box.
+- Decoupled `layout.py` and `app.py` frame background colors from hard-coded tokens,
+  now dynamically resolving from active `ThemeTokens` and Option Database.
+- `TkApp.load_theme_tcl(script_or_path, theme_name)` method to load external Tcl /
+  ttk theme scripts or `.tcl` theme files (e.g. Azure, Sun Valley).
+- `TkApp.theme_tokens` property to inspect the active theme token set.
 
 ### Documentation
 
 - Added "Escape Hatches (Interoperating with Raw Tkinter)" guide to READMEs
   explaining how to access raw Tkinter widgets (`app.widget()`, `app.get_widget()`,
   `Layout().grid().cell_raw()`, `app.root`, `app.eval()`, `app.call()`, and `app.tcl`).
+- Added "Customizing Themes & Design Tokens" guide to READMEs detailing dark mode,
+  `ThemeTokens` customizations, and `load_theme_tcl`.
 - Added "When to use nextpytk" architectural guidance to clarify sweet spots
   (forms, settings, dashboards, LLM agents, a11y apps) and distinguish them from
   canvas-heavy / game-loop use cases.

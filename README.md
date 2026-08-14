@@ -909,6 +909,45 @@ nextpytk is declarative, but it does not restrict raw Tkinter flexibility. When 
 
 ---
 
+## Customizing Themes & Design Tokens
+
+nextpytk includes the cohesive **Kizashi design system** out of the box, but allows straightforward theme customization, custom color palettes, and external ttk theme loading.
+
+### 1. Dark Mode
+Switch to dark mode with a single argument (automatically configures Windows dark titlebars as well):
+```python
+app = TkApp(title="Dark App", theme="kizashi-dark")
+```
+
+### 2. Custom Color Palettes (`ThemeTokens`)
+Use the `ThemeTokens` dataclass to customize branding and accent colors type-safely:
+```python
+from dataclasses import replace
+from nextpytk import TkApp, KIZASHI_LIGHT
+
+# Inherit Kizashi defaults and override branding colors
+my_theme = replace(
+    KIZASHI_LIGHT,
+    name="my-brand",
+    accent="#0066cc",      # Brand blue
+    on_accent="#ffffff",
+    bg="#f4f7fa",
+)
+
+app = TkApp(title="Brand App", theme=my_theme)
+```
+
+### 3. Loading External Tcl / ttk Themes (`load_theme_tcl`)
+Load third-party ttk themes (e.g. Azure, Sun Valley, Forest) from `.tcl` files or inline scripts:
+```python
+app = TkApp(title="Modern App")
+
+# Load and activate an external Tcl theme file
+app.load_theme_tcl("azure.tcl", theme_name="azure-dark")
+```
+
+---
+
 ## When to use nextpytk
 
 ### Sweet spots for nextpytk

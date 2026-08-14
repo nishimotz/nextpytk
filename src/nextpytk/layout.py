@@ -1505,13 +1505,15 @@ class Layout:
         if page_margin is None:
             page_margin = t.SPACE[6]
         is_toplevel = isinstance(parent, tk.Tk) or getattr(parent, "winfo_toplevel", lambda: parent)() is parent
+        bg_color = getattr(app, "theme_tokens", t.KIZASHI_LIGHT).bg
+
         if is_toplevel:
             body = content_frame(parent, padding=page_margin)
             app._content_frame = body
         else:
             # View/tab pages breathe too: inner content margin so sections
             # don't hug the notebook border (SPACE[6] / 24px page pad).
-            body = tk.Frame(parent, bg=t.BG, bd=0, highlightthickness=0)
+            body = tk.Frame(parent, bg=bg_color, bd=0, highlightthickness=0)
             body.pack(fill="both", expand=True,
                       padx=t.SPACE[6], pady=t.SPACE[4])
 
@@ -1547,7 +1549,7 @@ class Layout:
                     app._explicit_section_names.add(block.name)
                 if section_key is not None:
                     app._section_frames[section_key] = frame
-                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                frame.configure(bg=bg_color, bd=0, highlightthickness=0)
                 row_jobs.append((frame, block))
             elif isinstance(block, _Paned):
                 _ensure_allowed(block.name)
@@ -1556,7 +1558,7 @@ class Layout:
                     side=block.side, fill=block.fill, expand=block.expand,
                     padx=block.padx or 0, pady=block.pady or 0,
                 )
-                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                frame.configure(bg=bg_color, bd=0, highlightthickness=0)
                 app._widget_masters[block.name] = frame
                 opts: dict[str, Any] = {
                     "minsizes": block.minsizes,
@@ -1577,7 +1579,7 @@ class Layout:
                     side="top", fill=block.fill, expand=block.expand,
                     padx=block.padx or 0, pady=block.pady or 0,
                 )
-                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                frame.configure(bg=bg_color, bd=0, highlightthickness=0)
                 for col, w in block.col_weights.items():
                     frame.columnconfigure(col, weight=w, uniform=block.uniform or "")
                 for col, ms in block.col_minsize.items():
@@ -1597,7 +1599,7 @@ class Layout:
                     padx=block.padx if block.padx is not None else 0,
                     pady=block.pady if block.pady is not None else 0,
                 )
-                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                frame.configure(bg=bg_color, bd=0, highlightthickness=0)
                 for entry in block.widgets:
                     name = entry.widget if isinstance(entry, Flex) else entry
                     _ensure_allowed(name)
@@ -1613,7 +1615,7 @@ class Layout:
                     padx=block.padx if block.padx is not None else 0,
                     pady=block.pady if block.pady is not None else 0,
                 )
-                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                frame.configure(bg=bg_color, bd=0, highlightthickness=0)
                 for name in block.widgets:
                     _ensure_allowed(name)
                     app._widget_masters[name] = frame
@@ -1628,7 +1630,7 @@ class Layout:
                     padx=block.padx if block.padx is not None else 0,
                     pady=block.pady if block.pady is not None else 0,
                 )
-                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                frame.configure(bg=bg_color, bd=0, highlightthickness=0)
                 # Two-column grid: left and right share the width by weight.
                 frame.columnconfigure(0, weight=block.weight[0])
                 frame.columnconfigure(1, weight=block.weight[1])
@@ -1649,7 +1651,7 @@ class Layout:
                     padx=block.padx if block.padx is not None else 0,
                     pady=block.pady if block.pady is not None else 0,
                 )
-                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                frame.configure(bg=bg_color, bd=0, highlightthickness=0)
                 frame._swap_target = block.name  # type: ignore[attr-defined]
                 app.register_swap_target(block.name, frame)
                 row_jobs.append((frame, _Row(
@@ -1665,7 +1667,7 @@ class Layout:
                     padx=block.padx if block.padx is not None else 0,
                     pady=block.pady if block.pady is not None else 0,
                 )
-                frame.configure(bg=t.BG, bd=0, highlightthickness=0)
+                frame.configure(bg=bg_color, bd=0, highlightthickness=0)
                 nested_row_jobs, nested_grid_jobs = block.layout.mount_frames_into(
                     app, frame, allowed_widgets=allowed_widgets
                 )
