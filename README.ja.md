@@ -635,6 +635,31 @@ app.run(layout=b.build())
 
 `grid()` に直接指定可能なオプション: `padx`, `pady`, `fill`, `expand`, `uniform`。
 
+### レイアウトモデル（pack/grid の内部動作）
+
+nextpytk の `Layout` DSL は、Tk の 2 つのジオメトリマネージャーを薄く宣言的に
+ラップしたものです。内部モデルを理解すると、ウィンドウリサイズ時の挙動を
+予測しやすくなります。
+
+* **`pack` は 2 段階の cavity（空洞）モデル。** 各子ウィジェットは順番に、
+  親の残り領域（cavity）から自分の要求サイズを削り取るように配置されます。
+  全子の配置が終わった後、残った余白は `expand=True` の子に**均等に**分配
+  されます。つまり基本配置は逐次的、余白分配は一括均等です。
+* **順序が結果を変える。** `pack` は packing 順に cavity を削るため、
+  `section(...)` の呼び出し順を変えると最終的な配置が変わります。子の順序が
+  見た目の順序にしか影響しない CSS flexbox とは異なります。
+* **同一親で `pack` と `grid` は混在不可。** 1 つのフレーム上の兄弟
+  ウィジェットが異なるマネージャーを使うと、Tk は
+  `TclError: conflicting geometry managers` を発生させます。`Layout` は各
+  `section()` を個別のフレームに載せるため通常は回避されますが、これが
+  診断用の `check_layout_conflicts()` が存在する理由です。
+* **`expand` は flex-grow ではない。** `pack -expand` は余白を均等分配する
+  もので、比例配分の flex factor ではありません。比例配分に相当するのは
+  `grid` の `columnconfigure(..., weight=...)` です。
+
+> この節は意図的に簡潔にしています。CSS-grid 風レイアウト API（ROADMAP 0.5.0）
+> が実装される際に、このモデルは専用の `docs/layout-model.md` へ拡充されます。
+
 ---
 
 ## Widget Reference

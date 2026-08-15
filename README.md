@@ -639,6 +639,33 @@ app.run(layout=b.build())
 
 `grid()` options available directly: `padx`, `pady`, `fill`, `expand`, `uniform`.
 
+### Layout model (pack/grid internals)
+
+nextpytk's `Layout` DSL is a thin, declarative layer over Tk's two geometry
+managers. Understanding the underlying model helps you predict how a layout
+behaves when the window resizes.
+
+* **`pack` is a two-phase cavity model.** Each child is placed in order,
+  carving its requested size out of the parent's remaining space (the
+  *cavity*). After every child is placed, any leftover space is distributed
+  **evenly** among the children that set `expand=True`. So basic placement is
+  sequential, but leftover-space distribution is uniform.
+* **Order matters.** Because `pack` carves the cavity in packing order,
+  reordering `section(...)` calls can change the final geometry. This is
+  unlike CSS flexbox, where child order only affects visual order.
+* **`pack` and `grid` cannot be mixed on the same parent.** Tk raises
+  `TclError: conflicting geometry managers` if siblings on one frame use
+  different managers. `Layout` keeps each `section()` on its own frame, so
+  this is normally avoided — but it is the reason `check_layout_conflicts()`
+  exists as a diagnostic.
+* **`expand` ≠ flex-grow.** `pack -expand` distributes leftover space
+  uniformly; it is not a proportional flex factor. `grid`'s
+  `columnconfigure(..., weight=...)` is the proportional equivalent.
+
+> This section is intentionally brief. When the CSS-grid-inspired layout API
+> (ROADMAP 0.5.0) lands, this model will be expanded into a dedicated
+> `docs/layout-model.md`.
+
 ---
 
 ## Widget Reference
