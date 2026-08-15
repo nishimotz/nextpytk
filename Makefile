@@ -1,4 +1,4 @@
-.PHONY: sync test run run-header run-multiscreen run-task-panel run-gallery run-treeview run-paned run-progress run-tab-focus run-du-flat-async run-menubar run-wrap run-matplotlib
+.PHONY: sync test run run-header run-multiscreen run-task-panel run-gallery run-treeview run-paned run-progress run-tab-focus run-du-flat-async run-menubar run-wrap run-matplotlib run-svg
 
 PYTHON ?= 3.14
 
@@ -43,6 +43,9 @@ run-menubar: sync
 
 run-matplotlib: sync
 	uv run --python $(PYTHON) --extra matplotlib python examples/matplotlib_demo.py
+
+run-svg: sync
+	uv run --python $(PYTHON) python examples/svg_demo.py
 
 run-header: sync
 	uv run --python $(PYTHON) python examples/header_demo.py

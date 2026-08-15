@@ -1032,6 +1032,7 @@ uv run python examples/swap_demo.py             # dynamic region switching (Layo
 uv run python examples/bottom_bar_demo.py       # pinned bottom bar (section side="bottom")
 uv run python examples/live_validation.py       # live validation via Tcl-var trace ingest (ingest_trace=True)
 uv run --extra matplotlib python examples/matplotlib_demo.py  # Matplotlib embedded via container()
+uv run python examples/svg_demo.py              # SVG image (requires Tk 9.0+)
 ```
 
 ---

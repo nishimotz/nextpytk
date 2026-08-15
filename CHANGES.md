@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   slot, with a `@app.scale` driving the plot reactively.
 - `matplotlib` optional dependency (`pip install nextpytk[matplotlib]` /
   `uv run --extra matplotlib`) and a `make run-matplotlib` target.
+- `examples/svg_demo.py` demonstrating SVG image loading via `tk.PhotoImage`
+  (Tk 9.0+), with a runtime version guard that exits cleanly on Tk 8.6.
 
 ## [0.4.15] — 2026-08-14
 
