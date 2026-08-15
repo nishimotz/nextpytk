@@ -4,7 +4,7 @@ All notable changes to nextpytk are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.4.16] — unreleased
+## [0.4.16] — 2026-08-15
 
 ### Changed
 
