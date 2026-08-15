@@ -24,6 +24,9 @@ classifiers = [
 ]
 dependencies = []
 
+[project.optional-dependencies]
+matplotlib = ["matplotlib>=3.10", "numpy>=2.0"]
+
 [project.urls]
 Homepage = "https://github.com/nishimotz/nextpytk"
 Repository = "https://github.com/nishimotz/nextpytk"

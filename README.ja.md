@@ -1011,6 +1011,7 @@ uv run python examples/paired_demo.py           # 左右ペアレイアウト + 
 uv run python examples/swap_demo.py             # 動的領域切り替え（Layout.target + @app.swap）
 uv run python examples/bottom_bar_demo.py       # 下部固定バー（section side="bottom"）
 uv run python examples/live_validation.py       # ライブ検証（Tcl変数 trace 取り込み / ingest_trace=True）
+uv run --extra matplotlib python examples/matplotlib_demo.py  # Matplotlib を container() に埋め込み
 ```
 
 ---

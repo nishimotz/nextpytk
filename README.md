@@ -1031,6 +1031,7 @@ uv run python examples/paired_demo.py           # side-by-side paired layout wit
 uv run python examples/swap_demo.py             # dynamic region switching (Layout.target + @app.swap)
 uv run python examples/bottom_bar_demo.py       # pinned bottom bar (section side="bottom")
 uv run python examples/live_validation.py       # live validation via Tcl-var trace ingest (ingest_trace=True)
+uv run --extra matplotlib python examples/matplotlib_demo.py  # Matplotlib embedded via container()
 ```
 
 ---

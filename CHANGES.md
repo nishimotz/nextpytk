@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `@app.message` now uses `ttk.Label` with `wraplength` (auto-wrap) instead of
   the legacy `tk.Message` widget, so it inherits the active ttk theme.
 
+### Added
+
+- `examples/matplotlib_demo.py` demonstrating the official pattern for
+  embedding a Matplotlib `FigureCanvasTkAgg` into a `Layout.container()`
+  slot, with a `@app.scale` driving the plot reactively.
+- `matplotlib` optional dependency (`pip install nextpytk[matplotlib]` /
+  `uv run --extra matplotlib`) and a `make run-matplotlib` target.
+
 ## [0.4.15] — 2026-08-14
 
 ### Added
