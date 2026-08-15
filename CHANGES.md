@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - `widget_ops/` (`WidgetRegistrationMixin`, `WidgetBuildersMixin`, `EventHandlersMixin`): Declarative widget registration DSL, Tkinter/ttk widget construction, and GUI event dispatchers.
   - `app.py`: Streamlined `TkApp` facade coordinating the modular subsystems.
 
+### Fixed
+
+- Core `tk` fallback widgets (`text`, `listbox`, `canvas`) now resolve their
+  colors from the active `ThemeTokens` instead of the frozen `KIZASHI_LIGHT`
+  module constants, so dark mode and custom themes apply consistently.
+- `@app.message` now uses `ttk.Label` with `wraplength` (auto-wrap) instead of
+  the legacy `tk.Message` widget, so it inherits the active ttk theme.
+
 ## [0.4.15] — 2026-08-14
 
 ### Added

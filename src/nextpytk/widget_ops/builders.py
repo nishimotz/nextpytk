@@ -14,7 +14,23 @@ from nextpytk.widgets import WidgetSpec
 
 
 class WidgetBuildersMixin:
-    """Provides methods for constructing underlying Tkinter/ttk widgets from WidgetSpec."""
+    """Provides methods for constructing underlying Tkinter/ttk widgets from WidgetSpec.
+
+    Widget selection policy: prefer ``ttk`` widgets wherever an equivalent
+    exists (label, button, entry, checkbutton, radiobutton, scale, spinbox,
+    combobox, treeview, progressbar, paned, notebook, scrollbar, separator,
+    frame). Fall back to core ``tk`` widgets only when ttk has no equivalent
+    (text, listbox, canvas, menu). Core ``tk`` widgets are themed directly
+    from ``self._theme_tokens`` (not the frozen ``tokens`` module constants)
+    so dark mode and custom ``ThemeTokens`` apply consistently.
+
+    Frame policy: layout scaffolding (chrome, section, stage, swap, pane
+    frames) uses ``tk.Frame`` with an explicit ``bg=self._theme_tokens.bg``
+    because ttk frames do not honor a per-widget background reliably across
+    themes. The outermost page-margin wrapper (``content_frame``) and
+    scrollbar-bearing containers use ``ttk.Frame`` so they inherit the active
+    ttk theme's padding/background.
+    """
 
     _root: tk.Tk | None
     _widgets: list[WidgetSpec]
@@ -46,18 +62,18 @@ class WidgetBuildersMixin:
         raise NotImplementedError
     def _bind_message_auto_width(
         self,
-        w: tk.Message,
+        w: ttk.Label,
         master: tk.Misc,
         *,
         max_ratio: float = 0.95,
         default_width: int = 200,
     ) -> None:
-        """Bind resize events on the container so the Message width tracks the window width."""
+        """Bind resize events so the label's ``wraplength`` tracks the container width."""
         def _on_configure(_e: object = None) -> None:
             try:
                 rw = master.winfo_width()
                 if rw > 1:
-                    w.configure(width=max(int(rw * max_ratio), default_width))
+                    w.configure(wraplength=max(int(rw * max_ratio), default_width))
             except Exception:
                 pass
         master.bind("<Configure>", _on_configure, add="+")
@@ -221,20 +237,21 @@ class WidgetBuildersMixin:
         container.columnconfigure(0, weight=1)
         wrap: WrapLike = e.get("wrap", "word")
 
+        tok = self._theme_tokens
         w = tk.Text(
             container,
             width=e.get("width", 50),
             height=e.get("height", 8),
             name=spec.name,
-            bg=t.SURFACE,
-            fg=t.TEXT,
-            insertbackground=t.TEXT,
-            selectbackground=t.ACCENT_RAMP[200],
-            selectforeground=t.ACCENT_RAMP[700],
+            bg=tok.surface,
+            fg=tok.text,
+            insertbackground=tok.text,
+            selectbackground=tok.accent_ramp.get(200, tok.surface),
+            selectforeground=tok.accent_ramp.get(700, tok.accent),
             relief="solid",
             bd=1,
             highlightthickness=0,
-            font=t.font("body"),
+            font=tok.font("body"),
             wrap=wrap,
         )
         if e.get("font") is not None:
@@ -375,15 +392,16 @@ class WidgetBuildersMixin:
 
     def _build_listbox(self, spec: WidgetSpec, master: tk.Misc) -> None:
         e = spec.extras
+        tok = self._theme_tokens
         kwargs_lb: dict[str, Any] = {
-            "bg": t.BG,
-            "fg": t.TEXT,
-            "selectbackground": t.ACCENT_RAMP[200],
-            "selectforeground": t.ACCENT_RAMP[700],
+            "bg": tok.bg,
+            "fg": tok.text,
+            "selectbackground": tok.accent_ramp.get(200, tok.surface),
+            "selectforeground": tok.accent_ramp.get(700, tok.accent),
             "relief": "solid",
             "bd": 1,
             "highlightthickness": 0,
-            "font": t.font("body"),
+            "font": tok.font("body"),
         }
         if e.get("height") is not None:
             kwargs_lb["height"] = e["height"]
@@ -499,7 +517,7 @@ class WidgetBuildersMixin:
             master,
             width=e.get("width", 300),
             height=e.get("height", 200),
-            bg=e.get("bg", t.SURFACE),
+            bg=e.get("bg", self._theme_tokens.surface),
             name=spec.name,
             highlightthickness=0,
         )
@@ -565,19 +583,21 @@ class WidgetBuildersMixin:
 
     def _build_message(self, spec: WidgetSpec, master: tk.Misc) -> None:
         e = spec.extras
-        w = tk.Message(
+        # ``tk.Message`` is a legacy auto-wrapping widget with no ttk
+        # equivalent; ``ttk.Label`` with ``wraplength`` provides the same
+        # auto-wrap behavior while inheriting the active ttk theme (so dark
+        # mode and custom ThemeTokens apply). ``width`` is a pixel value and
+        # maps to ``wraplength``.
+        w = ttk.Label(
             master,
             text="",
             name=spec.name,
-            bg=t.BG,
-            fg=t.TEXT,
-            font=t.font("body"),
+            style="TLabel",
             anchor="w",
             justify="left",
+            wraplength=e.get("width", 200),
         )
         self._tk_widgets[spec.name] = w
-        if e.get("width") is not None:
-            w.configure(width=e["width"])
         if e.get("auto_width", True):
             self._bind_message_auto_width(w, master)
         if spec.on_update is not None:

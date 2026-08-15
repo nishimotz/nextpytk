@@ -641,9 +641,9 @@ app.run(layout=b.build())
 
 | デコレータ | ウィジェット | コールバック引数 | 返り値 |
 |------------|--------------|------------------|--------|
-| `@app.label(name, font=..., anchor=..., justify=..., padding=...)` | tk.Label | — | `str` または `dict` |
-| `@app.status(name)` | tk.Label（`role=status` メタデータ） | — | `str` または `dict` |
-| `@app.message(name, width=..., auto_width=...)` | tk.Label（自動ラップ） | — | `str` または `dict` |
+| `@app.label(name, font=..., anchor=..., justify=..., padding=...)` | ttk.Label | — | `str` または `dict` |
+| `@app.status(name)` | ttk.Label（`role=status` メタデータ） | — | `str` または `dict` |
+| `@app.message(name, width=..., auto_width=...)` | ttk.Label（`wraplength` による自動ラップ） | — | `str` または `dict` |
 | `@app.button(name, label=..., font=..., enabled_if=...)` | ttk.Button | entry values `dict` | `dict` |
 | `@app.job(name)` | async callable | entry values `dict` | `dict` |
 | `@app.entry(name, placeholder=..., show=..., font=..., padding=..., width=..., events=...)` | ttk.Entry | `str` | `dict` |
@@ -728,7 +728,7 @@ enum 系のオプション（`wrap`, `state`, `orient`, `selectmode`, `mode`）�
 登録時に検証されます。不正な値は、ウィジェット構築時の `TclError` ではなく
 明確な `ValueError`（オプション名と許可値を明記）を即座に発生させます。
 
-`@app.message` は自動ラップのラベルです。`width` は初期ピクセル幅、`auto_width=True`（デフォルト）は親コンテナのリサイズに追従します。
+`@app.message` は自動ラップのラベルです。`width` は初期 `wraplength`（ピクセル幅）、`auto_width=True`（デフォルト）は親コンテナのリサイズに追従します。
 
 ---
 

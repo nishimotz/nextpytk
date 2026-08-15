@@ -645,9 +645,9 @@ app.run(layout=b.build())
 
 | Decorator | Widget | Callback receives | Returns |
 |-----------|--------|-------------------|---------|
-| `@app.label(name, font=..., anchor=..., justify=..., padding=...)` | tk.Label | — | `str` or `dict` |
-| `@app.status(name)` | tk.Label (`role=status` metadata) | — | `str` or `dict` |
-| `@app.message(name, width=..., auto_width=...)` | tk.Label (auto-wrap) | — | `str` or `dict` |
+| `@app.label(name, font=..., anchor=..., justify=..., padding=...)` | ttk.Label | — | `str` or `dict` |
+| `@app.status(name)` | ttk.Label (`role=status` metadata) | — | `str` or `dict` |
+| `@app.message(name, width=..., auto_width=...)` | ttk.Label (auto-wrap via `wraplength`) | — | `str` or `dict` |
 | `@app.button(name, label=..., font=..., enabled_if=...)` | ttk.Button | entry values `dict` | `dict` |
 | `@app.job(name)` | async callable | entry values `dict` | `dict` |
 | `@app.entry(name, placeholder=..., show=..., font=..., padding=..., width=..., events=...)` | ttk.Entry | `str` | `dict` |
@@ -734,7 +734,7 @@ validated at registration time: an invalid value raises a clear `ValueError`
 naming the option and the allowed values, instead of failing later with a
 `TclError` when the widget is built.
 
-`@app.message` creates an auto-wrapping label. `width` sets initial pixel width; `auto_width=True` (default) tracks parent container resize.
+`@app.message` creates an auto-wrapping label. `width` sets the initial `wraplength` in pixels; `auto_width=True` (default) tracks parent container resize.
 
 ---
 
