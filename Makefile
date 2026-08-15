@@ -1,4 +1,4 @@
-.PHONY: sync test run run-header run-multiscreen run-task-panel run-gallery run-treeview run-paned run-progress run-tab-focus run-du-flat-async run-menubar run-wrap
+.PHONY: sync test run run-header run-multiscreen run-task-panel run-gallery run-treeview run-paned run-progress run-tab-focus run-du-flat-async run-menubar run-wrap run-matplotlib run-svg
 
 PYTHON ?= 3.14
 
@@ -7,6 +7,9 @@ sync:
 
 run: sync
 	uv run --python $(PYTHON) python examples/grid_temp.py
+
+test: sync
+	uv run --python $(PYTHON) pytest -q
 
 run-wrap: sync
 	uv run --python $(PYTHON) python examples/wrap_demo.py
@@ -37,8 +40,12 @@ run-du-flat-async: sync
 
 run-menubar: sync
 	uv run --python $(PYTHON) python examples/menubar_demo.py
-test: sync
-	uv run --python $(PYTHON) pytest -q
+
+run-matplotlib: sync
+	uv run --python $(PYTHON) --extra matplotlib python examples/matplotlib_demo.py
+
+run-svg: sync
+	uv run --python $(PYTHON) python examples/svg_demo.py
 
 run-header: sync
 	uv run --python $(PYTHON) python examples/header_demo.py

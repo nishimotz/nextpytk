@@ -639,15 +639,42 @@ app.run(layout=b.build())
 
 `grid()` options available directly: `padx`, `pady`, `fill`, `expand`, `uniform`.
 
+### Layout model (pack/grid internals)
+
+nextpytk's `Layout` DSL is a thin, declarative layer over Tk's two geometry
+managers. Understanding the underlying model helps you predict how a layout
+behaves when the window resizes.
+
+* **`pack` is a two-phase cavity model.** Each child is placed in order,
+  carving its requested size out of the parent's remaining space (the
+  *cavity*). After every child is placed, any leftover space is distributed
+  **evenly** among the children that set `expand=True`. So basic placement is
+  sequential, but leftover-space distribution is uniform.
+* **Order matters.** Because `pack` carves the cavity in packing order,
+  reordering `section(...)` calls can change the final geometry. This is
+  unlike CSS flexbox, where child order only affects visual order.
+* **`pack` and `grid` cannot be mixed on the same parent.** Tk raises
+  `TclError: conflicting geometry managers` if siblings on one frame use
+  different managers. `Layout` keeps each `section()` on its own frame, so
+  this is normally avoided — but it is the reason `check_layout_conflicts()`
+  exists as a diagnostic.
+* **`expand` ≠ flex-grow.** `pack -expand` distributes leftover space
+  uniformly; it is not a proportional flex factor. `grid`'s
+  `columnconfigure(..., weight=...)` is the proportional equivalent.
+
+> This section is intentionally brief. When the CSS-grid-inspired layout API
+> (ROADMAP 0.5.0) lands, this model will be expanded into a dedicated
+> `docs/layout-model.md`.
+
 ---
 
 ## Widget Reference
 
 | Decorator | Widget | Callback receives | Returns |
 |-----------|--------|-------------------|---------|
-| `@app.label(name, font=..., anchor=..., justify=..., padding=...)` | tk.Label | — | `str` or `dict` |
-| `@app.status(name)` | tk.Label (`role=status` metadata) | — | `str` or `dict` |
-| `@app.message(name, width=..., auto_width=...)` | tk.Label (auto-wrap) | — | `str` or `dict` |
+| `@app.label(name, font=..., anchor=..., justify=..., padding=...)` | ttk.Label | — | `str` or `dict` |
+| `@app.status(name)` | ttk.Label (`role=status` metadata) | — | `str` or `dict` |
+| `@app.message(name, width=..., auto_width=...)` | ttk.Label (auto-wrap via `wraplength`) | — | `str` or `dict` |
 | `@app.button(name, label=..., font=..., enabled_if=...)` | ttk.Button | entry values `dict` | `dict` |
 | `@app.job(name)` | async callable | entry values `dict` | `dict` |
 | `@app.entry(name, placeholder=..., show=..., font=..., padding=..., width=..., events=...)` | ttk.Entry | `str` | `dict` |
@@ -734,7 +761,7 @@ validated at registration time: an invalid value raises a clear `ValueError`
 naming the option and the allowed values, instead of failing later with a
 `TclError` when the widget is built.
 
-`@app.message` creates an auto-wrapping label. `width` sets initial pixel width; `auto_width=True` (default) tracks parent container resize.
+`@app.message` creates an auto-wrapping label. `width` sets the initial `wraplength` in pixels; `auto_width=True` (default) tracks parent container resize.
 
 ---
 
@@ -1004,6 +1031,8 @@ uv run python examples/paired_demo.py           # side-by-side paired layout wit
 uv run python examples/swap_demo.py             # dynamic region switching (Layout.target + @app.swap)
 uv run python examples/bottom_bar_demo.py       # pinned bottom bar (section side="bottom")
 uv run python examples/live_validation.py       # live validation via Tcl-var trace ingest (ingest_trace=True)
+uv run --extra matplotlib python examples/matplotlib_demo.py  # Matplotlib embedded via container()
+uv run python examples/svg_demo.py              # SVG image (requires Tk 9.0+)
 ```
 
 ---

@@ -4,6 +4,36 @@ All notable changes to nextpytk are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.16] — 2026-08-15
+
+### Changed
+
+- Refactored monolithic `app.py` into cohesive internal subsystems while maintaining 100% backward compatibility of all public APIs and 352 test cases:
+  - `a11y/` (`A11yEngine`): Accessibility choke point and TIP 733 / Tk 9.1+ attribute management.
+  - `schema/` (`SchemaExporter`): JSON schema generation for introspection and tooling.
+  - `async_engine/` (`AsyncEngine`): Asyncio event loop integration, `@app.job`, `spawn()`, and cooperative async main loop runner.
+  - `state/` (`StateStore`): Reactive state storage, Tcl write trace ingestion, and Levenshtein validation.
+  - `widget_ops/` (`WidgetRegistrationMixin`, `WidgetBuildersMixin`, `EventHandlersMixin`): Declarative widget registration DSL, Tkinter/ttk widget construction, and GUI event dispatchers.
+  - `app.py`: Streamlined `TkApp` facade coordinating the modular subsystems.
+
+### Fixed
+
+- Core `tk` fallback widgets (`text`, `listbox`, `canvas`) now resolve their
+  colors from the active `ThemeTokens` instead of the frozen `KIZASHI_LIGHT`
+  module constants, so dark mode and custom themes apply consistently.
+- `@app.message` now uses `ttk.Label` with `wraplength` (auto-wrap) instead of
+  the legacy `tk.Message` widget, so it inherits the active ttk theme.
+
+### Added
+
+- `examples/matplotlib_demo.py` demonstrating the official pattern for
+  embedding a Matplotlib `FigureCanvasTkAgg` into a `Layout.container()`
+  slot, with a `@app.scale` driving the plot reactively.
+- `matplotlib` optional dependency (`pip install nextpytk[matplotlib]` /
+  `uv run --extra matplotlib`) and a `make run-matplotlib` target.
+- `examples/svg_demo.py` demonstrating SVG image loading via `tk.PhotoImage`
+  (Tk 9.0+), with a runtime version guard that exits cleanly on Tk 8.6.
+
 ## [0.4.15] — 2026-08-14
 
 ### Added

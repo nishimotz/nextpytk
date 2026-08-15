@@ -635,15 +635,40 @@ app.run(layout=b.build())
 
 `grid()` に直接指定可能なオプション: `padx`, `pady`, `fill`, `expand`, `uniform`。
 
+### レイアウトモデル（pack/grid の内部動作）
+
+nextpytk の `Layout` DSL は、Tk の 2 つのジオメトリマネージャーを薄く宣言的に
+ラップしたものです。内部モデルを理解すると、ウィンドウリサイズ時の挙動を
+予測しやすくなります。
+
+* **`pack` は 2 段階の cavity（空洞）モデル。** 各子ウィジェットは順番に、
+  親の残り領域（cavity）から自分の要求サイズを削り取るように配置されます。
+  全子の配置が終わった後、残った余白は `expand=True` の子に**均等に**分配
+  されます。つまり基本配置は逐次的、余白分配は一括均等です。
+* **順序が結果を変える。** `pack` は packing 順に cavity を削るため、
+  `section(...)` の呼び出し順を変えると最終的な配置が変わります。子の順序が
+  見た目の順序にしか影響しない CSS flexbox とは異なります。
+* **同一親で `pack` と `grid` は混在不可。** 1 つのフレーム上の兄弟
+  ウィジェットが異なるマネージャーを使うと、Tk は
+  `TclError: conflicting geometry managers` を発生させます。`Layout` は各
+  `section()` を個別のフレームに載せるため通常は回避されますが、これが
+  診断用の `check_layout_conflicts()` が存在する理由です。
+* **`expand` は flex-grow ではない。** `pack -expand` は余白を均等分配する
+  もので、比例配分の flex factor ではありません。比例配分に相当するのは
+  `grid` の `columnconfigure(..., weight=...)` です。
+
+> この節は意図的に簡潔にしています。CSS-grid 風レイアウト API（ROADMAP 0.5.0）
+> が実装される際に、このモデルは専用の `docs/layout-model.md` へ拡充されます。
+
 ---
 
 ## Widget Reference
 
 | デコレータ | ウィジェット | コールバック引数 | 返り値 |
 |------------|--------------|------------------|--------|
-| `@app.label(name, font=..., anchor=..., justify=..., padding=...)` | tk.Label | — | `str` または `dict` |
-| `@app.status(name)` | tk.Label（`role=status` メタデータ） | — | `str` または `dict` |
-| `@app.message(name, width=..., auto_width=...)` | tk.Label（自動ラップ） | — | `str` または `dict` |
+| `@app.label(name, font=..., anchor=..., justify=..., padding=...)` | ttk.Label | — | `str` または `dict` |
+| `@app.status(name)` | ttk.Label（`role=status` メタデータ） | — | `str` または `dict` |
+| `@app.message(name, width=..., auto_width=...)` | ttk.Label（`wraplength` による自動ラップ） | — | `str` または `dict` |
 | `@app.button(name, label=..., font=..., enabled_if=...)` | ttk.Button | entry values `dict` | `dict` |
 | `@app.job(name)` | async callable | entry values `dict` | `dict` |
 | `@app.entry(name, placeholder=..., show=..., font=..., padding=..., width=..., events=...)` | ttk.Entry | `str` | `dict` |
@@ -728,7 +753,7 @@ enum 系のオプション（`wrap`, `state`, `orient`, `selectmode`, `mode`）�
 登録時に検証されます。不正な値は、ウィジェット構築時の `TclError` ではなく
 明確な `ValueError`（オプション名と許可値を明記）を即座に発生させます。
 
-`@app.message` は自動ラップのラベルです。`width` は初期ピクセル幅、`auto_width=True`（デフォルト）は親コンテナのリサイズに追従します。
+`@app.message` は自動ラップのラベルです。`width` は初期 `wraplength`（ピクセル幅）、`auto_width=True`（デフォルト）は親コンテナのリサイズに追従します。
 
 ---
 
@@ -986,6 +1011,8 @@ uv run python examples/paired_demo.py           # 左右ペアレイアウト + 
 uv run python examples/swap_demo.py             # 動的領域切り替え（Layout.target + @app.swap）
 uv run python examples/bottom_bar_demo.py       # 下部固定バー（section side="bottom"）
 uv run python examples/live_validation.py       # ライブ検証（Tcl変数 trace 取り込み / ingest_trace=True）
+uv run --extra matplotlib python examples/matplotlib_demo.py  # Matplotlib を container() に埋め込み
+uv run python examples/svg_demo.py              # SVG 画像（Tk 9.0+ が必要）
 ```
 
 ---
