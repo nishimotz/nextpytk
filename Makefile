@@ -1,4 +1,4 @@
-.PHONY: sync test run run-header run-multiscreen run-task-panel run-gallery run-treeview run-paned run-progress run-tab-focus run-du-flat-async run-menubar run-wrap run-matplotlib run-svg
+.PHONY: sync test run run-header run-multiscreen run-task-panel run-gallery run-treeview run-paned run-progress run-tab-focus run-du-flat-async run-menubar run-wrap run-flow run-matplotlib run-svg
 
 PYTHON ?= 3.14
 
@@ -13,6 +13,9 @@ test: sync
 
 run-wrap: sync
 	uv run --python $(PYTHON) python examples/wrap_demo.py
+
+run-flow: sync
+	uv run --python $(PYTHON) python examples/flow_demo.py
 
 run-multiscreen: sync
 	uv run --python $(PYTHON) python examples/multiscreen.py

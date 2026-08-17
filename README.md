@@ -491,7 +491,8 @@ app.run(layout=Layout().wrap("filter", Flex("search", flex=2), "ok", gapx=2))
 
 For custom positioning, `Layout.flow()` takes a `FlowDelegate` (Flutter `Flow`
 analog) that computes each child's `(x, y, width, height)` from the available
-`Constraints`. See `examples/wrap_demo.py` for both `Flex` and `Flow` usage.
+`Constraints`. See `examples/wrap_demo.py` for `Flex` usage and
+`examples/flow_demo.py` for `Flow` usage.
 
 **How it works.** `wrap` and `flow` position children with `place` (absolute
 x/y) because `pack` cannot reflow onto new rows — with `pack -side left` an

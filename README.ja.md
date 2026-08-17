@@ -490,7 +490,8 @@ app.run(layout=Layout().wrap("filter", Flex("search", flex=2), "ok", gapx=2))
 
 カスタム配置が必要なら `Layout.flow()` に `FlowDelegate`（Flutter の `Flow` に
 相当）を渡し、利用可能な `Constraints` から各子の `(x, y, width, height)` を計算
-させます。`Flex` と `Flow` の使い方は `examples/wrap_demo.py` を参照してください。
+させます。`Flex` の使い方は `examples/wrap_demo.py`、`Flow` の使い方は
+`examples/flow_demo.py` を参照してください。
 
 **動作の仕組み。** `wrap` と `flow` は子を `place`（x/y 絶対指定）で配置します。
 `pack -side left` ではみ出した子が画面外に消えるだけのため、`pack` では次の行へ
