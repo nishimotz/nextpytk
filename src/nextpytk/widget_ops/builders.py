@@ -180,7 +180,10 @@ class WidgetBuildersMixin:
         focus-in/out placeholder logic can be skipped.
         """
         try:
-            w.configure(placeholder=ph, placeholderforeground=PLACEHOLDER_FG)
+            # ``placeholder``/``placeholderforeground`` are Tk 9.0 options not
+            # yet in typeshed's ttk.Entry.configure overloads, so pass them as
+            # **kwargs to keep pyright happy.
+            w.configure(**{"placeholder": ph, "placeholderforeground": PLACEHOLDER_FG})
             return True
         except tk.TclError:
             return False
