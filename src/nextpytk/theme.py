@@ -2,6 +2,11 @@
 """
 Kizashi theme setup for ttk. Call apply_theme(root) once, right after
 creating the root window and before building any widgets.
+
+The Kizashi look-and-feel is built on top of the ``clam`` ttk theme: ``clam``
+is a cross-platform, self-drawn theme that honors custom colors and borders
+consistently, unlike the native themes (``aqua`` on macOS, ``vista`` on
+Windows) which delegate drawing to the OS and ignore style overrides.
 """
 
 import sys
@@ -21,8 +26,10 @@ def apply_theme(root: tk.Misc, tokens: t.ThemeTokens | None = None) -> ttk.Style
 
     style = ttk.Style(root)
 
-    # 'clam' is the only built-in theme that honors custom colors/borders
-    # consistently across platforms.
+    # ``clam`` is the most complete cross-platform, self-drawn theme that
+    # honors custom colors/borders consistently (``alt`` also does, but with
+    # fewer widget definitions). Native themes (``aqua``/``vista``) delegate
+    # drawing to the OS and ignore these overrides.
     try:
         style.theme_use("clam")
     except tk.TclError:

@@ -3194,6 +3194,9 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
         var = self._tk_vars.get(name)
         if var is None or not isinstance(w, (tk.Entry, ttk.Entry)):
             return ""
+        if getattr(w, "_nextpytk_ph_native", False):
+            # Native placeholder never writes into the variable.
+            return var.get()
         spec = self._entry_spec(name)
         if spec is not None and spec.placeholder_as_hint:
             if getattr(w, "_nextpytk_ph_active", False):
@@ -3206,6 +3209,8 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
     def _entry_focus_in(self, name: str) -> None:
         try:
             w = self._tk_widgets.get(name)
+            if getattr(w, "_nextpytk_ph_native", False):
+                return
             var = self._tk_vars.get(name)
             if var is None or not isinstance(w, (tk.Entry, ttk.Entry)):
                 return
@@ -3229,6 +3234,8 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
     def _entry_focus_out(self, name: str) -> None:
         try:
             w = self._tk_widgets.get(name)
+            if getattr(w, "_nextpytk_ph_native", False):
+                return
             var = self._tk_vars.get(name)
             if var is None or not isinstance(w, (tk.Entry, ttk.Entry)):
                 return
@@ -3250,6 +3257,9 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
 
     def _apply_entry_value_after_state(self, name: str, w: tk.Entry | ttk.Entry,
                                         var: tk.Variable, s: str) -> None:
+        if getattr(w, "_nextpytk_ph_native", False):
+            # Native placeholder is independent of the variable; nothing to do.
+            return
         spec = self._entry_spec(name)
         if spec is None or not spec.placeholder_as_hint:
             setattr(w, "_nextpytk_ph_active", False)
