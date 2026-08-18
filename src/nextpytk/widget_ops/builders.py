@@ -160,21 +160,45 @@ class WidgetBuildersMixin:
                 w.configure(**{opt: e[opt]})
         if spec.placeholder_as_hint and spec.placeholder:
             ph = spec.placeholder
-            var.set(ph)
-            setattr(w, "_nextpytk_ph_active", True)
-            setattr(w, "_nextpytk_placeholder", ph)
-            try:
-                setattr(w, "_nextpytk_fg_normal", w.cget("foreground"))
-                w.configure(foreground=PLACEHOLDER_FG)
-            except Exception:
-                setattr(w, "_nextpytk_fg_normal", None)
-            w.bind("<FocusIn>", lambda _e, n=spec.name: getattr(self, "_entry_focus_in")(n))
-            w.bind("<FocusOut>", lambda _e, n=spec.name: getattr(self, "_entry_focus_out")(n))
+            if self._try_native_placeholder(w, ph):
+                # Tk 9.0+ native ``-placeholder``: shown when the entry is
+                # empty and unfocused, and never written into the variable.
+                setattr(w, "_nextpytk_ph_native", True)
+                setattr(w, "_nextpytk_placeholder", ph)
+            else:
+                self._setup_manual_placeholder(w, spec, var, ph)
         if spec.on_update is not None:
             fn = spec.on_update
             w.bind("<KeyRelease>", lambda _e, s=spec, f=fn: getattr(self, "_on_entry_change")(s, f))
         for sequence, handler in e.get("events", {}).items():
             w.bind(sequence, lambda _e, h=handler: getattr(self, "_on_entry_event")(h))
+
+    def _try_native_placeholder(self, w: ttk.Entry, ph: str) -> bool:
+        """Apply Tk 9.0's native ``-placeholder`` option when available.
+
+        Returns True when the native option was configured, so the manual
+        focus-in/out placeholder logic can be skipped.
+        """
+        try:
+            w.configure(placeholder=ph, placeholderforeground=PLACEHOLDER_FG)
+            return True
+        except tk.TclError:
+            return False
+
+    def _setup_manual_placeholder(
+        self, w: ttk.Entry, spec: WidgetSpec, var: tk.StringVar, ph: str
+    ) -> None:
+        """Fallback placeholder: prefill the variable and recolor on focus."""
+        var.set(ph)
+        setattr(w, "_nextpytk_ph_active", True)
+        setattr(w, "_nextpytk_placeholder", ph)
+        try:
+            setattr(w, "_nextpytk_fg_normal", w.cget("foreground"))
+            w.configure(foreground=PLACEHOLDER_FG)
+        except Exception:
+            setattr(w, "_nextpytk_fg_normal", None)
+        w.bind("<FocusIn>", lambda _e, n=spec.name: getattr(self, "_entry_focus_in")(n))
+        w.bind("<FocusOut>", lambda _e, n=spec.name: getattr(self, "_entry_focus_out")(n))
 
     def _build_checkbutton(self, spec: WidgetSpec, master: tk.Misc) -> None:
         e = spec.extras

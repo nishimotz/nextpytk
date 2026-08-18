@@ -22,6 +22,12 @@
 - [ ] Per-widget `bind` for other widgets (`text`, `combobox`, `treeview`, `button`, etc.)
 - [ ] `@app.filepicker` — `filedialog` wrapper (schema/tool naming still open)
 
+### Tk 9.0 new widget options
+
+- [ ] `ttk::progressbar -text` — expose the new `-text` option on `@app.progressbar`
+- [ ] `$frame -backgroundimage` / `-tile` — expose background-image/tile options on frames
+- [ ] `$menu id` — expose menu item `id` option on `@app.menubar` / submenus
+
 ### Layout DSL
 
 - [ ] CSS-grid-inspired layout API for 0.5.0: explicit `grid-template-columns` / `grid-template-rows` strings (e.g. `"1fr 2fr"`, `"auto 1fr"`), area-based placement, and gap tokens. Reduce misuse by making rows/columns and widget placement visually aligned in one declaration.

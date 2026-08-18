@@ -4,6 +4,29 @@ All notable changes to nextpytk are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.17] — 2026-08-18
+
+### Added
+
+- `@app.entry` placeholder now uses Tk 9.0's native `-placeholder` /
+  `-placeholderforeground` options when available (detected at build time via
+  `_try_native_placeholder`). The native placeholder is shown only when the
+  entry is empty and unfocused, and is never written into the `StringVar`, so
+  the effective value stays clean. On Tk 8.6 the previous manual
+  prefill-and-recolor fallback (`_setup_manual_placeholder`) is used unchanged.
+- Documented in `theme.py` that the Kizashi look-and-feel is built on the
+  `clam` ttk theme (a cross-platform, self-drawn theme that honors custom
+  colors/borders), and corrected the misleading "only built-in theme" comment
+  to note that `alt` also honors overrides but with fewer widget definitions.
+- Added a "Tk 9.0 new widget options" section to `ROADMAP.md` tracking
+  `ttk::progressbar -text`, `$frame -backgroundimage`/`-tile`, and `$menu id`.
+
+### Changed
+
+- `_entry_effective_value`, `_entry_focus_in`, `_entry_focus_out`, and
+  `_apply_entry_value_after_state` now early-return when a native placeholder
+  is active, since Tk manages the placeholder independently of the variable.
+
 ## [0.4.16] — 2026-08-15
 
 ### Changed
