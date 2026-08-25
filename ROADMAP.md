@@ -53,17 +53,19 @@
 
 ## Design direction (from Perl/Tk / SQLAlchemy insights)
 
-nextpytk is not a "Tk reimplementation" (Perl/Tk's trap) — it is a thin layer of state-driven abstraction on top of Tk (HTMX-inspired "state is truth, widgets retained, fragment updates"). The 10-point hint list maps to concrete projects as follows:
+nextpytk is not a "Tk reimplementation" (Perl/Tk's trap) — it is a thin layer of state-driven abstraction on top of Tk (HTMX-inspired "state is truth, widgets retained, fragment updates"). Where this leads concretely:
 
-- [x] 4. Hand-written `_sync_*` / `_reconcile_*` → declarative IR: `TkApp.sync_map()` (0.4.18).
-- [x] 6. Batch API: `TkApp.batch()` + no-op filtering in `apply_state()` (0.4.18).
-- [x] 9. A11y as first-class: `apply_state()` auto-emits `set_acc_value` / `emit_selection_change` via `sync_map()` (0.4.18).
+Done in 0.4.18:
 
-Deferred candidates (to schedule into 0.5.0+):
+- [x] Declarative sync IR: `TkApp.sync_map()` consolidates the scattered `_sync_*` / `_reconcile_*` knowledge (which state key feeds which widget aspect) into one mapping.
+- [x] Batch API: `TkApp.batch()` + no-op filtering in `apply_state()`.
+- [x] A11y as first-class: `apply_state()` auto-emits `set_acc_value` / `emit_selection_change` via `sync_map()`.
 
-- [ ] 5. Generic fragment swap: unify per-kind sync (`_sync_text_widget` / `_sync_listbox_items` / `_sync_combobox_values`) into a single declarative patch pass driven by `sync_map()` parts, in the spirit of `hx-swap`. The existing `app.swap()` / `swap_view()` already provide region-level swap; this item targets content-level fragment updates.
-- [ ] 8. Event loop modernization: merge the blocking `mainloop()` path and the cooperative `async_mainloop()` behind a single user-facing surface, and document/relax the current constraint that asyncio tasks must not touch Tk directly (must marshal via `async_poll` / `after`).
-- [ ] 7. Compiled command caching: reuse structure-identical Tcl calls (`configure`, `delete`, `insert`, treeview `insert`) as pre-built `Tcl_Obj` argument vectors instead of re-parsing Python strings per call. Layer on top of 6 (batch) and 4 (IR) so the IR nodes carry the command templates.
+Deferred candidates (0.5.0+):
+
+- [ ] Generic fragment swap: unify per-kind sync paths (`_sync_text_widget` / `_sync_listbox_items` / `_sync_combobox_values`) into a single patch pass driven by `sync_map()` parts, in the spirit of `hx-swap`. `app.swap()` / `swap_view()` already cover region-level swap; this item targets content-level fragment updates.
+- [ ] Event loop modernization: merge the blocking `mainloop()` path and the cooperative `async_mainloop()` behind a single user-facing API, and relax the current constraint that asyncio tasks must marshal Tk access via `async_poll` / `after`.
+- [ ] Compiled command caching: reuse structure-identical Tcl calls (`configure`, `delete`, `insert`, treeview `insert`) as pre-compiled `Tcl_Obj` templates instead of re-parsing Python strings per call. Stacks on top of `batch()` and `sync_map()` so IR nodes eventually carry their own command templates.
 
 ---
 
