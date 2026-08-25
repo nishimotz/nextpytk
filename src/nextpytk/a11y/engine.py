@@ -55,22 +55,22 @@ class A11yEngine:
             if not self.call_accessible(root, "set_acc_role", str(frame), "Grouping"):
                 return
 
-    def emit_selection_change(self, root: tk.Misc | None, target: tk.Widget | None) -> None:
+    def emit_selection_change(self, root: tk.Misc | None, target: tk.Widget | None) -> bool:
         """Notify AT that the selection of target has changed."""
         if target is None:
-            return
-        self.call_accessible(root, "emit_selection_change", str(target))
+            return False
+        return self.call_accessible(root, "emit_selection_change", str(target))
 
     def emit_value_change(
         self,
         root: tk.Misc | None,
         target: tk.Widget | None,
         value: str,
-    ) -> None:
+    ) -> bool:
         """Notify AT that the value of target has changed."""
         if target is None:
-            return
-        self.call_accessible(root, "set_acc_value", str(target), value)
+            return False
+        return self.call_accessible(root, "set_acc_value", str(target), value)
 
     def emit_state_change(
         self,

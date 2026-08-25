@@ -1906,6 +1906,21 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
         finally:
             self._ingest_trace = prev
 
+    def batch(self, *updates: dict[str, Any]) -> None:
+        """Apply multiple ``apply_state`` dicts in one coalesced pass.
+
+        Later dicts override earlier ones, identical no-op values are already
+        filtered out, and each ``apply_state`` semantic (menubar, a11y, etc.)
+        runs once per batch instead of once per key. Use for bulk updates
+        where you would otherwise call ``apply_state`` in a loop.
+        """
+        if not updates:
+            return
+        merged: dict[str, Any] = {}
+        for up in updates:
+            merged.update(up)
+        self._apply_state_dict(merged, full=False)
+
     def widget_kind(self, name: str) -> str | None:
         for w in self._widgets:
             if w.name == name:
@@ -2120,6 +2135,94 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
             if w.name == name:
                 return w
         return None
+
+    # ── state → widget sync IR (single source of truth) ──
+
+    def sync_map(self) -> dict[str, list[tuple[WidgetSpec, tuple[str, ...]]]]:
+        """IR for state-driven widget sync: which state keys feed which widget parts.
+
+        Returns a dict mapping each state key to a list of ``(spec, parts)``
+        entries, where *parts* names the widget aspects derived from that key
+        (e.g. ``"text"``, ``"items"``, ``"rows"``, ``"selection"``,
+        ``"value"``, ``"mode"``, ``"running"``).
+
+        This is the declarative counterpart of the hand-written ``_sync_*``
+        methods: it is derived from the same ``WidgetSpec.extras`` key
+        conventions and is used to drive change detection and automatic a11y
+        announcements. Only state keys that affect widget visuals/values are
+        included; keys handled separately (``enabled_if`` gating, menubar
+        enablement, stage switching) are intentionally not listed.
+        """
+        out: dict[str, list[tuple[WidgetSpec, tuple[str, ...]]]] = {}
+
+        def add(key: str | None, spec: WidgetSpec, *parts: str) -> None:
+            if key is None:
+                return
+            out.setdefault(str(key), []).append((spec, tuple(parts)))
+
+        for spec in self._widgets:
+            if not spec.sync:
+                continue
+            k = spec.kind
+            if k in ("label", "status", "message"):
+                add(spec.name, spec, "text")
+            elif k == "button":
+                add(spec.name, spec, "text")
+            elif k == "text":
+                add(spec.name, spec, "text")
+            elif k == "listbox":
+                add(spec.extras.get("items_key"), spec, "items")
+                add(spec.name, spec, "selection")
+            elif k == "treeview":
+                add(spec.extras.get("rows_key", f"{spec.name}_rows"), spec, "rows")
+                add(spec.name, spec, "selection")
+            elif k == "combobox":
+                add(spec.extras.get("values_key"), spec, "values")
+                add(spec.extras.get("state_key", spec.name), spec, "value")
+            elif k == "progressbar":
+                add(spec.extras.get("state_key", spec.name), spec, "value")
+                add(f"{spec.name}_mode", spec, "mode")
+                add(f"{spec.name}_running", spec, "running")
+            elif k == "checkbutton":
+                add(spec.extras.get("state_key", spec.name), spec, "value")
+            elif k == "radiobutton":
+                add(spec.extras.get("group_key", "radio"), spec, "value")
+            elif k == "scale":
+                add(spec.extras.get("state_key", spec.name), spec, "value")
+            elif k == "spinbox":
+                add(spec.extras.get("state_key", spec.name), spec, "value")
+            elif k == "entry":
+                add(spec.name, spec, "value")
+        return out
+
+    def _sync_a11y_for_keys(self, keys: set[str]) -> None:
+        """Auto-emit a11y notifications for widgets rendered from *keys*.
+
+        Derived from :meth:`sync_map`: text-bearing widgets announce their new
+        value, progressbars announce new values, and listbox/treeview
+        selection keys emit ``selection_change``. Structural swaps (treeview
+        rows, listbox items, combobox values) already emit their own
+        notifications inside the corresponding ``_sync_*`` methods and are not
+        double-announced here. No-op on Tk < 9.1 (``A11yEngine`` then
+        short-circuits without Tcl calls).
+        """
+        if self._a11y.acc_supported is False:
+            return
+        sm = self.sync_map()
+        announced: set[str] = set()
+        for key in keys:
+            for spec, parts in sm.get(key, ()):
+                if spec.name in announced:
+                    continue
+                if parts and parts[0] in ("text", "value"):
+                    if self._emit_a11y_value_change(spec):
+                        announced.add(spec.name)
+        # Selection keys are announced in the same loop via "selection" parts.
+        for key in keys:
+            for spec, parts in sm.get(key, ()):
+                if "selection" in parts and spec.name not in announced:
+                    if self._emit_a11y_selection_change(spec):
+                        announced.add(spec.name)
 
     def apply_state(self, update: dict[str, Any]) -> None:
         self._apply_state(update)
@@ -2997,7 +3100,17 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
                 else:
                     update_to_apply.pop(stage_key, None)
 
+        # Compute which keys actually changed (or were previously missing)
+        # so we can skip no-op writes and avoid unnecessary sync work.
+        changed = {
+            k
+            for k, v in update_to_apply.items()
+            if k not in self._state or self._state[k] != v
+        }
+        update_to_apply = {k: update_to_apply[k] for k in changed}
+
         self._state.update(update_to_apply)
+
         # Mark the keys being written by the framework so their write traces
         # (if ingest_trace is on) do not loop the value back into state.
         self._syncing_var_keys.update(update_to_apply)
@@ -3039,6 +3152,11 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
             self._render_stage(new_stage, key=key, centered=centered)
             # Keep state in sync with the rendered stage.
             self._state[key] = new_stage
+
+        # Auto-announce a11y value/selection changes for widgets whose state
+        # actually changed (driven declaratively by ``sync_map()``).
+        if update_to_apply:
+            self._sync_a11y_for_keys(set(update_to_apply))
 
     def _register_var(self, key: str, var: tk.Variable) -> None:
         """Register a Tcl variable under *key*, installing an ingest trace."""
@@ -3385,36 +3503,30 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
         return tuple(parts)
 
     def _treeview_update_touches_rows(self, update: dict[str, Any]) -> bool:
-        for spec in self._widgets:
-            if spec.kind != "treeview" or not spec.sync:
-                continue
-            rows_key = spec.extras.get("rows_key", f"{spec.name}_rows")
-            if rows_key in update:
-                return True
-        return False
+        return self._touches_kind(
+            update, "treeview", lambda sp: sp.extras.get("rows_key", f"{sp.name}_rows")
+        )
 
     def _treeview_update_touches_selection(self, update: dict[str, Any]) -> bool:
         """True when *update* carries a treeview selection index (not row data)."""
-        for spec in self._widgets:
-            if spec.kind == "treeview" and spec.sync and spec.name in update:
-                return True
-        return False
+        return self._touches_kind(update, "treeview", lambda sp: sp.name)
 
     def _sync_widgets_for_keys(self, update: dict[str, Any]) -> None:
-        """Update only label/status/message/button/text widgets named in *update*."""
-        for spec in self._widgets:
-            if not spec.sync:
+        """Update only widgets named in *update*; no-op updates already filtered out."""
+        touched = set(update)
+        spec_by_name = {s.name: s for s in self._widgets}
+        for key in touched:
+            spec = spec_by_name.get(key)
+            if spec is None or not spec.sync:
                 continue
             if spec.kind in ("label", "status", "message", "button"):
-                if spec.name not in update:
-                    continue
                 tk_w = self._tk_widgets.get(spec.name)
                 if tk_w is None:
                     continue
-                target = str(update[spec.name])
+                target = str(update[key])
                 if str(tk_w.cget("text")) != target:
                     tk_w.configure(text=target)  # type: ignore[call-arg]
-            elif spec.kind == "text" and spec.name in update:
+            elif spec.kind == "text":
                 self._sync_text_widget(spec)
 
     def _listbox_items(self, spec: WidgetSpec) -> list[str]:
@@ -3425,16 +3537,25 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
             items = spec.extras.get("items", [])
         return [str(item) for item in items] if isinstance(items, list) else []
 
-    def _listbox_update_touches_items(self, update: dict[str, Any]) -> bool:
+    def _touches_kind(
+        self,
+        update: dict[str, Any],
+        kind: str,
+        key_fn: Callable[[WidgetSpec], str | None],
+    ) -> bool:
+        """Return True when *update* touches any ``key_fn(spec)`` for specs of *kind*."""
         for spec in self._widgets:
-            if spec.kind != "listbox":
+            if spec.kind != kind or not spec.sync:
                 continue
-            items_key = spec.extras.get("items_key")
-            if items_key is None:
-                continue
-            if items_key in update:
+            key = key_fn(spec)
+            if key is not None and key in update:
                 return True
         return False
+
+    def _listbox_update_touches_items(self, update: dict[str, Any]) -> bool:
+        return self._touches_kind(
+            update, "listbox", lambda sp: sp.extras.get("items_key")
+        )
 
     def _sync_listbox_items(self, spec: WidgetSpec) -> None:
         w = self._tk_widgets.get(spec.name)
@@ -3477,15 +3598,9 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
         return [str(v) for v in values] if isinstance(values, list) else []
 
     def _combobox_update_touches_values(self, update: dict[str, Any]) -> bool:
-        for spec in self._widgets:
-            if spec.kind != "combobox":
-                continue
-            values_key = spec.extras.get("values_key")
-            if values_key is None:
-                continue
-            if values_key in update:
-                return True
-        return False
+        return self._touches_kind(
+            update, "combobox", lambda sp: sp.extras.get("values_key")
+        )
 
     def _sync_combobox_values(self, spec: WidgetSpec) -> None:
         w = self._tk_widgets.get(spec.name)
@@ -4002,15 +4117,15 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
         frames = [f for f in self._widget_masters.values() if isinstance(f, (tk.Misc,))]
         self._a11y.apply_to_layout_frames(self._root, frames)
 
-    def _emit_a11y_selection_change(self, spec: WidgetSpec) -> None:
-        """Notify AT that the selection of *spec* has changed."""
-        self._a11y.emit_selection_change(self._root, self._a11y_target(spec))
+    def _emit_a11y_selection_change(self, spec: WidgetSpec) -> bool:
+        """Notify AT that the selection of *spec* has changed. Returns False on Tk < 9.1."""
+        return self._a11y.emit_selection_change(self._root, self._a11y_target(spec))
 
-    def _emit_a11y_value_change(self, spec: WidgetSpec) -> None:
-        """Notify AT that the value of *spec* has changed."""
+    def _emit_a11y_value_change(self, spec: WidgetSpec) -> bool:
+        """Notify AT that the value of *spec* has changed. Returns False on Tk < 9.1."""
         key = spec.extras.get("state_key", spec.name)
         value = str(self._state.get(key, ""))
-        self._a11y.emit_value_change(self._root, self._a11y_target(spec), value)
+        return self._a11y.emit_value_change(self._root, self._a11y_target(spec), value)
 
     def _emit_a11y_state_change(self, spec: WidgetSpec) -> None:
         """Notify AT that the checked/selected state of *spec* has changed."""

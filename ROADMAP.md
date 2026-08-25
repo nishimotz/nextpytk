@@ -10,7 +10,7 @@
 - [ ] `@app.status` live-region behavior (ARIA `aria-live` equivalent / WCAG 4.1.3)
 - [ ] Tk 9.1 `tk accessible set_acc_*` real-device verification (9.1b0 + NVDA)
 - [ ] Role vocabulary mapping to Tk side
-- [ ] Automatic `emit_selection_change` (leverage `apply_state` knowing which widgets changed)
+- [x] Automatic `emit_selection_change` / `set_acc_value` (done in 0.4.18 via `sync_map()` IR) — applies to text, value, and selection changes on Tk 9.1+
 
 ### Type hints
 

@@ -960,6 +960,29 @@ nextpytk is declarative, but it does not restrict raw Tkinter flexibility. When 
        app.eval('...')
    ```
 
+8. **Coalesced Bulk State Updates (`app.batch(...)`)**:
+   Apply a series of state dicts in one reactive pass. Identical no-op values are filtered automatically, and `apply_state` semantics (menubar, a11y, widget sync) run once per batch instead of once per key.
+   ```python
+   app.batch({"status": "scanning"}, {"tree_rows": [1, 2, 3]})
+   ```
+
+---
+
+## State → Widget Sync IR (`sync_map()`)
+
+`app.sync_map()` is the declarative intermediate representation that states: *which* state key drives *which* widget aspect (text, value, rows, items, selection, mode, running). `apply_state()` consults it to:
+
+- Skip no-op writes (unchanged values don't trigger widget sync).
+- Auto-announce accessibility events (`set_acc_value` / `emit_selection_change` on Tk 9.1+).
+- Route per-kind sync work (treeview/listbox/combobox) through a single mapping instead of hand-written branches.
+
+Widgets registered with `sync=False` are excluded from the IR and never touched by `apply_state`.
+
+```python
+app.sync_map()
+# → {"msg": [(WidgetSpec(...), ("text",))], "results_rows": [...]}
+```
+
 ---
 
 ## Customizing Themes & Design Tokens

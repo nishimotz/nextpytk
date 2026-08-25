@@ -4,6 +4,42 @@ All notable changes to nextpytk are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `TkApp.batch(*updates)`: coalesce multiple `apply_state()` dicts into a
+  single state-sync pass. Identical values are already filtered out, and
+  dependent work (menubar enablement, a11y emissions, widget resync) runs once
+  per batch instead of once per key — reducing `Tcl_Eval` round-trips during
+  bulk updates.
+- `TkApp.sync_map()` — declarative sync IR. Returns a dict mapping each state
+  key to a list of `(widget_spec, parts)` entries describing *which* state key
+  drives *which* widget aspect (text, value, rows, items, selection, mode,
+  running). This is the single source of truth behind the hand-written
+  `_sync_*` methods, and is used by `apply_state()` to (a) filter no-op
+  updates (only changed keys trigger widget sync) and (b) auto-announce a11y
+  events for affected widgets. Specs with `sync=False` are excluded from the
+  IR.
+- Automatic a11y emission on state change: when `apply_state()` changes a
+  widget's text/value/selection, nextpytk now emits `set_acc_value` /
+  `emit_selection_change` (Tk 9.1+) without needing a manual call. The
+  `A11yEngine.emit_*` helpers now return `bool` so callers can test support.
+- `tests/test_batch.py`, `tests/test_sync_ir.py` covering the new APIs.
+
+### Changed
+
+- `apply_state()` now filters no-op values before running sync passes —
+  unchanged keys do not trigger `var.set`, widget `configure`, or
+  `enabled_if` evaluation. This is a performance improvement, not a
+  behavior change.
+- `_sync_widgets_for_keys` and per-kind `*_update_touches_*` helpers are
+  now routed through the declarative IR (`sync_map()`) and a shared
+  `_touches_kind` helper, replacing several hand-rolled per-kind branches.
+- Widget-level sync calls (`_sync_widgets_for_keys`, `_sync_treeview`,
+  `_sync_listbox`, `_sync_combobox`, `_sync_widget_states`) now skip
+  unchanged values entirely instead of recomputing them on every `apply_state`.
+
 ## [0.4.17] — 2026-08-18
 
 ### Added
