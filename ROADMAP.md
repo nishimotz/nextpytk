@@ -51,6 +51,22 @@
 
 ---
 
+## Design direction (from Perl/Tk / SQLAlchemy insights)
+
+nextpytk is not a "Tk reimplementation" (Perl/Tk's trap) — it is a thin layer of state-driven abstraction on top of Tk (HTMX-inspired "state is truth, widgets retained, fragment updates"). The 10-point hint list maps to concrete projects as follows:
+
+- [x] 4. Hand-written `_sync_*` / `_reconcile_*` → declarative IR: `TkApp.sync_map()` (0.4.18).
+- [x] 6. Batch API: `TkApp.batch()` + no-op filtering in `apply_state()` (0.4.18).
+- [x] 9. A11y as first-class: `apply_state()` auto-emits `set_acc_value` / `emit_selection_change` via `sync_map()` (0.4.18).
+
+Deferred candidates (to schedule into 0.5.0+):
+
+- [ ] 5. Generic fragment swap: unify per-kind sync (`_sync_text_widget` / `_sync_listbox_items` / `_sync_combobox_values`) into a single declarative patch pass driven by `sync_map()` parts, in the spirit of `hx-swap`. The existing `app.swap()` / `swap_view()` already provide region-level swap; this item targets content-level fragment updates.
+- [ ] 8. Event loop modernization: merge the blocking `mainloop()` path and the cooperative `async_mainloop()` behind a single user-facing surface, and document/relax the current constraint that asyncio tasks must not touch Tk directly (must marshal via `async_poll` / `after`).
+- [ ] 7. Compiled command caching: reuse structure-identical Tcl calls (`configure`, `delete`, `insert`, treeview `insert`) as pre-built `Tcl_Obj` argument vectors instead of re-parsing Python strings per call. Layer on top of 6 (batch) and 4 (IR) so the IR nodes carry the command templates.
+
+---
+
 ## Longer term
 
 ##Remove deprecated `Layout().grid().widget(...)`; use `Layout().grid().cell(...)` instead.

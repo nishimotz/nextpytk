@@ -970,7 +970,7 @@ nextpytk is declarative, but it does not restrict raw Tkinter flexibility. When 
 
 ## State → Widget Sync IR (`sync_map()`)
 
-`app.sync_map()` is the declarative intermediate representation that states: *which* state key drives *which* widget aspect (text, value, rows, items, selection, mode, running). `apply_state()` consults it to:
+`app.sync_map()` is the declarative intermediate representation: *which* state key drives *which* widget aspect (text, value, rows, items, selection, mode, running). `apply_state()` consults it to:
 
 - Skip no-op writes (unchanged values don't trigger widget sync).
 - Auto-announce accessibility events (`set_acc_value` / `emit_selection_change` on Tk 9.1+).
