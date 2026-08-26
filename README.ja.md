@@ -948,6 +948,23 @@ nextpytk は宣言型フレームワークですが、素の Tkinter の柔軟�
 
 ---
 
+## 状態→ウィジェット同期 IR（`sync_map()`）
+
+`app.sync_map()` は、「どの状態キーが、どのウィジェットのどの部分（text, value, rows, items, selection, mode, running）を駆動するか」を記述した宣言的な中間表現（IR）です。`apply_state()` はこの IR を参照して以下を判断します。
+
+- **No-op 書き込みのスキップ** — 変更のない値はウィジェット同期を起動しない
+- **アクセシビリティ自動アナウンス** — Tk 9.1+ で `set_acc_value` / `emit_selection_change` を自動発火
+- **種別ごとの再同期**（treeview / listbox / combobox 等）を個別のハンドラに散らすのではなく、単一のマッピングとして管理
+
+`sync=False` を指定したウィジェットは IR から除外され、`apply_state` による書き換えも行われません。
+
+```python
+app.sync_map()
+# → {"msg": [(WidgetSpec(...), ("text",))], "results_rows": [...]}
+```
+
+---
+
 ## テーマとデザインシステムのカスタマイズ
 
 nextpytk は、美しく統一された **Kizashi（兆）デザインシステム** をデフォルトで備えていますが、テーマや配色のカスタマイズ、外部 ttk テーマの導入も自由に行えます。
