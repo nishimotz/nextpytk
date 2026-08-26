@@ -1906,21 +1906,6 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
         finally:
             self._ingest_trace = prev
 
-    def batch(self, *updates: dict[str, Any]) -> None:
-        """Apply multiple ``apply_state`` dicts in one coalesced pass.
-
-        Later dicts override earlier ones, identical no-op values are already
-        filtered out, and each ``apply_state`` semantic (menubar, a11y, etc.)
-        runs once per batch instead of once per key. Use for bulk updates
-        where you would otherwise call ``apply_state`` in a loop.
-        """
-        if not updates:
-            return
-        merged: dict[str, Any] = {}
-        for up in updates:
-            merged.update(up)
-        self._apply_state_dict(merged, full=False)
-
     def widget_kind(self, name: str) -> str | None:
         for w in self._widgets:
             if w.name == name:
@@ -2224,8 +2209,20 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
                     if self._emit_a11y_selection_change(spec):
                         announced.add(spec.name)
 
-    def apply_state(self, update: dict[str, Any]) -> None:
-        self._apply_state(update)
+    def apply_state(self, update: dict[str, Any], *, full: bool = True) -> None:
+        """Merge *update* into state and refresh widgets.
+
+        ``full=True`` (default): resync all widgets (legacy behavior).
+        ``full=False``: only resync widgets whose keys actually changed
+        (partial sync). Use for high-throughput or incremental updates where
+        you know the changed keys up front — no-op values are filtered either
+        way, and ``full=False`` skips the full widget sweep.
+        """
+        if not isinstance(update, dict):
+            raise TypeError(
+                f"apply_state expects a dict, got {type(update).__name__}"
+            )
+        self._apply_state_dict(update, full=full)
 
     def _apply_initial_state(self, initial_state: dict[str, Any]) -> None:
         """Apply initial state, registering its keys as app-declared.

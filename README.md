@@ -960,10 +960,10 @@ nextpytk is declarative, but it does not restrict raw Tkinter flexibility. When 
        app.eval('...')
    ```
 
-8. **Coalesced Bulk State Updates (`app.batch(...)`)**:
-   Apply a series of state dicts in one reactive pass. Identical no-op values are filtered automatically, and `apply_state` semantics (menubar, a11y, widget sync) run once per batch instead of once per key.
+8. **Partial State Sync (`apply_state(..., full=False)`)**:
+   By default `apply_state` resyncs all widgets. Pass `full=False` to resync only the widgets whose keys actually changed — handy for high-frequency or incremental updates where you know the changed keys up front. No-op values are filtered either way.
    ```python
-   app.batch({"status": "scanning"}, {"tree_rows": [1, 2, 3]})
+   app.apply_state({"status": "scanning", "tree_rows": [1, 2, 3]}, full=False)
    ```
 
 ---

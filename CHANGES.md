@@ -8,11 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- `TkApp.batch(*updates)`: coalesce multiple `apply_state()` dicts into a
-  single state-sync pass. Identical values are already filtered out, and
-  dependent work (menubar enablement, a11y emissions, widget resync) runs once
-  per batch instead of once per key — reducing `Tcl_Eval` round-trips during
-  bulk updates.
+- `apply_state(update, *, full=False)`: partial sync option. `full=True`
+  (default) resyncs all widgets (legacy behavior); `full=False` only resyncs
+  widgets whose keys actually changed. Identical no-op values are filtered in
+  either mode, so dependent work (menubar enablement, a11y emissions, widget
+  resync) is skipped for unchanged keys — reducing `Tcl_Eval` round-trips
+  during high-throughput or incremental updates.
 - `TkApp.sync_map()` — declarative sync map. Returns a dict mapping each state
   key to a list of `(widget_spec, parts)` entries describing *which* state key
   drives *which* widget aspect (text, value, rows, items, selection, mode,
@@ -25,9 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   widget's text/value/selection, nextpytk now emits `set_acc_value` /
   `emit_selection_change` (Tk 9.1+) without needing a manual call. The
   `A11yEngine.emit_*` helpers now return `bool` so callers can test support.
-- `tests/test_batch.py`, `tests/test_sync_map.py` covering the new APIs.
-- `examples/progress_demo.py` now uses `app.batch()` to apply progress + status
-  in a single reactive pass (showcasing the batch API).
+- `tests/test_apply_state_full.py`, `tests/test_sync_map.py` covering the new
+  behaviors.
+- `examples/progress_demo.py` now uses `apply_state(..., full=False)` to apply
+  progress + status via partial sync (showcasing the keyword).
 
 ### Changed
 
