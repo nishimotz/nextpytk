@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `emit_selection_change` (Tk 9.1+) without needing a manual call. The
   `A11yEngine.emit_*` helpers now return `bool` so callers can test support.
 - `tests/test_batch.py`, `tests/test_sync_map.py` covering the new APIs.
+- `examples/progress_demo.py` now uses `app.batch()` to apply progress + status
+  in a single reactive pass (showcasing the batch API).
 
 ### Changed
 
