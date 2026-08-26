@@ -10,7 +10,7 @@
 - [ ] `@app.status` live-region behavior (ARIA `aria-live` equivalent / WCAG 4.1.3)
 - [ ] Tk 9.1 `tk accessible set_acc_*` real-device verification (9.1b0 + NVDA)
 - [ ] Role vocabulary mapping to Tk side
-- [ ] Automatic `emit_selection_change` (leverage `apply_state` knowing which widgets changed)
+- [x] Automatic `emit_selection_change` / `set_acc_value` (done in 0.4.18 via `sync_map()`) — applies to text, value, and selection changes on Tk 9.1+
 
 ### Type hints
 
@@ -48,6 +48,24 @@
 - Remove deprecated index-order plural methods `col_weights`/`row_weights`/`col_minsizes`/`row_minsizes` and `Layout.cluster()` alias.
 - Decouple `Layout().header()` / `.status()` chrome from Kizashi-specific tokens so they render safely with any ttk theme (`"none"`, `"clam"`, etc.).
 - Extract Kizashi as a standalone ttk theme package so it can be proposed upstream or reused independently of nextpytk.
+
+---
+
+## Design direction (from Perl/Tk / SQLAlchemy insights)
+
+nextpytk is not a "Tk reimplementation" (Perl/Tk's trap) — it is a thin layer of state-driven abstraction on top of Tk (HTMX-inspired "state is truth, widgets retained, fragment updates"). Where this leads concretely:
+
+Done in 0.4.18:
+
+- [x] Declarative sync map: `TkApp.sync_map()` consolidates the scattered `_sync_*` / `_reconcile_*` knowledge (which state key feeds which widget aspect) into one mapping.
+- [x] Partial sync: `apply_state(update, *, full=False)` + no-op filtering in `apply_state()`.
+- [x] A11y as first-class: `apply_state()` auto-emits `set_acc_value` / `emit_selection_change` via `sync_map()`.
+
+Deferred candidates (0.5.0+):
+
+- [ ] Generic fragment swap: unify per-kind sync paths (`_sync_text_widget` / `_sync_listbox_items` / `_sync_combobox_values`) into a single patch pass driven by `sync_map()` parts, in the spirit of `hx-swap`. `app.swap()` / `swap_view()` already cover region-level swap; this item targets content-level fragment updates.
+- [ ] Event loop modernization: merge the blocking `mainloop()` path and the cooperative `async_mainloop()` behind a single user-facing API, and relax the current constraint that asyncio tasks must marshal Tk access via `async_poll` / `after`.
+- [ ] Compiled command caching: reuse structure-identical Tcl calls (`configure`, `delete`, `insert`, treeview `insert`) as pre-compiled `Tcl_Obj` templates instead of re-parsing Python strings per call. Stacks on top of the partial-sync / `sync_map()` work so mapping entries eventually carry their own command templates.
 
 ---
 

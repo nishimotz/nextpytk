@@ -940,6 +940,29 @@ nextpytk は宣言型フレームワークですが、素の Tkinter の柔軟�
        app.eval('...')
    ```
 
+8. **部分状態同期 (`apply_state(..., full=False)`)**:
+   既定では `apply_state` は全ウィジェットを再同期しますが、`full=False` を渡すと、実際に変更されたキーに対応するウィジェットだけを再同期します。変更キーが事前に分かっている高頻度・増分更新に適しています。no-op 値はどちらの場合もフィルタされます。
+   ```python
+   app.apply_state({"status": "スキャン中", "tree_rows": [1, 2, 3]}, full=False)
+   ```
+
+---
+
+## 状態→ウィジェット同期マップ（`sync_map()`）
+
+`app.sync_map()` は、「どの状態キーが、どのウィジェットのどの部分（text, value, rows, items, selection, mode, running）を駆動するか」を宣言的に記述したマッピングを返します。`apply_state()` はこのマップを参照して以下を判断します。
+
+- **No-op 書き込みのスキップ** — 変更のない値はウィジェット同期を起動しない
+- **アクセシビリティ自動アナウンス** — Tk 9.1+ で `set_acc_value` / `emit_selection_change` を自動発火
+- **種別ごとの再同期**（treeview / listbox / combobox 等）を個別のハンドラに散らすのではなく、単一のマッピングとして管理
+
+`sync=False` を指定したウィジェットはこのマップから除外され、`apply_state` による書き換えも行われません。
+
+```python
+app.sync_map()
+# → {"msg": [(WidgetSpec(...), ("text",))], "results_rows": [...]}
+```
+
 ---
 
 ## テーマとデザインシステムのカスタマイズ

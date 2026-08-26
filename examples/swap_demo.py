@@ -103,7 +103,7 @@ def _init_text(_app: TkApp) -> None:
             ("ROADMAP.md", "diff", "18.9k", "19.4k"),
             ("LICENSE", "same", "1.1k", "1.1k"),
         ],
-    })
+    }, full=False)
 
 
 if __name__ == "__main__":

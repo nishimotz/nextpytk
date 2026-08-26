@@ -181,7 +181,7 @@ def _apply_scan_result(
             "summary_lbl": "—",
             "detail_lbl": err,
             "status_lbl": err,
-        })
+        }, full=False)
         the_app.sync()
         return
 
@@ -205,7 +205,7 @@ def _apply_scan_result(
         "summary_lbl": f"{n} entries · displayed total {human_bytes(total_bytes)}",
         "status_lbl": "Idle — Up / BackSpace, Return on a directory",
         "detail_lbl": detail,
-    })
+    }, full=False)
     the_app.sync()
 
 
@@ -217,7 +217,7 @@ async def _refresh_async(the_app: TkApp, target: Path) -> None:
         "path_lbl": str(target),
         "status_lbl": "Scanning…",
         "detail_lbl": "Scanning in the background…",
-    })
+    }, full=False)
     the_app.sync()
     try:
         outcome = await asyncio.to_thread(scan_directory, target)
@@ -230,7 +230,7 @@ async def _refresh_async(the_app: TkApp, target: Path) -> None:
         the_app.apply_state({
             "status_lbl": f"Error: {exc}",
             "detail_lbl": str(exc),
-        })
+        }, full=False)
         the_app.sync()
 
 
@@ -246,7 +246,7 @@ def _refresh(the_app: TkApp, target: Path) -> None:
         the_app.apply_state({
             "status_lbl": f"Error: {exc}",
             "detail_lbl": str(exc),
-        })
+        }, full=False)
         the_app.sync()
 
 
@@ -257,7 +257,7 @@ def _navigate_parent() -> dict[str, Any]:
     cur = cwd()
     parent = cur.parent
     if parent == cur:
-        app.apply_state({"status_lbl": "Root directory"})
+        app.apply_state({"status_lbl": "Root directory"}, full=False)
         return {}
     if len(_stack) > 1:
         _stack.pop()

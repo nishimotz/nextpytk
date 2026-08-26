@@ -45,8 +45,9 @@ def reset(_values: dict[str, Any]) -> dict[str, Any]:
 async def _run_job() -> None:
     for i in range(0, 101, 5):
         await asyncio.sleep(0.07)
-        app.apply_state({"progress": i, "status": f"{i}%"})
-    app.apply_state({"progress": 100, "status": "Done", "progress_running": False})
+        # apply_state(..., full=False) only resyncs the changed keys.
+        app.apply_state({"progress": i, "status": f"{i}%"}, full=False)
+    app.apply_state({"progress": 100, "status": "Done", "progress_running": False}, full=False)
 
 
 layout = (
