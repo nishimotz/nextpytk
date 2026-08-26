@@ -13,19 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   dependent work (menubar enablement, a11y emissions, widget resync) runs once
   per batch instead of once per key — reducing `Tcl_Eval` round-trips during
   bulk updates.
-- `TkApp.sync_map()` — declarative sync IR. Returns a dict mapping each state
+- `TkApp.sync_map()` — declarative sync map. Returns a dict mapping each state
   key to a list of `(widget_spec, parts)` entries describing *which* state key
   drives *which* widget aspect (text, value, rows, items, selection, mode,
   running). This is the single source of truth behind the hand-written
   `_sync_*` methods, and is used by `apply_state()` to (a) filter no-op
   updates (only changed keys trigger widget sync) and (b) auto-announce a11y
   events for affected widgets. Specs with `sync=False` are excluded from the
-  IR.
+  map.
 - Automatic a11y emission on state change: when `apply_state()` changes a
   widget's text/value/selection, nextpytk now emits `set_acc_value` /
   `emit_selection_change` (Tk 9.1+) without needing a manual call. The
   `A11yEngine.emit_*` helpers now return `bool` so callers can test support.
-- `tests/test_batch.py`, `tests/test_sync_ir.py` covering the new APIs.
+- `tests/test_batch.py`, `tests/test_sync_map.py` covering the new APIs.
 
 ### Changed
 
@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `enabled_if` evaluation. This is a performance improvement, not a
   behavior change.
 - `_sync_widgets_for_keys` and per-kind `*_update_touches_*` helpers are
-  now routed through the declarative IR (`sync_map()`) and a shared
+  now routed through the declarative mapping (`sync_map()`) and a shared
   `_touches_kind` helper, replacing several hand-rolled per-kind branches.
 - Widget-level sync calls (`_sync_widgets_for_keys`, `_sync_treeview`,
   `_sync_listbox`, `_sync_combobox`, `_sync_widget_states`) now skip

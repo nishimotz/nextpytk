@@ -968,15 +968,15 @@ nextpytk is declarative, but it does not restrict raw Tkinter flexibility. When 
 
 ---
 
-## State → Widget Sync IR (`sync_map()`)
+## State → Widget Sync Map (`sync_map()`)
 
-`app.sync_map()` is the declarative intermediate representation: *which* state key drives *which* widget aspect (text, value, rows, items, selection, mode, running). `apply_state()` consults it to:
+`app.sync_map()` returns the declarative state→widget mapping: *which* state key drives *which* widget aspect (text, value, rows, items, selection, mode, running). `apply_state()` consults it to:
 
 - Skip no-op writes (unchanged values don't trigger widget sync).
 - Auto-announce accessibility events (`set_acc_value` / `emit_selection_change` on Tk 9.1+).
 - Route per-kind sync work (treeview/listbox/combobox) through a single mapping instead of hand-written branches.
 
-Widgets registered with `sync=False` are excluded from the IR and never touched by `apply_state`.
+Widgets registered with `sync=False` are excluded from the map and never touched by `apply_state`.
 
 ```python
 app.sync_map()

@@ -2136,10 +2136,10 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
                 return w
         return None
 
-    # ── state → widget sync IR (single source of truth) ──
+    # ── state → widget sync map (single source of truth) ──
 
     def sync_map(self) -> dict[str, list[tuple[WidgetSpec, tuple[str, ...]]]]:
-        """IR for state-driven widget sync: which state keys feed which widget parts.
+        """Sync map for state-driven widget updates: which state keys feed which widget parts.
 
         Returns a dict mapping each state key to a list of ``(spec, parts)``
         entries, where *parts* names the widget aspects derived from that key

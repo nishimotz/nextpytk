@@ -1,4 +1,4 @@
-"""Tests for the declarative sync IR and automatic a11y coupling."""
+"""Tests for the declarative sync map and automatic a11y coupling."""
 
 from __future__ import annotations
 
