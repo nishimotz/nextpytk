@@ -28,8 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `A11yEngine.emit_*` helpers now return `bool` so callers can test support.
 - `tests/test_apply_state_full.py`, `tests/test_sync_map.py` covering the new
   behaviors.
-- `examples/progress_demo.py` now uses `apply_state(..., full=False)` to apply
-  progress + status via partial sync (showcasing the keyword).
+- `examples/progress_demo.py`, `examples/disk_usage_flat_async.py` and
+  `examples/swap_demo.py` now use `apply_state(..., full=False)` for partial
+  sync — they update labels / treeview rows imperatively-managed listbox, so a
+  full widget resync is unnecessary (showcasing the keyword).
 
 ### Changed
 
