@@ -143,6 +143,11 @@ def on_greet(values):
 
 この仕組みが nextpytk の基本的な状態更新モデルです。
 
+> **Tips & 注意点:**
+> - **Entry 以外の状態へのアクセス:** ボタンの引数 `values` には登録された `entry` の入力値が含まれます。Listbox の選択行やアプリ内部フラグなど Entry 以外の状態を参照したい場合は、`app.state["results"]` のように `app.state`（プロパティ）を直接参照してください。
+> - **ラベルの更新規則:** ラベルのデコレータ関数は初期値の生成用です。状態にキーが存在する場合（`initial_state` や更新後）、コールバック関数は再実行されず `state` の値が優先されます。ラベルを更新したいときは、アクション（ボタン等）の戻り値 `dict` にそのキーを含めて返してください。
+> - **エラーのデバッグ:** コールバック内の例外はデフォルトで `sys.stderr` にトレースバックを出力し、アプリを継続させます。開発・テスト中は `TkApp(title="...", debug=True)` と指定すると例外がそのまま再送出され、原因の特定が容易になります。
+
 ---
 
 ## Design System
@@ -685,6 +690,28 @@ nextpytk の `Layout` DSL は、Tk の 2 つのジオメトリマネージャー
 | `@app.canvas(name, width=..., height=...)` | tk.Canvas | — | — |
 
 `@app.status` は schema / accessible の `role="status"` メタデータを付けます。ARIA live region 相当の読み上げはまだ未対応です（後続リリース予定）。操作結果のフィードバック向きで、静的・高頻度のミラー表示には `@app.label` を使ってください。
+
+### 条件付き有効化（`enabled_if`）
+
+`@app.button`, `@app.listbox`, およびメニューバーの項目は `enabled_if` パラメータを受け取ります。
+`enabled_if` コールバックには、登録された `entry` の値（`values`）とアプリの現在の状態（`state`）が統合されたコンテキスト辞書（`{**state, **values}`）が渡されます。2つの引数 `(values, state)` を宣言して別個に受け取ることも可能です。
+
+```python
+# リストボックスで行が選択されている場合のみ「開く」ボタンを有効化
+@app.button("open_btn", label="開く", enabled_if=lambda s: s.get("results", -1) >= 0)
+def on_open(values):
+    idx = app.state.get("results", -1)
+    return {}
+```
+
+* **ボタン**: 条件が偽になると `state="disabled"` になります。
+* **リストボックス**: 条件が偽になると `selectmode="none"` になります（`state="disabled"` にするとプログラムからの `delete`/`insert` やスクロール、スクリーンリーダーアクセスが阻害されるため、ユーザーの選択のみを無効化します）。
+* **メニューバー**: サブメニュー内の各項目の有効/無効が自動で更新されます。
+
+### ショートカットとキーバインド（`@app.bind` と `events=`）
+
+* **グローバルショートカット（`@app.bind`）**: ウィンドウ全体に `bind_all` で登録されます。同名の `@app.button` が存在する場合、ボタンのラベル末尾にショートカット表示（例: `保存 (Ctrl+S)`）が自動追記されます。全ウィジェット上で発火するため、Entry 入力中などに誤発火しないようキー選択に留意してください。
+* **ウィジェット固有の操作（`events=`）**: Entry 内での Enter 確定や Listbox のダブルクリック／Enter などは、ウィジェットデコレータの `events=` 引数（`@app.entry(..., events={EventSeq.RETURN: ...})` や `@app.listbox(..., events={EventSeq.PRIMARY_DOUBLE_CLICK: ...})`）で登録してください。
 
 ### ファイルピッカー
 

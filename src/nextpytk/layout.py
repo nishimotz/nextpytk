@@ -2467,6 +2467,46 @@ class LayoutBuilder:
         self._current_grid().span(cols)
         return self
 
+    def col_weight(self, col: int, weight: int = 1) -> LayoutBuilder:
+        """Set column weight for the current grid."""
+        self._current_grid().col_weight(col, weight)
+        return self
+
+    def row_weight(self, row: int, weight: int = 1) -> LayoutBuilder:
+        """Set row weight for the current grid."""
+        self._current_grid().row_weight(row, weight)
+        return self
+
+    def col_minsize(self, col: int, minsize: int) -> LayoutBuilder:
+        """Set column minimum size in pixels for the current grid."""
+        self._current_grid().col_minsize(col, minsize)
+        return self
+
+    def row_minsize(self, row: int, minsize: int) -> LayoutBuilder:
+        """Set row minimum size in pixels for the current grid."""
+        self._current_grid().row_minsize(row, minsize)
+        return self
+
+    def col_weights(self, *weights: int) -> LayoutBuilder:
+        """Deprecated in 0.4.1. Use col_weight(col, weight) instead."""
+        self._current_grid().col_weights(*weights)
+        return self
+
+    def row_weights(self, *weights: int) -> LayoutBuilder:
+        """Deprecated in 0.4.1. Use row_weight(row, weight) instead."""
+        self._current_grid().row_weights(*weights)
+        return self
+
+    def col_minsizes(self, *minsizes: int) -> LayoutBuilder:
+        """Deprecated in 0.4.1. Use col_minsize(col, minsize) instead."""
+        self._current_grid().col_minsizes(*minsizes)
+        return self
+
+    def row_minsizes(self, *minsizes: int) -> LayoutBuilder:
+        """Deprecated in 0.4.1. Use row_minsize(row, minsize) instead."""
+        self._current_grid().row_minsizes(*minsizes)
+        return self
+
     def container(
         self,
         name: str,

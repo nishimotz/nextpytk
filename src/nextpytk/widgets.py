@@ -40,7 +40,7 @@ class WidgetSpec:
     on_click: Callable[..., Any] | None = None
 
     # Buttons: conditional disable
-    enabled_if: Callable[[dict[str, Any]], bool] | None = None
+    enabled_if: Callable[..., bool] | None = None
 
     # Key bindings: list of (sequence, label) tuples
     # e.g. [("<Control-s>", "Ctrl+S"), ("<Alt-Down>", "Alt+Down")]

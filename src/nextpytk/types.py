@@ -486,12 +486,20 @@ EntryEventHandler = ListboxEventHandler
 MenubarCallback = Callable[[], Sequence[dict[str, Any] | str]]
 
 
+# Enabled_if callback: receives context dict (merged state + entry values),
+# or (values, state) if two arguments are accepted.
+EnabledIfCallable = (
+    Callable[[dict[str, Any]], bool]
+    | Callable[[dict[str, Any], dict[str, Any]], bool]
+)
+
+
 # ── common widget options ──
 
 class CommonWidgetOptions(TypedDict, total=False):
     description: str | None
     takefocus: TakeFocusLike | None
-    enabled_if: Callable[[dict[str, Any]], bool] | None
+    enabled_if: EnabledIfCallable | None
     sync: bool
     # Per-widget design-token/style overrides, applied after construction.
     # Keys are widget-native tk/ttk options (``padx``, ``pady``, ``bg``,
@@ -502,7 +510,7 @@ class CommonWidgetOptions(TypedDict, total=False):
 class MenubarItem(TypedDict, total=False):
     label: Required[str]
     command: str
-    enabled_if: Callable[[dict[str, Any]], bool] | None
+    enabled_if: EnabledIfCallable | None
     items: Sequence[dict[str, Any] | str]
 
 
