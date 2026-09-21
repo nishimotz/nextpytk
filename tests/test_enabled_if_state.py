@@ -132,3 +132,67 @@ def test_menubar_item_enabled_if_sees_state(build):
     # State updated -> normal
     built.apply_state({"has_changes": True})
     assert sub.entrycget(0, "state") == "normal"
+
+
+@requires_display
+def test_enabled_if_no_double_invocation_on_error(build):
+    """Callable raising TypeError inside its body should not be reinvoked with 1 argument."""
+    app = TkApp(title="test")
+
+    invocations = []
+
+    def faulty_two_args(values, state):
+        invocations.append((len(values), len(state)))
+        raise TypeError("internal bug inside callback")
+
+    @app.button("btn", label="Test", enabled_if=faulty_two_args)
+    def on_click(vals):
+        return {}
+
+    built = build(app, layout=["btn"])
+    btn = built.widget("btn")
+    assert btn is not None
+    # Failed open, but invoked exactly once (no fallback second invocation)
+    assert len(invocations) == 1
+
+
+@requires_display
+def test_enabled_if_default_arg_routes_to_context(build):
+    """Callable with defaulted second argument (ctx, flag=False) receives context dict."""
+    app = TkApp(title="test")
+
+    received = {}
+
+    def single_with_default(ctx, flag=False):
+        received["ctx_type"] = type(ctx)
+        received["flag"] = flag
+        return bool(ctx.get("ready"))
+
+    @app.button("btn", label="Test", enabled_if=single_with_default)
+    def on_click(vals):
+        return {}
+
+    built = build(app, layout=["btn"], initial_state={"ready": True})
+    btn = built.widget("btn")
+    assert btn is not None
+    assert str(btn.cget("state")) == "normal"
+    assert received["ctx_type"] is dict
+    assert received["flag"] is False  # not overridden with state dict
+
+
+@requires_display
+def test_enabled_if_debug_mode_re_raises(build):
+    """In debug=True mode, enabled_if exceptions are re-raised rather than swallowed."""
+    import pytest
+
+    app = TkApp(title="test", debug=True)
+
+    def broken_check(ctx):
+        raise RuntimeError("boom")
+
+    @app.button("btn", label="Test", enabled_if=broken_check)
+    def on_click(vals):
+        return {}
+
+    with pytest.raises(RuntimeError, match="boom"):
+        build(app, layout=["btn"])
