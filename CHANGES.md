@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   arguments receive `(values, state)`. This allows conditional enablement based on
   selection or custom state (e.g. `enabled_if=lambda ctx: ctx.get("selected_row", -1) >= 0`)
   declaratively without manual `widget.configure(state=...)`.
+- `clear_enabled_if_cache()`: Public API to clear the signature arity cache for
+  `enabled_if` callables (also automatically cleared during `TkApp.clear_runtime()`).
+- Unhashable callable support in `enabled_if`: Callables without `__hash__` (such as
+  objects with `__hash__ = None`) now safely fall back to direct signature inspection
+  without raising `TypeError` or silently failing.
 - `tests/test_layout_builder_weights.py` and `tests/test_enabled_if_state.py`.
 
 ### Documentation
@@ -28,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Added explanations and best practices regarding callback argument differences
   (entry `values` vs application `state`), label initialization rules, `enabled_if`
   state access, and `@app.bind` (global `bind_all`) vs widget-level `events=`.
+- Documented key collision precedence in `{**state, **values}` (entry values take
+  precedence over state keys).
 
 ## [0.4.18] — 2026-08-26
 
