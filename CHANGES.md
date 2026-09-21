@@ -4,6 +4,38 @@ All notable changes to nextpytk are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.19] — 2026-09-21
+
+### Fixed
+
+- `LayoutBuilder`: Added missing grid configuration delegation methods (`col_weight`,
+  `row_weight`, `col_minsize`, `row_minsize`, `col_weights`, `row_weights`,
+  `col_minsizes`, `row_minsizes`). Calling `builder.col_weight(...)` inside a
+  `with builder.grid():` context now works as documented.
+
+### Added
+
+- `enabled_if` state support: `enabled_if` callables for buttons, listboxes, and
+  menubar items now receive an execution context containing both application `state`
+  and entry `values` (`{**state, **values}`). Callables declaring two positional
+  arguments receive `(values, state)`. This allows conditional enablement based on
+  selection or custom state (e.g. `enabled_if=lambda ctx: ctx.get("selected_row", -1) >= 0`)
+  declaratively without manual `widget.configure(state=...)`.
+- `clear_enabled_if_cache()`: Public API to clear the signature arity cache for
+  `enabled_if` callables (also automatically cleared during `TkApp.clear_runtime()`).
+- Unhashable callable support in `enabled_if`: Callables without `__hash__` (such as
+  objects with `__hash__ = None`) now safely fall back to direct signature inspection
+  without raising `TypeError` or silently failing.
+- `tests/test_layout_builder_weights.py` and `tests/test_enabled_if_state.py`.
+
+### Documentation
+
+- Added explanations and best practices regarding callback argument differences
+  (entry `values` vs application `state`), label initialization rules, `enabled_if`
+  state access, and `@app.bind` (global `bind_all`) vs widget-level `events=`.
+- Documented key collision precedence in `{**state, **values}` (entry values take
+  precedence over state keys).
+
 ## [0.4.18] — 2026-08-26
 
 ### Added

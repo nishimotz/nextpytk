@@ -25,9 +25,46 @@ import traceback
 import unicodedata
 import warnings
 from collections.abc import Awaitable, Callable, Generator, Mapping
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 
 ProgressModeLike = Literal["determinate", "indeterminate"]
+
+
+def _inspect_accepts_two_args(fn: Callable[..., Any]) -> bool:
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return False
+    params = list(sig.parameters.values())
+    pos_params = [
+        p for p in params
+        if p.kind in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        )
+    ]
+    req_pos = [p for p in pos_params if p.default == inspect.Parameter.empty]
+    return len(req_pos) >= 2
+
+
+@lru_cache(maxsize=256)
+def _cached_accepts_two_args(fn: Callable[..., Any]) -> bool:
+    return _inspect_accepts_two_args(fn)
+
+
+def _enabled_if_accepts_two_args(fn: Callable[..., Any]) -> bool:
+    """Return True if fn requires two or more positional arguments (values, state)."""
+    try:
+        return _cached_accepts_two_args(fn)
+    except TypeError:
+        # Fallback for unhashable callables (e.g. custom classes with __hash__ = None)
+        return _inspect_accepts_two_args(fn)
+
+
+def clear_enabled_if_cache() -> None:
+    """Clear the cached signature arity inspection results."""
+    _cached_accepts_two_args.cache_clear()
 
 from nextpytk import tokens as t
 from nextpytk.a11y import A11yEngine
@@ -431,6 +468,7 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
         self._ingest_flush_job = None
         self._syncing_var_keys.clear()
         self._current_view = None
+        clear_enabled_if_cache()
         self._current_stage = None
         self._swap_targets.clear()
         self._swap_frames.clear()
@@ -2843,17 +2881,45 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
         return isinstance(item, str) and item == "---"
 
     @staticmethod
+    def _eval_enabled_if_callable(
+        fn: Callable[..., Any],
+        values: dict[str, Any],
+        state: dict[str, Any],
+        *,
+        debug: bool = False,
+    ) -> bool:
+        """Evaluate an enabled_if callable with values and/or state.
+
+        If the callable requires two or more positional arguments, pass
+        ``(values, state)``. Otherwise pass a unified context dictionary
+        containing both state and entry values (with entry values taking
+        precedence on key collisions).
+        """
+        try:
+            if _enabled_if_accepts_two_args(fn):
+                return bool(fn(values, state))
+            context = {**state, **values}
+            return bool(fn(context))
+        except Exception:
+            if debug:
+                print("nextpytk: error in enabled_if callback:", file=sys.stderr)
+                traceback.print_exc()
+                raise
+            return True
+
+    @classmethod
     def _menubar_item_enabled(
-        item: dict[str, Any], values: dict[str, Any]
+        cls,
+        item: dict[str, Any],
+        values: dict[str, Any],
+        state: dict[str, Any] | None = None,
+        debug: bool = False,
     ) -> bool:
         """Evaluate an item's enabled_if callable, if present."""
         enabled_if = item.get("enabled_if")
         if enabled_if is None:
             return True
-        try:
-            return bool(enabled_if(values))
-        except Exception:
-            return True
+        return cls._eval_enabled_if_callable(enabled_if, values, state or {}, debug=debug)
 
     @staticmethod
     def _menubar_items(
@@ -2952,14 +3018,15 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
 
     def _sync_menubar_states(self) -> None:
         """Update menubar item enabled/disabled state from enabled_if."""
-        values = {**self._state, **self._entry_values_dict()}
+        entry_values = self._entry_values_dict()
+        state = self._state
         for spec in self.widget_specs(kind="menubar"):
             menubar = self._tk_widgets.get(spec.name)
             if not isinstance(menubar, tk.Menu):
                 continue
             submenus = self._menubar_submenus.get(spec.name, [])
             self._sync_menubar_menu_states(
-                menubar, self._menubar_items(spec), values, submenus
+                menubar, self._menubar_items(spec), entry_values, state, submenus
             )
 
     def _sync_menubar_menu_states(
@@ -2967,6 +3034,7 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
         menu: tk.Menu,
         items: list[dict[str, Any]],
         values: dict[str, Any],
+        state: dict[str, Any],
         submenus: list[tk.Menu | None],
     ) -> None:
         """Recursively update enabled_if states for a tk.Menu and its submenus."""
@@ -2987,11 +3055,12 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
                             for si in sub_items
                         ],
                         values,
+                        state,
                         child_submenus,
                     )
                 idx += 1
                 continue
-            ok = self._menubar_item_enabled(item, values)
+            ok = self._menubar_item_enabled(item, values, state, debug=self._debug)
             try:
                 menu.entryconfig(idx, state="normal" if ok else "disabled")
             except tk.TclError:
@@ -3264,16 +3333,14 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
         if not self._tk_widgets:
             return
         values = self._entry_values_dict()
+        state = self._state
         for spec in self._widgets:
             if spec.enabled_if is None:
                 continue
             tk_w = self._tk_widgets.get(spec.name)
             if tk_w is None:
                 continue
-            try:
-                ok = bool(spec.enabled_if(values))
-            except Exception:
-                ok = True
+            ok = self._eval_enabled_if_callable(spec.enabled_if, values, state, debug=self._debug)
             if spec.kind == "button" and isinstance(tk_w, (tk.Button, ttk.Button)):
                 tk_w.configure(state="normal" if ok else "disabled")
             elif spec.kind == "listbox" and isinstance(tk_w, tk.Listbox):

@@ -2,7 +2,7 @@
 
 import importlib.metadata
 
-from nextpytk.app import TkApp
+from nextpytk.app import TkApp, clear_enabled_if_cache
 from nextpytk.layout import (
     Constraints,
     FlowDelegate,
@@ -63,5 +63,6 @@ __all__ = [
     "ThemeTokens",
     "KIZASHI_LIGHT",
     "KIZASHI_DARK",
+    "clear_enabled_if_cache",
     "__version__",
 ]

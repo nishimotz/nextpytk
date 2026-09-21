@@ -143,6 +143,11 @@ The flow is:
 
 That is nextpytk's basic state-update model.
 
+> **Tips & Best Practices:**
+> - **Accessing Non-Entry State:** The `values` dictionary passed to button callbacks contains registered `entry` inputs. To access non-entry state (such as listbox selection index or application flags), inspect `app.state` directly (e.g. `app.state["results"]`).
+> - **Label Update Rules:** Label decorator functions provide initial display values. When a key exists in state (`initial_state` or after updates), the state value takes precedence and the callback is not re-invoked. To update a label, include its key in the returned dictionary of an action (such as a button callback).
+> - **Debugging Errors:** By default, callback exceptions are logged to `sys.stderr` and swallowed to keep the GUI running. When developing or testing, specify `TkApp(title="...", debug=True)` to re-raise exceptions directly.
+
 ---
 
 ## Design System
@@ -691,6 +696,28 @@ behaves when the window resizes.
 | `@app.canvas(name, width=..., height=...)` | tk.Canvas | — | — |
 
 `@app.status` sets schema / accessible `role="status"` metadata. It is **not** an ARIA live region yet (planned for a later release). Prefer it for operation feedback labels; use `@app.label` for static or high-frequency mirror text.
+
+### Conditional Enablement (`enabled_if`)
+
+`@app.button`, `@app.listbox`, and menubar items accept an `enabled_if` parameter.
+The callable receives a merged context dictionary containing both entry `values` and application `state` (`{**state, **values}`, with entry values taking precedence on key collisions). Callables declaring two positional arguments receive `(values, state)`.
+
+```python
+# Enable "Open" button only when a row is selected in listbox
+@app.button("open_btn", label="Open", enabled_if=lambda s: s.get("results", -1) >= 0)
+def on_open(values):
+    idx = app.state.get("results", -1)
+    return {}
+```
+
+* **Buttons**: Disabled widgets receive `state="disabled"`.
+* **Listboxes**: Disabled widgets receive `selectmode="none"`. (A disabled Listbox ignores programmatic `delete`/`insert` and blocks scrolling; `selectmode="none"` only blocks user selection while preserving programmatic updates and a11y).
+* **Menubar**: Submenu items automatically sync their enabled/disabled state.
+
+### Shortcuts & Keybindings (`@app.bind` vs `events=`)
+
+* **Global Shortcuts (`@app.bind`)**: Registered via `bind_all` across the whole window. When a bind has the same name as a button, its accelerator shortcut (e.g. `Save (Ctrl+S)`) is automatically appended to the button text. Take care with single keybindings (such as `Return`) so they do not conflict with text entries.
+* **Widget-Scoped Events (`events=`)**: For widget-specific interactions (such as pressing `Return` in an entry or double-clicking a listbox row), use the `events=` dictionary parameter on widget decorators (`@app.entry(..., events={EventSeq.RETURN: ...})` or `@app.listbox(..., events={EventSeq.PRIMARY_DOUBLE_CLICK: ...})`).
 
 ### File picker
 
