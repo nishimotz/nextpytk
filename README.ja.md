@@ -694,7 +694,7 @@ nextpytk の `Layout` DSL は、Tk の 2 つのジオメトリマネージャー
 ### 条件付き有効化（`enabled_if`）
 
 `@app.button`, `@app.listbox`, およびメニューバーの項目は `enabled_if` パラメータを受け取ります。
-`enabled_if` コールバックには、登録された `entry` の値（`values`）とアプリの現在の状態（`state`）が統合されたコンテキスト辞書（`{**state, **values}`）が渡されます。2つの引数 `(values, state)` を宣言して別個に受け取ることも可能です。
+`enabled_if` コールバックには、登録された `entry` の値（`values`）とアプリの現在の状態（`state`）が統合されたコンテキスト辞書（`{**state, **values}`。キー名が衝突した場合は entry の入力値 `values` が優先されます）が渡されます。2つの引数 `(values, state)` を宣言して別個に受け取ることも可能です。
 
 ```python
 # リストボックスで行が選択されている場合のみ「開く」ボタンを有効化

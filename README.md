@@ -700,7 +700,7 @@ behaves when the window resizes.
 ### Conditional Enablement (`enabled_if`)
 
 `@app.button`, `@app.listbox`, and menubar items accept an `enabled_if` parameter.
-The callable receives a merged context dictionary containing both entry `values` and application `state` (`{**state, **values}`). Callables declaring two positional arguments receive `(values, state)`.
+The callable receives a merged context dictionary containing both entry `values` and application `state` (`{**state, **values}`, with entry values taking precedence on key collisions). Callables declaring two positional arguments receive `(values, state)`.
 
 ```python
 # Enable "Open" button only when a row is selected in listbox

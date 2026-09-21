@@ -31,9 +31,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar
 ProgressModeLike = Literal["determinate", "indeterminate"]
 
 
-@lru_cache(maxsize=256)
-def _enabled_if_accepts_two_args(fn: Callable[..., Any]) -> bool:
-    """Return True if fn requires two or more positional arguments (values, state)."""
+def _inspect_accepts_two_args(fn: Callable[..., Any]) -> bool:
     try:
         sig = inspect.signature(fn)
     except (TypeError, ValueError):
@@ -48,6 +46,25 @@ def _enabled_if_accepts_two_args(fn: Callable[..., Any]) -> bool:
     ]
     req_pos = [p for p in pos_params if p.default == inspect.Parameter.empty]
     return len(req_pos) >= 2
+
+
+@lru_cache(maxsize=256)
+def _cached_accepts_two_args(fn: Callable[..., Any]) -> bool:
+    return _inspect_accepts_two_args(fn)
+
+
+def _enabled_if_accepts_two_args(fn: Callable[..., Any]) -> bool:
+    """Return True if fn requires two or more positional arguments (values, state)."""
+    try:
+        return _cached_accepts_two_args(fn)
+    except TypeError:
+        # Fallback for unhashable callables (e.g. custom classes with __hash__ = None)
+        return _inspect_accepts_two_args(fn)
+
+
+def clear_enabled_if_cache() -> None:
+    """Clear the cached signature arity inspection results."""
+    _cached_accepts_two_args.cache_clear()
 
 from nextpytk import tokens as t
 from nextpytk.a11y import A11yEngine
@@ -451,6 +468,7 @@ class TkApp(WidgetRegistrationMixin, WidgetBuildersMixin, EventHandlersMixin):
         self._ingest_flush_job = None
         self._syncing_var_keys.clear()
         self._current_view = None
+        clear_enabled_if_cache()
         self._current_stage = None
         self._swap_targets.clear()
         self._swap_frames.clear()

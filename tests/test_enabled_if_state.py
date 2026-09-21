@@ -196,3 +196,36 @@ def test_enabled_if_debug_mode_re_raises(build):
 
     with pytest.raises(RuntimeError, match="boom"):
         build(app, layout=["btn"])
+
+
+@requires_display
+def test_enabled_if_unhashable_callable(build):
+    """Callable objects without __hash__ (or unhashable) are evaluated without TypeError."""
+    app = TkApp(title="test")
+
+    class UnhashablePredicate:
+        __hash__ = None  # type: ignore[assignment]  # Explicitly unhashable
+
+        def __call__(self, ctx: dict) -> bool:
+            return bool(ctx.get("allowed"))
+
+    predicate = UnhashablePredicate()
+
+    @app.button("btn", label="Test", enabled_if=predicate)
+    def on_click(vals):
+        return {}
+
+    built = build(app, layout=["btn"], initial_state={"allowed": False})
+    btn = built.widget("btn")
+    assert btn is not None
+    assert str(btn.cget("state")) == "disabled"
+
+    built.apply_state({"allowed": True})
+    assert str(btn.cget("state")) == "normal"
+
+
+def test_clear_enabled_if_cache():
+    """clear_enabled_if_cache can be called cleanly without error."""
+    from nextpytk import clear_enabled_if_cache
+
+    clear_enabled_if_cache()
