@@ -138,6 +138,21 @@ class HeadlessHarness:
         except tk.TclError:
             return
 
+    def map_root(self, width: int = 500, height: int = 400) -> None:
+        """Map and size the root so Tk computes real geometry.
+
+        A withdrawn root keeps ``winfo_*`` at 1x1 and receives no
+        ``<Configure>`` events on Linux/X11, so tests that need real
+        widget coordinates or a toplevel resize must map the window
+        first. The root is deiconified and given an explicit geometry;
+        ``update_idletasks`` settles the geometry without blocking on
+        the window manager (which can hang under bare Xvfb).
+        """
+        assert self.root is not None
+        self.root.deiconify()
+        self.root.geometry(f"{width}x{height}")
+        self.root.update_idletasks()
+
     def press_key(self, sequence: str) -> None:
         """Fire a global key binding (as bind_all would receive it)."""
         assert self.root is not None

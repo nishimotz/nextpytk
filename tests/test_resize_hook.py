@@ -44,10 +44,10 @@ def test_resize_hook_fires_on_size_change(harness, monkeypatch) -> None:
     calls: list[tuple[int, int]] = []
     app._install_resize_hook(lambda w, h: calls.append((w, h)))
 
-    # The harness withdraws the root, so winfo_width() stays 1 and a real
-    # geometry change is not reflected by the window manager. Simulate a
-    # toplevel resize deterministically: report a new size and fire
-    # <Configure> on the root itself.
+    # A withdrawn root receives no <Configure> on Linux/X11, so map and size
+    # it first. Then simulate a further toplevel resize deterministically:
+    # report a new size and fire <Configure> on the root itself.
+    harness.map_root()
     monkeypatch.setattr(root, "winfo_width", lambda: 500)
     monkeypatch.setattr(root, "winfo_height", lambda: 400)
     root.event_generate("<Configure>", width=500, height=400)
