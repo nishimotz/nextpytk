@@ -81,16 +81,29 @@ def _tk_has_real_fonts() -> bool:
     family, ``fixed``, and ignores requested sizes. Per-widget font tests
     cannot assert anything meaningful there. See issue #24.
 
-    Creates no Tk root: the probe reads ``tkinter.font.families()`` only
-    after the caller has a display, and returns True if probing fails so the
-    tests still run and surface real problems elsewhere.
+    ``tkinter.font.families()`` needs a default root, so this creates a
+    throwaway withdrawn root. It is evaluated lazily (from within the
+    test process after a display exists); when no display is available it
+    returns True, leaving the earlier ``requires_display`` marker to skip.
     """
+    if not _display_available():
+        return True
+    root = None
     try:
+        import tkinter as _tk
         import tkinter.font as tkfont
 
+        root = _tk.Tk()
+        root.withdraw()
         return len(set(tkfont.families())) > 1
     except Exception:
         return True
+    finally:
+        if root is not None:
+            try:
+                root.destroy()
+            except Exception:
+                pass
 
 
 requires_font_metrics = pytest.mark.skipif(
