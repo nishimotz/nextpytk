@@ -34,18 +34,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y python3-tk xvfb
-      - name: Run pytest
+      - name: Run pytest (Linux, under Xvfb)
+        if: runner.os == 'Linux'
         env:
           PYTEST_CURRENT_TEST: ""
         # A bare ubuntu-latest runner has no X display, so every Tk test is
         # skipped via `requires_display`. Run under Xvfb so the GUI suite
         # actually executes on Linux instead of silently skipping.
-        run: |
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            xvfb-run -a uv run --python ${{ matrix.python }} pytest -q
-          else
-            uv run --python ${{ matrix.python }} pytest -q
-          fi
+        run: xvfb-run -a uv run --python ${{ matrix.python }} pytest -q
+      - name: Run pytest (macOS / Windows)
+        if: runner.os != 'Linux'
+        env:
+          PYTEST_CURRENT_TEST: ""
+        run: uv run --python ${{ matrix.python }} pytest -q
 
   typecheck:
     name: Type check
