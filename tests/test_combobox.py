@@ -41,7 +41,11 @@ def test_combobox_applies_per_widget_font(build):
     # ttk returns a font object/string for the "font" option; verify the configured size.
     import tkinter.font as tkfont
     actual = tkfont.Font(font=w.cget("font"))
+    # The configured size must be honoured; do not pin an absolute number
+    # (Tk 9.0 reports different sizes than 8.6).
+    base = tkfont.nametofont("TkDefaultFont")
     assert actual.actual("size") == 12
+    assert actual.actual("size") != base.actual("size")
 
 
 def test_combobox_readonly_state(build):
