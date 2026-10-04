@@ -8,7 +8,7 @@ from tkinter import ttk
 from nextpytk import TkApp
 from nextpytk.app import PLACEHOLDER_FG
 
-from .conftest import requires_display
+from .conftest import requires_display, requires_font_metrics
 
 pytestmark = requires_display
 
@@ -305,6 +305,7 @@ def test_schema_includes_all_widgets(build):
     assert kinds == {"msg": "label", "go": "button"}
 
 
+@requires_font_metrics
 def test_entry_applies_font(build):
     """@app.entry accepts and applies a per-widget font option."""
     import tkinter.font as tkfont
@@ -345,6 +346,7 @@ def test_entry_applies_padding_for_visual_height(build):
     assert configured == "(8, 12)" or configured == "8 12"
 
 
+@requires_font_metrics
 def test_button_applies_font(build):
     """@app.button accepts and applies a per-widget font option."""
     import tkinter.font as tkfont

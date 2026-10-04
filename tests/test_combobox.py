@@ -7,7 +7,7 @@ from tkinter import ttk
 
 from nextpytk import TkApp
 
-from .conftest import requires_display
+from .conftest import requires_display, requires_font_metrics
 
 
 pytestmark = requires_display
@@ -28,6 +28,7 @@ def test_combobox_builds_with_values(build):
     assert int(w.cget("width")) == 24  # DEFAULT_COMBOBOX_WIDTH
 
 
+@requires_font_metrics
 def test_combobox_applies_per_widget_font(build):
     app = TkApp(title="t")
 

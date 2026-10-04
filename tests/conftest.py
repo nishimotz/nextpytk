@@ -74,6 +74,34 @@ requires_display = pytest.mark.skipif(
 )
 
 
+def _tk_has_real_fonts() -> bool:
+    """Return False when Tk cannot enumerate X fonts (single 'fixed' family).
+
+    Tk 9.0 on some CI runners (ubuntu-latest under Xvfb) only sees one font
+    family, ``fixed``, and ignores requested sizes. Per-widget font tests
+    cannot assert anything meaningful there. See issue #24.
+
+    Creates no Tk root: the probe reads ``tkinter.font.families()`` only
+    after the caller has a display, and returns True if probing fails so the
+    tests still run and surface real problems elsewhere.
+    """
+    try:
+        import tkinter.font as tkfont
+
+        return len(set(tkfont.families())) > 1
+    except Exception:
+        return True
+
+
+requires_font_metrics = pytest.mark.skipif(
+    not _tk_has_real_fonts(),
+    reason=(
+        "Tk sees a single 'fixed' font family in this environment, so "
+        "per-widget font sizes are ignored (CI/Xvfb + Tk 9.0; issue #24)"
+    ),
+)
+
+
 # Tk interpreter initialization reads many small Tcl files; under uv-managed
 # python-build-standalone on Windows we occasionally see transient file-read
 # failures when multiple roots are created in quick succession. Serializing
