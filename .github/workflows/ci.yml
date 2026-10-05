@@ -29,7 +29,21 @@ jobs:
           echo "/opt/homebrew/opt/tcl-tk/bin" >> "$GITHUB_PATH"
           echo "TK_LIBRARY=/opt/homebrew/opt/tcl-tk/lib" >> "$GITHUB_ENV"
           echo "TCL_LIBRARY=/opt/homebrew/opt/tcl-tk/lib" >> "$GITHUB_ENV"
-      - name: Run pytest
+      - name: Install system Tk and Xvfb (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk xvfb
+      - name: Run pytest (Linux, under Xvfb)
+        if: runner.os == 'Linux'
+        env:
+          PYTEST_CURRENT_TEST: ""
+        # A bare ubuntu-latest runner has no X display, so every Tk test is
+        # skipped via `requires_display`. Run under Xvfb so the GUI suite
+        # actually executes on Linux instead of silently skipping.
+        run: xvfb-run -a uv run --python ${{ matrix.python }} pytest -q
+      - name: Run pytest (macOS / Windows)
+        if: runner.os != 'Linux'
         env:
           PYTEST_CURRENT_TEST: ""
         run: uv run --python ${{ matrix.python }} pytest -q

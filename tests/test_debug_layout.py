@@ -597,7 +597,7 @@ def test_debug_badges_skip_hidden_widgets(build):
     assert "code" in layout_names()
 
 
-def test_debug_overlay_periodic_poll_moves_badges(build):
+def test_debug_overlay_periodic_poll_moves_badges(harness, build):
     """The 1s poll re-places badges when a widget's position moves."""
     from nextpytk import tokens as t
 
@@ -608,6 +608,9 @@ def test_debug_overlay_periodic_poll_moves_badges(build):
         return "Body"
 
     build(app, layout=Layout().section("body", padx=t.SPACE[2], pady=t.SPACE[2]))
+    # Geometry is only computed for a mapped window on Linux/X11, so map and
+    # size the root before checking whether widget positions changed.
+    harness.map_root()
     app.show_debug_layout(True)
     assert app._debug_overlay_poll_job is not None
 

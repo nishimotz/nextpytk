@@ -227,7 +227,7 @@ def test_wrap_flex_widget_names(build):
     assert layout.widget_names() == {"a", "b", "c"}
 
 
-def test_wrap_flex_absorbs_leftover_width(build):
+def test_wrap_flex_absorbs_leftover_width(harness, build):
     """A Flex item in a wide frame is wider than its natural request width."""
     from nextpytk.types import Flex
     from nextpytk.layout import _place_cluster, _Cluster
@@ -235,6 +235,11 @@ def test_wrap_flex_absorbs_leftover_width(build):
     app = _tag_app()
     layout = Layout().wrap("a", Flex("b", flex=1), "c", gapx=1, gapy=1)
     build(app, layout=layout)
+    # A withdrawn root never reflects an explicit frame width, so the cluster
+    # would be placed at natural widths and the Flex assertion would fail on
+    # both Tk versions for the wrong reason. Map the root so the frame width
+    # is real.
+    harness.map_root()
 
     frame = _wrap_frame(app, "a")
     frame.configure(width=800, height=100)

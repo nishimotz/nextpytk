@@ -8,7 +8,7 @@ from tkinter import ttk
 from nextpytk import TkApp
 from nextpytk.app import PLACEHOLDER_FG
 
-from .conftest import requires_display
+from .conftest import requires_display, requires_font_metrics
 
 pytestmark = requires_display
 
@@ -305,6 +305,7 @@ def test_schema_includes_all_widgets(build):
     assert kinds == {"msg": "label", "go": "button"}
 
 
+@requires_font_metrics
 def test_entry_applies_font(build):
     """@app.entry accepts and applies a per-widget font option."""
     import tkinter.font as tkfont
@@ -320,7 +321,12 @@ def test_entry_applies_font(build):
     assert isinstance(w, ttk.Entry)
     style = ttk.Style(w)
     actual = tkfont.Font(font=style.lookup(w.cget("style"), "font"))
+    # The configured font size must be honoured. Compare against the size
+    # Tk would use for an unqualified "TkDefaultFont" request instead of a
+    # hard-coded number: Tk 9.0 reports different absolute sizes than 8.6.
+    base = tkfont.nametofont("TkDefaultFont")
     assert actual.actual("size") == 12
+    assert actual.actual("size") != base.actual("size")
 
 
 def test_entry_applies_padding_for_visual_height(build):
@@ -340,6 +346,7 @@ def test_entry_applies_padding_for_visual_height(build):
     assert configured == "(8, 12)" or configured == "8 12"
 
 
+@requires_font_metrics
 def test_button_applies_font(build):
     """@app.button accepts and applies a per-widget font option."""
     import tkinter.font as tkfont
@@ -355,4 +362,8 @@ def test_button_applies_font(build):
     assert isinstance(w, ttk.Button)
     style = ttk.Style(w)
     actual = tkfont.Font(font=style.lookup(w.cget("style"), "font"))
+    # The configured size must be honoured; do not pin an absolute number
+    # (Tk 9.0 reports different sizes than 8.6).
+    base = tkfont.nametofont("TkDefaultFont")
     assert actual.actual("size") == 11
+    assert actual.actual("size") != base.actual("size")

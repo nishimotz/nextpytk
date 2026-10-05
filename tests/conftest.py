@@ -74,6 +74,47 @@ requires_display = pytest.mark.skipif(
 )
 
 
+def _tk_has_real_fonts() -> bool:
+    """Return False when Tk cannot enumerate X fonts (single 'fixed' family).
+
+    Tk 9.0 on some CI runners (ubuntu-latest under Xvfb) only sees one font
+    family, ``fixed``, and ignores requested sizes. Per-widget font tests
+    cannot assert anything meaningful there. See issue #24.
+
+    ``tkinter.font.families()`` needs a default root, so this creates a
+    throwaway withdrawn root. It is evaluated lazily (from within the
+    test process after a display exists); when no display is available it
+    returns True, leaving the earlier ``requires_display`` marker to skip.
+    """
+    if not _display_available():
+        return True
+    root = None
+    try:
+        import tkinter as _tk
+        import tkinter.font as tkfont
+
+        root = _tk.Tk()
+        root.withdraw()
+        return len(set(tkfont.families())) > 1
+    except Exception:
+        return True
+    finally:
+        if root is not None:
+            try:
+                root.destroy()
+            except Exception:
+                pass
+
+
+requires_font_metrics = pytest.mark.skipif(
+    not _tk_has_real_fonts(),
+    reason=(
+        "Tk sees a single 'fixed' font family in this environment, so "
+        "per-widget font sizes are ignored (CI/Xvfb + Tk 9.0; issue #24)"
+    ),
+)
+
+
 # Tk interpreter initialization reads many small Tcl files; under uv-managed
 # python-build-standalone on Windows we occasionally see transient file-read
 # failures when multiple roots are created in quick succession. Serializing
@@ -137,6 +178,21 @@ class HeadlessHarness:
                 pass
         except tk.TclError:
             return
+
+    def map_root(self, width: int = 500, height: int = 400) -> None:
+        """Map and size the root so Tk computes real geometry.
+
+        A withdrawn root keeps ``winfo_*`` at 1x1 and receives no
+        ``<Configure>`` events on Linux/X11, so tests that need real
+        widget coordinates or a toplevel resize must map the window
+        first. The root is deiconified and given an explicit geometry;
+        ``update_idletasks`` settles the geometry without blocking on
+        the window manager (which can hang under bare Xvfb).
+        """
+        assert self.root is not None
+        self.root.deiconify()
+        self.root.geometry(f"{width}x{height}")
+        self.root.update_idletasks()
 
     def press_key(self, sequence: str) -> None:
         """Fire a global key binding (as bind_all would receive it)."""

@@ -7,7 +7,7 @@ from tkinter import ttk
 
 from nextpytk import TkApp
 
-from .conftest import requires_display
+from .conftest import requires_display, requires_font_metrics
 
 
 pytestmark = requires_display
@@ -28,6 +28,7 @@ def test_combobox_builds_with_values(build):
     assert int(w.cget("width")) == 24  # DEFAULT_COMBOBOX_WIDTH
 
 
+@requires_font_metrics
 def test_combobox_applies_per_widget_font(build):
     app = TkApp(title="t")
 
@@ -41,7 +42,11 @@ def test_combobox_applies_per_widget_font(build):
     # ttk returns a font object/string for the "font" option; verify the configured size.
     import tkinter.font as tkfont
     actual = tkfont.Font(font=w.cget("font"))
+    # The configured size must be honoured; do not pin an absolute number
+    # (Tk 9.0 reports different sizes than 8.6).
+    base = tkfont.nametofont("TkDefaultFont")
     assert actual.actual("size") == 12
+    assert actual.actual("size") != base.actual("size")
 
 
 def test_combobox_readonly_state(build):

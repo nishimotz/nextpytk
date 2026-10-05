@@ -167,7 +167,11 @@ def apply_theme(root: tk.Misc, tokens: t.ThemeTokens | None = None) -> ttk.Style
     )
 
     # --- check / radio ----------------------------------------------------
-    check_radio_padding = (tok.space[4], tok.space[3])
+    # Padded so the control stays >= MIN_TARGET (44px, WCAG 2.5.5) on both
+    # Tk 8.6 and 9.0. Under Tk 9.0's clam metrics the label linespace is
+    # smaller, so the previous (16, 12) fell to 42px; (16, 14) clears 44px
+    # on both versions with headroom for font-metric differences.
+    check_radio_padding = (tok.space[4], 14)
     style.configure(
         "TCheckbutton",
         background=tok.bg,
