@@ -4,6 +4,17 @@ All notable changes to nextpytk are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [0.4.20] — 2026-10-11
+
+### Fixed
+
+- `apply_theme`: check/radio controls now stay at or above the 44px minimum target
+  size (WCAG 2.5.5) under Tk 9.0. The previous `(space[4], space[3])` padding fell to
+  42px because Tk 9.0's `clam` theme reports a smaller label linespace; padding is now
+  `(space[4], 14)`, which clears 44px on both Tk 8.6 and Tk 9.0.
+
 ## [0.4.19] — 2026-09-21
 
 ### Fixed
