@@ -5,12 +5,12 @@ version: 'v0.0.3'
 workflows:
     '.github/workflows/ci.yml':
         - 'actions/checkout@v4.4.0'
-        - 'astral-sh/setup-uv@v5.4.2'
+        - 'astral-sh/setup-uv@v7.6.0'
     '.github/workflows/publish.yml':
         - 'actions/checkout@v4.4.0'
         - 'actions/download-artifact@v4.3.0'
         - 'actions/upload-artifact@v4.6.2'
-        - 'astral-sh/setup-uv@v3.2.4'
+        - 'astral-sh/setup-uv@v7.6.0'
 dependencies:
     'actions/checkout@v4.4.0':
         ref: 'v4.4.0'
@@ -27,13 +27,8 @@ dependencies:
         commit: 'sha1-ea165f8d65b6e75b540449e92b4886f43607fa02'
         owner_id: 44036562
         repo_id: 192625955
-    'astral-sh/setup-uv@v3.2.4':
-        ref: 'v3.2.4'
-        commit: 'sha1-caf0cab7a618c569241d31dcd442f54681755d39'
-        owner_id: 115962839
-        repo_id: 846733598
-    'astral-sh/setup-uv@v5.4.2':
-        ref: 'v5.4.2'
-        commit: 'sha1-d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86'
+    'astral-sh/setup-uv@v7.6.0':
+        ref: 'v7.6.0'
+        commit: 'sha1-37802adc94f370d6bfd71619e3f0bf239e1f3b78'
         owner_id: 115962839
         repo_id: 846733598

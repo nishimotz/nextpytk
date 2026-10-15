@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4.4.0
       - name: Set up uv
-        uses: astral-sh/setup-uv@v3.2.4
+        uses: astral-sh/setup-uv@v7.6.0
         with:
           enable-cache: true
       - name: Build distributions
@@ -37,6 +37,6 @@ jobs:
           name: dist
           path: dist/
       - name: Set up uv
-        uses: astral-sh/setup-uv@v3.2.4
+        uses: astral-sh/setup-uv@v7.6.0
       - name: Publish to PyPI
         run: uv publish --trusted-publishing always
