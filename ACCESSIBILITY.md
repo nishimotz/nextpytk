@@ -1,5 +1,7 @@
 # Accessibility Statement — nextpytk
 
+[日本語](./ACCESSIBILITY.ja.md)
+
 nextpytk is built around the idea that accessible Tkinter applications should be
 the default, not an afterthought. This statement describes what we aim for, what
 is supported today, what is known to be broken or unverified, and how to report
@@ -20,7 +22,7 @@ problems.
 | Component | Supported |
 | --- | --- |
 | Python | 3.13 and later |
-| Tk | 8.6 (standard in CPython builds) and 9.1+ |
+| Tk | 8.6 (standard in CPython builds), 9.0, and 9.1+ |
 | Widgets | `ttk` where available, `tk` otherwise |
 | OS | Windows, macOS, Linux (Tk-dependent) |
 
@@ -31,8 +33,9 @@ technology.
 
 ## Known barriers
 
-These are current limitations, not aspirations. Each one is tracked in
-[ROADMAP.md](./ROADMAP.md).
+These are current limitations, not aspirations. Where a fix is planned, the
+item is tracked in [ROADMAP.md](./ROADMAP.md); the rest are simply known and
+unresolved.
 
 - **Tk 9.1 accessibility attributes are not verified on real hardware.** The
   `tk accessible set_acc_*` path has not been confirmed with a real screen
@@ -50,8 +53,9 @@ These are current limitations, not aspirations. Each one is tracked in
   fully disabled, so programmatic updates keep working. Keyboard users cannot
   select items, but the widget is not announced as disabled by all screen
   readers.
-- **Focus order** follows widget registration and layout order. Custom layouts
-  are not audited for tab order.
+- **Focus order** follows widget registration and layout order. Wrap, flow, and
+  grid clusters rewire Tab to visual row-major order, but `side="bottom"`
+  sections and custom layouts are not audited for tab order.
 
 ## What contributors should do
 
@@ -76,5 +80,6 @@ Open an issue at <https://github.com/nishimotz/nextpytk/issues> and include:
   problem
 - What was announced versus what you expected
 
-Please use the `a11y` label. Reports without a reproduction are hard to act on;
-a short code snippet is enough.
+Please use the `documentation` label, or mention accessibility in the issue
+title, until a dedicated `a11y` label exists. Reports without a reproduction
+are hard to act on; a short code snippet is enough.
