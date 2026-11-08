@@ -26,9 +26,26 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install python-tk@${{ matrix.python }} || true
-          echo "/opt/homebrew/opt/tcl-tk/bin" >> "$GITHUB_PATH"
-          echo "TK_LIBRARY=/opt/homebrew/opt/tcl-tk/lib" >> "$GITHUB_ENV"
-          echo "TCL_LIBRARY=/opt/homebrew/opt/tcl-tk/lib" >> "$GITHUB_ENV"
+          # Homebrew's tcl-tk is versioned on disk (lib/tcl9.1/init.tcl), so
+          # exporting TCL_LIBRARY=<prefix>/lib makes Tk fail with "Cannot find
+          # a usable init.tcl". Probe first and only override when the
+          # interpreter needs it, pointing at the versioned directories.
+          probe_log="${RUNNER_TEMP}/tk-probe.log"
+          if uv run --python ${{ matrix.python }} python -c 'import tkinter; tkinter.Tk().destroy()' >"$probe_log" 2>&1; then
+            echo "Tk starts without TCL_LIBRARY/TK_LIBRARY; leaving them unset."
+            exit 0
+          fi
+          if ! grep -q "init.tcl" "$probe_log"; then
+            echo "Tk is unusable for Python ${{ matrix.python }} and not because of init.tcl:" >&2
+            cat "$probe_log" >&2
+            exit 1
+          fi
+          tk_lib="$(brew --prefix tcl-tk)/lib"
+          tcl_dir="$(dirname "$(find "$tk_lib" -maxdepth 2 -name init.tcl | sort -V | tail -1)")"
+          tk_dir="$(dirname "$(find "$tk_lib" -maxdepth 2 -name tk.tcl | sort -V | tail -1)")"
+          echo "Using TCL_LIBRARY=$tcl_dir TK_LIBRARY=$tk_dir"
+          echo "TCL_LIBRARY=$tcl_dir" >> "$GITHUB_ENV"
+          echo "TK_LIBRARY=$tk_dir" >> "$GITHUB_ENV"
       - name: Install system Tk and Xvfb (Ubuntu)
         if: runner.os == 'Linux'
         run: |
@@ -94,7 +111,9 @@ jobs:
           DISPLAY: ":99"
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb
+          # `uv run --python 3.14` resolves to /usr/bin/python3.14 on
+          # ubuntu-latest, which has no tkinter without python3-tk.
+          sudo apt-get install -y python3-tk xvfb
           cat > /tmp/readme_quick_start.py <<'EOF'
           from nextpytk import TkApp
 
